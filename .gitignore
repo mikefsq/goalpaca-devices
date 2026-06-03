@@ -1,0 +1,19 @@
+# macOS / editor junk
+.DS_Store
+
+# ZWO ASI SDK — proprietary, not redistributed (install the libs yourself)
+ASI_API_Release/
+*.dylib
+*.so
+*.a
+
+# built driver binaries (`make` emits ./bin/<name>; `go build .` emits <dir>/<dir>)
+/bin/
+/tenmicron/tenmicron
+/asiam5/asiam5
+/rst/rst
+/onstep/onstep
+/asiccd/asiccd
+/asieaf/asieaf
+/asicaa/asicaa
+/asiefw/asiefw
