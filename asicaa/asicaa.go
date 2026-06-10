@@ -1,4 +1,4 @@
-package main
+package driver
 
 import (
 	"context"
@@ -69,7 +69,7 @@ func NewASIRotator(index int, serial string) *ASIRotator {
 // Open starts the hardware-management goroutine and returns immediately, so the
 // Alpaca server comes up with or without a rotator attached.
 func (r *ASIRotator) Open(ctx context.Context) error {
-	go r.manageHardware(ctx)
+	go alpacadev.Supervise(ctx, r.ID, func() { r.manageHardware(ctx) })
 	return nil
 }
 

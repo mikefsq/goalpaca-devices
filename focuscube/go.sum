@@ -1,0 +1,6 @@
+github.com/mikefsq/goalpaca v0.1.0 h1:vdAyruJmOSz035fvubNFetPipwnV3RNMf+clZoBbhq0=
+github.com/mikefsq/goalpaca v0.1.0/go.mod h1:6hsQ08YUz367E1ER1HoykFTs2BV6Pp+w6J2SgMjasNI=
+go.bug.st/serial v1.7.1 h1:5aP8wYL0UjEYOVs3oPAGscjaSfRQLHtCvBFXNN/rwtc=
+go.bug.st/serial v1.7.1/go.mod h1:d0MmS16Qt9b1m06yoYRNUXhRRTJV5Qg2S5EKqQtnayQ=
+golang.org/x/sys v0.43.0 h1:Rlag2XtaFTxp19wS8MXlJwTvoh8ArU6ezoyFsMyCTNI=
+golang.org/x/sys v0.43.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=

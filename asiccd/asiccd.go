@@ -1,4 +1,4 @@
-package main
+package driver
 
 import (
 	"context"
@@ -79,7 +79,7 @@ func NewASICamera(index int, serial string) *ASICamera {
 // and re-acquires after an unplug — never exiting the process (systemd is only a
 // backstop). This satisfies "start the service before plugging in the camera".
 func (c *ASICamera) Open(ctx context.Context) error {
-	go c.manageHardware(ctx)
+	go alpacadev.Supervise(ctx, c.ID, func() { c.manageHardware(ctx) })
 	return nil
 }
 

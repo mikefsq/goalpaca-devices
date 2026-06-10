@@ -1,3 +1,5 @@
+// Command asiam5 is a standalone ASCOM Alpaca Telescope driver for ZWO AM-series
+// harmonic mounts (AM3/AM5/AM5N/AM7), built directly on the lx200/am5 library.
 package main
 
 import (
@@ -10,6 +12,7 @@ import (
 	"syscall"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	driver "github.com/mikefsq/asiam5-alpaca"
 )
 
 func main() {
@@ -29,7 +32,7 @@ func main() {
 	if conn == "" {
 		conn = *serial
 	}
-	tel := NewTelescope(*serial, *addr)
+	tel := driver.NewTelescope(*serial, *addr)
 	tel.ID = "zwoam5-" + conn
 	tel.DevName = "ZWO AM5"
 	tel.Desc = fmt.Sprintf("ZWO AM-series mount (%s)", conn)

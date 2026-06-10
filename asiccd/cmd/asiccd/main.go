@@ -1,4 +1,4 @@
-// Command asialpaca exposes a ZWO ASI camera as a standalone ASCOM Alpaca
+// Command asiccd exposes a ZWO ASI camera as a standalone ASCOM Alpaca
 // server, using the goalpaca/server (alpacadev) library and the goasi/ccd SDK
 // wrapper.
 //
@@ -18,6 +18,7 @@ import (
 	"syscall"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	driver "github.com/mikefsq/asiccd-alpaca"
 	goasi "github.com/mikefsq/goasi/ccd"
 )
 
@@ -37,12 +38,12 @@ func main() {
 	// camera is plugged in. The driver brings the Alpaca endpoint up and acquires
 	// the camera (by serial) whenever it appears.
 	if n := goasi.ASIGetNumOfConnectedCameras(); n > 0 {
-		log.Printf("asialpaca: %d ASI camera(s) currently connected", n)
+		log.Printf("asiccd: %d ASI camera(s) currently connected", n)
 	} else {
-		log.Printf("asialpaca: no ASI camera yet — waiting for one to be attached")
+		log.Printf("asiccd: no ASI camera yet — waiting for one to be attached")
 	}
 
-	cam := NewASICamera(*index, *serial)
+	cam := driver.NewASICamera(*index, *serial)
 
 	var disc alpacadev.DiscoveryConfig
 	switch strings.ToLower(*discoveryMode) {
@@ -53,27 +54,27 @@ func main() {
 	case "register":
 		disc = alpacadev.DiscoveryConfig{Mode: alpacadev.DiscoveryRegister, ServerAddr: *discoveryServer}
 	default:
-		log.Fatalf("asialpaca: invalid -discovery %q (want register|direct|off)", *discoveryMode)
+		log.Fatalf("asiccd: invalid -discovery %q (want register|direct|off)", *discoveryMode)
 	}
-	log.Printf("asialpaca: discovery mode = %s", strings.ToLower(*discoveryMode))
+	log.Printf("asiccd: discovery mode = %s", strings.ToLower(*discoveryMode))
 
 	srv := alpacadev.New(alpacadev.Config{
 		AlpacaPort:          *port,
 		Discovery:           disc,
-		ServerName:          "asialpaca",
+		ServerName:          "asiccd",
 		Manufacturer:        "mikefsq (ZWO ASI via goasi)",
 		ManufacturerVersion: "0.1.0",
 	})
 	if err := srv.Register(alpacadev.CameraType, 0, cam); err != nil {
-		log.Fatalf("asialpaca: register: %v", err)
+		log.Fatalf("asiccd: register: %v", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	log.Printf("asialpaca: serving Alpaca on :%d (Ctrl-C to stop)", *port)
+	log.Printf("asiccd: serving Alpaca on :%d (Ctrl-C to stop)", *port)
 	if err := srv.Run(ctx); err != nil {
-		log.Fatalf("asialpaca: %v", err)
+		log.Fatalf("asiccd: %v", err)
 	}
-	log.Printf("asialpaca: shut down")
+	log.Printf("asiccd: shut down")
 }

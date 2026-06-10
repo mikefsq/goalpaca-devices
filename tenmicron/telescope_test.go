@@ -1,0 +1,390 @@
+package driver
+
+import (
+	"encoding/json"
+	"math"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	alpacadev "github.com/mikefsq/goalpaca/server"
+	lx200 "github.com/mikefsq/lx200"
+	"github.com/mikefsq/lx200/tenmicron"
+)
+
+const txQ = "ClientID=1&ClientTransactionID=1"
+
+// statusIdle is a :Ginfo# reply: RA 12h, Dec +45°, pier West, az 180, alt 30,
+// Gstat 0 (tracking), slew 0.
+const statusIdle = "12.000000,45.000000,W,180.00000,30.00000,2459580.5,0,0#"
+
+// fakeTransport is a scripted in-memory lx200.Transport (the cross-module
+// internal/lx200test fake isn't importable here). Each written command queues its
+// mapped reply for the next reads.
+type fakeTransport struct {
+	mu      sync.Mutex
+	replies map[string]string
+	writes  []string
+	rbuf    []byte
+}
+
+func (f *fakeTransport) Write(p []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	cmd := string(p)
+	f.writes = append(f.writes, cmd)
+	if r, ok := f.replies[cmd]; ok {
+		f.rbuf = append(f.rbuf, r...)
+	}
+	return len(p), nil
+}
+
+func (f *fakeTransport) Read(p []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.rbuf) == 0 {
+		return 0, nil
+	}
+	n := copy(p, f.rbuf)
+	f.rbuf = f.rbuf[n:]
+	return n, nil
+}
+
+func (f *fakeTransport) Close() error { return nil }
+
+func (f *fakeTransport) wrote(cmd string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, w := range f.writes {
+		if w == cmd {
+			return true
+		}
+	}
+	return false
+}
+
+type resp struct {
+	Value        any
+	ErrorNumber  int
+	ErrorMessage string
+}
+
+// newStack wires a Telescope (over the fake transport) into a real Alpaca server
+// behind httptest, returning the device API base URL and the fake. The mount is
+// injected directly (in-package test), so manage()/Open are never started.
+func newStack(t *testing.T, replies map[string]string) (string, *fakeTransport) {
+	t.Helper()
+	f := &fakeTransport{replies: replies}
+	tel := NewTelescope("test")
+	tel.m = &tenmicron.Mount{Conn: lx200.New(f, time.Second)}
+
+	srv := alpacadev.New(alpacadev.Config{
+		Discovery:    alpacadev.DiscoveryConfig{Mode: alpacadev.DiscoveryOff},
+		ServerName:   "tenmicron-test",
+		Manufacturer: "test",
+	})
+	if err := srv.Register(alpacadev.TelescopeType, 0, tel); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(http.HandlerFunc(srv.ServeHTTP))
+	t.Cleanup(ts.Close)
+	return ts.URL + "/api/v1/telescope/0/", f
+}
+
+func decode(t *testing.T, r *http.Response) resp {
+	t.Helper()
+	defer r.Body.Close()
+	var out resp
+	if err := json.NewDecoder(r.Body).Decode(&out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return out
+}
+
+func get(t *testing.T, base, member string) resp {
+	t.Helper()
+	r, err := http.Get(base + member + "?" + txQ)
+	if err != nil {
+		t.Fatalf("GET %s: %v", member, err)
+	}
+	return decode(t, r)
+}
+
+func getQ(t *testing.T, base, member, extra string) resp {
+	t.Helper()
+	r, err := http.Get(base + member + "?" + extra + "&" + txQ)
+	if err != nil {
+		t.Fatalf("GET %s: %v", member, err)
+	}
+	return decode(t, r)
+}
+
+func put(t *testing.T, base, member, form string) resp {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodPut, base+member, strings.NewReader(form+"&"+txQ))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	r, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("PUT %s: %v", member, err)
+	}
+	return decode(t, r)
+}
+
+func TestCapabilitiesWired(t *testing.T) {
+	base, _ := newStack(t, nil)
+	for _, m := range []string{
+		"canslewaltaz", "canslewaltazasync", "cansyncaltaz",
+		"cansetguiderates", "cansetpark", "canfindhome",
+	} {
+		if r := get(t, base, m); r.ErrorNumber != 0 || r.Value != true {
+			t.Errorf("%s = %v (err %d), want true", m, r.Value, r.ErrorNumber)
+		}
+	}
+}
+
+func TestDoesRefraction(t *testing.T) {
+	base, f := newStack(t, map[string]string{":GREF#": "1#", ":SREF0#": "1"})
+	if r := get(t, base, "doesrefraction"); r.ErrorNumber != 0 || r.Value != true {
+		t.Errorf("doesrefraction = %v (err %d), want true", r.Value, r.ErrorNumber)
+	}
+	if r := put(t, base, "doesrefraction", "DoesRefraction=false"); r.ErrorNumber != 0 {
+		t.Errorf("set doesrefraction: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":SREF0#") {
+		t.Errorf("SetDoesRefraction did not send :SREF0#; writes=%v", f.writes)
+	}
+}
+
+func TestGuideRate(t *testing.T) {
+	base, f := newStack(t, map[string]string{":Ggui#": "7.50#"})
+	r := get(t, base, "guideraterightascension")
+	if r.ErrorNumber != 0 {
+		t.Fatalf("guiderate err %d", r.ErrorNumber)
+	}
+	if v, _ := r.Value.(float64); math.Abs(v-7.5/3600) > 1e-9 {
+		t.Errorf("guideRate = %v deg/s, want %v", v, 7.5/3600)
+	}
+	if r := put(t, base, "guideraterightascension", "GuideRateRightAscension=0.0020833333"); r.ErrorNumber != 0 {
+		t.Errorf("set guiderate: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":Rg07.5#") {
+		t.Errorf("SetGuideRate did not send :Rg07.5#; writes=%v", f.writes)
+	}
+}
+
+func TestSlewToAltAzAsync(t *testing.T) {
+	base, f := newStack(t, map[string]string{
+		":Sa+45*30:00#": "1", ":Sz123*30:00#": "1", ":MA#": "0",
+	})
+	if r := put(t, base, "slewtoaltazasync", "Azimuth=123.5&Altitude=45.5"); r.ErrorNumber != 0 {
+		t.Fatalf("slewtoaltazasync: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":MA#") {
+		t.Errorf("slew did not issue :MA#; writes=%v", f.writes)
+	}
+}
+
+func TestSyncToAltAz(t *testing.T) {
+	base, _ := newStack(t, map[string]string{
+		":Sa+45*30:00#": "1", ":Sz123*30:00#": "1", ":CM#": "AltAz#",
+	})
+	if r := put(t, base, "synctoaltaz", "Azimuth=123.5&Altitude=45.5"); r.ErrorNumber != 0 {
+		t.Errorf("synctoaltaz: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+}
+
+func TestDestinationSideOfPier(t *testing.T) {
+	base, _ := newStack(t, map[string]string{
+		":Sr12:00:00#": "1", ":Sd+45*00:00#": "1", ":GTsid#": "2#", // 2 => West
+	})
+	r := getQ(t, base, "destinationsideofpier", "RightAscension=12.0&Declination=45.0")
+	if r.ErrorNumber != 0 {
+		t.Fatalf("destinationsideofpier: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if v, _ := r.Value.(float64); int(v) != int(alpacadev.PierWest) {
+		t.Errorf("destinationsideofpier = %v, want West(%d)", r.Value, alpacadev.PierWest)
+	}
+}
+
+func TestSetPark(t *testing.T) {
+	base, f := newStack(t, map[string]string{":PyX#": "0#"})
+	if r := put(t, base, "setpark", ""); r.ErrorNumber != 0 {
+		t.Errorf("setpark: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":PyX#") {
+		t.Errorf("setpark did not send :PyX#; writes=%v", f.writes)
+	}
+}
+
+func TestIsPulseGuiding(t *testing.T) {
+	base, _ := newStack(t, nil) // :Mg…# is blind (no reply needed)
+	if r := put(t, base, "pulseguide", "Direction=0&Duration=600"); r.ErrorNumber != 0 {
+		t.Fatalf("pulseguide: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if r := get(t, base, "ispulseguiding"); r.ErrorNumber != 0 || r.Value != true {
+		t.Errorf("ispulseguiding = %v (err %d), want true within the pulse window", r.Value, r.ErrorNumber)
+	}
+}
+
+func TestSetSideOfPier(t *testing.T) {
+	// Currently East; requesting West must flip.
+	base, f := newStack(t, map[string]string{":pS#": "East#", ":FLIP#": "1"})
+	if get(t, base, "cansetpierside").Value != true {
+		t.Errorf("cansetpierside = false, want true")
+	}
+	if r := put(t, base, "sideofpier", "SideOfPier=1"); r.ErrorNumber != 0 { // 1 = West
+		t.Fatalf("setsideofpier(West): err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":FLIP#") {
+		t.Errorf("changing side did not issue :FLIP#; writes=%v", f.writes)
+	}
+
+	// Already East; requesting East must be a no-op (no flip).
+	base2, f2 := newStack(t, map[string]string{":pS#": "East#"})
+	if r := put(t, base2, "sideofpier", "SideOfPier=0"); r.ErrorNumber != 0 { // 0 = East
+		t.Fatalf("setsideofpier(East): err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if f2.wrote(":FLIP#") {
+		t.Errorf("same-side request should not flip; writes=%v", f2.writes)
+	}
+}
+
+func TestCustomRates(t *testing.T) {
+	base, f := newStack(t, map[string]string{
+		":RR+000.5000#": "1", // RA 1:1
+		":RD+000.0665#": "1", // 1.0 arcsec/s ÷ 15.0410681 ≈ 0.0665
+	})
+	for _, m := range []string{"cansetrightascensionrate", "cansetdeclinationrate"} {
+		if get(t, base, m).Value != true {
+			t.Errorf("%s = false, want true", m)
+		}
+	}
+	if r := put(t, base, "rightascensionrate", "RightAscensionRate=0.5"); r.ErrorNumber != 0 {
+		t.Fatalf("set RA rate: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":RR+000.5000#") {
+		t.Errorf("RA rate did not send :RR+000.5000#; writes=%v", f.writes)
+	}
+	if v, _ := get(t, base, "rightascensionrate").Value.(float64); v != 0.5 {
+		t.Errorf("rightascensionrate readback = %v, want 0.5", v)
+	}
+	if r := put(t, base, "declinationrate", "DeclinationRate=1.0"); r.ErrorNumber != 0 {
+		t.Fatalf("set Dec rate: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":RD+000.0665#") {
+		t.Errorf("Dec rate did not send :RD+000.0665#; writes=%v", f.writes)
+	}
+	if v, _ := get(t, base, "declinationrate").Value.(float64); v != 1.0 {
+		t.Errorf("declinationrate readback = %v, want 1.0", v)
+	}
+}
+
+func TestOptics(t *testing.T) {
+	f := &fakeTransport{}
+	tel := NewTelescope("test")
+	tel.m = &tenmicron.Mount{Conn: lx200.New(f, time.Second)}
+	tel.SetOptics(0.2, 0, 1.0) // 200mm diameter, area auto, 1m focal length
+
+	srv := alpacadev.New(alpacadev.Config{Discovery: alpacadev.DiscoveryConfig{Mode: alpacadev.DiscoveryOff}, ServerName: "t", Manufacturer: "t"})
+	if err := srv.Register(alpacadev.TelescopeType, 0, tel); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(http.HandlerFunc(srv.ServeHTTP))
+	t.Cleanup(ts.Close)
+	base := ts.URL + "/api/v1/telescope/0/"
+
+	if v, _ := get(t, base, "aperturediameter").Value.(float64); math.Abs(v-0.2) > 1e-9 {
+		t.Errorf("aperturediameter = %v, want 0.2", v)
+	}
+	if v, _ := get(t, base, "focallength").Value.(float64); math.Abs(v-1.0) > 1e-9 {
+		t.Errorf("focallength = %v, want 1.0", v)
+	}
+	wantArea := math.Pi * 0.1 * 0.1
+	if v, _ := get(t, base, "aperturearea").Value.(float64); math.Abs(v-wantArea) > 1e-9 {
+		t.Errorf("aperturearea = %v, want %v (computed from diameter)", v, wantArea)
+	}
+}
+
+func TestSetEnvironmentAction(t *testing.T) {
+	base, f := newStack(t, map[string]string{
+		":SRPRS1013.2#":             "1",
+		":SRTMP+020.5#":             "1",
+		":St+45*30:00#":             "1",
+		":Sg+122*30:00#":            "1", // East-positive -122.5 → 10Micron +122.5
+		":Sev+0100.0#":              "1",
+		":SUDT2026-06-02,15:04:05#": "1",
+	})
+	if sa, ok := get(t, base, "supportedactions").Value.([]any); !ok || len(sa) == 0 {
+		t.Errorf("supportedactions = %v, want non-empty", get(t, base, "supportedactions").Value)
+	}
+	body := `{"pressure_hpa":1013.2,"temperature_c":20.5,"latitude":45.5,"longitude":-122.5,"elevation_m":100,"time":"2026-06-02T15:04:05Z"}`
+	r := put(t, base, "action", "Action=setenvironment&Parameters="+url.QueryEscape(body))
+	if r.ErrorNumber != 0 {
+		t.Fatalf("setenvironment: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	for _, want := range []string{":SRPRS1013.2#", ":SRTMP+020.5#", ":St+45*30:00#", ":Sg+122*30:00#", ":Sev+0100.0#", ":SUDT2026-06-02,15:04:05#"} {
+		if !f.wrote(want) {
+			t.Errorf("setenvironment did not send %q; writes=%v", want, f.writes)
+		}
+	}
+}
+
+func TestSetEnvironmentPartial(t *testing.T) {
+	// Only pressure present → only :SRPRS sent; no site/time commands.
+	base, f := newStack(t, map[string]string{":SRPRS1000.0#": "1"})
+	r := put(t, base, "action", "Action=setenvironment&Parameters="+url.QueryEscape(`{"pressure_hpa":1000.0}`))
+	if r.ErrorNumber != 0 {
+		t.Fatalf("setenvironment(partial): err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":SRPRS1000.0#") {
+		t.Errorf("partial: did not send :SRPRS1000.0#; writes=%v", f.writes)
+	}
+	for _, unwanted := range f.writes {
+		if strings.HasPrefix(unwanted, ":St") || strings.HasPrefix(unwanted, ":Sg") || strings.HasPrefix(unwanted, ":SUDT") {
+			t.Errorf("partial update sent an unrequested command %q", unwanted)
+		}
+	}
+}
+
+func TestGranularRefractionActions(t *testing.T) {
+	base, f := newStack(t, map[string]string{":SRPRS0980.0#": "1", ":SRTMP-005.0#": "1"})
+	if r := put(t, base, "action", "Action=setrefractionpressure&Parameters=980.0"); r.ErrorNumber != 0 {
+		t.Errorf("setrefractionpressure: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":SRPRS0980.0#") {
+		t.Errorf("did not send :SRPRS0980.0#; writes=%v", f.writes)
+	}
+	if r := put(t, base, "action", "Action=setrefractiontemperature&Parameters=-5.0"); r.ErrorNumber != 0 {
+		t.Errorf("setrefractiontemperature: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":SRTMP-005.0#") {
+		t.Errorf("did not send :SRTMP-005.0#; writes=%v", f.writes)
+	}
+	// bad params → InvalidValue
+	if r := put(t, base, "action", "Action=setrefractionpressure&Parameters=abc"); r.ErrorNumber != 0x401 {
+		t.Errorf("bad pressure: err %d, want 0x401", r.ErrorNumber)
+	}
+}
+
+func TestCoreReadsThroughHTTP(t *testing.T) {
+	base, _ := newStack(t, map[string]string{":Ginfo#": statusIdle})
+	if v, _ := get(t, base, "rightascension").Value.(float64); math.Abs(v-12) > 1e-6 {
+		t.Errorf("rightascension = %v, want 12", v)
+	}
+	if v, _ := get(t, base, "declination").Value.(float64); math.Abs(v-45) > 1e-6 {
+		t.Errorf("declination = %v, want 45", v)
+	}
+	if get(t, base, "tracking").Value != true {
+		t.Errorf("tracking = false, want true")
+	}
+	if get(t, base, "slewing").Value != false {
+		t.Errorf("slewing = true, want false")
+	}
+	if v, _ := get(t, base, "sideofpier").Value.(float64); int(v) != int(alpacadev.PierWest) {
+		t.Errorf("sideofpier = %v, want West", v)
+	}
+}

@@ -1,3 +1,5 @@
+// Command onstep is a standalone ASCOM Alpaca Telescope driver for OnStep /
+// OnStepX controllers, built directly on the lx200/onstep library.
 package main
 
 import (
@@ -10,6 +12,7 @@ import (
 	"syscall"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	driver "github.com/mikefsq/onstep-alpaca"
 )
 
 func main() {
@@ -29,7 +32,7 @@ func main() {
 	if conn == "" {
 		conn = *serial
 	}
-	tel := NewTelescope(*serial, *addr)
+	tel := driver.NewTelescope(*serial, *addr)
 	tel.ID = "onstep-" + conn
 	tel.DevName = "OnStep"
 	tel.Desc = fmt.Sprintf("OnStep controller (%s)", conn)

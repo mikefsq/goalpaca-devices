@@ -1,9 +1,10 @@
 // Command rst is a standalone ASCOM Alpaca Telescope driver for Rainbow Astro
 // RST harmonic mounts (RST-135/300), built directly on the lx200/rst library.
-package main
+package driver
 
 import (
 	"context"
+	"log"
 	"math"
 	"sync"
 	"time"
@@ -60,7 +61,10 @@ func (t *Telescope) dial() (*rst.Mount, error) {
 
 // --- Hardware lifecycle + connection model ----------------------------------
 
-func (t *Telescope) Open(ctx context.Context) error { go t.manage(ctx); return nil }
+func (t *Telescope) Open(ctx context.Context) error {
+	go alpacadev.Supervise(ctx, t.ID, func() { t.manage(ctx) })
+	return nil
+}
 
 func (t *Telescope) Close(ctx context.Context) error {
 	t.mu.Lock()
@@ -79,21 +83,29 @@ func (t *Telescope) Connect(ctx context.Context) error {
 	return nil
 }
 
-func (t *Telescope) Connected() bool { t.mu.Lock(); defer t.mu.Unlock(); return t.m != nil }
+func (t *Telescope) Connected() bool                      { t.mu.Lock(); defer t.mu.Unlock(); return t.m != nil }
 func (t *Telescope) Disconnect(ctx context.Context) error { return nil }
 func (t *Telescope) Busy() bool                           { return t.Slewing() }
 
 func (t *Telescope) manage(ctx context.Context) {
+	var lastErr string
 	for ctx.Err() == nil {
 		t.mu.Lock()
 		present := t.m != nil
 		t.mu.Unlock()
 		if !present {
-			if m, err := t.dial(); err == nil {
+			m, err := t.dial()
+			if err == nil {
 				t.mu.Lock()
 				t.m = m
 				t.mu.Unlock()
+				log.Printf("rst: mount %s connected", t.ID)
+				lastErr = ""
 			} else {
+				if es := err.Error(); es != lastErr { // log each new failure once, not every retry
+					log.Printf("rst: mount %s connect failed: %v (retrying)", t.ID, err)
+					lastErr = es
+				}
 				sleepCtx(ctx, acquirePoll)
 			}
 			continue
@@ -102,10 +114,12 @@ func (t *Telescope) manage(ctx context.Context) {
 		m := t.m
 		t.mu.Unlock()
 		if _, err := m.RA(); err != nil {
+			log.Printf("rst: mount %s lost (%v); reconnecting", t.ID, err)
 			t.mu.Lock()
 			m.Close()
 			t.m = nil
 			t.mu.Unlock()
+			lastErr = ""
 			continue
 		}
 		sleepCtx(ctx, monitorPoll)
@@ -113,6 +127,37 @@ func (t *Telescope) manage(ctx context.Context) {
 }
 
 func (t *Telescope) mount() *rst.Mount { t.mu.Lock(); defer t.mu.Unlock(); return t.m }
+
+// --- ASCOM Command* passthrough -------------------------------------------------
+// CommandBlind/String/Bool send a raw LX200 command the typed API doesn't wrap
+// (e.g. an RST extended command), mapping to the core Blind/Get/Ack reply shapes.
+// lx200.Frame adds ':'…'#' framing unless raw. The server already gates these by
+// Connected()/Busy() (so they're rejected mid-slew); the nil-guard covers the
+// reconnect race.
+
+func (t *Telescope) CommandBlind(cmd string, raw bool) error {
+	m := t.mount()
+	if m == nil {
+		return alpacadev.ErrNotConnected
+	}
+	return m.Blind(lx200.Frame(cmd, raw))
+}
+
+func (t *Telescope) CommandString(cmd string, raw bool) (string, error) {
+	m := t.mount()
+	if m == nil {
+		return "", alpacadev.ErrNotConnected
+	}
+	return m.Get(lx200.Frame(cmd, raw))
+}
+
+func (t *Telescope) CommandBool(cmd string, raw bool) (bool, error) {
+	m := t.mount()
+	if m == nil {
+		return false, alpacadev.ErrNotConnected
+	}
+	return m.Ack(lx200.Frame(cmd, raw))
+}
 
 // --- Capabilities (RST: harmonic; park, find-home, pulse-guide, move-axis) ---
 
@@ -233,12 +278,16 @@ func (t *Telescope) SideOfPier() alpacadev.PierSide {
 }
 
 // Driver-remembered properties (the mount does not read these back).
-func (t *Telescope) TargetRightAscension() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.targetRA }
-func (t *Telescope) TargetDeclination() float64    { t.mu.Lock(); defer t.mu.Unlock(); return t.targetDec }
-func (t *Telescope) SiteLatitude() float64         { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLat }
-func (t *Telescope) SiteLongitude() float64        { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLon }
-func (t *Telescope) SiteElevation() float64        { t.mu.Lock(); defer t.mu.Unlock(); return t.siteEl }
-func (t *Telescope) SlewSettleTime() int           { t.mu.Lock(); defer t.mu.Unlock(); return t.slewSettleSec }
+func (t *Telescope) TargetRightAscension() float64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.targetRA
+}
+func (t *Telescope) TargetDeclination() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.targetDec }
+func (t *Telescope) SiteLatitude() float64      { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLat }
+func (t *Telescope) SiteLongitude() float64     { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLon }
+func (t *Telescope) SiteElevation() float64     { t.mu.Lock(); defer t.mu.Unlock(); return t.siteEl }
+func (t *Telescope) SlewSettleTime() int        { t.mu.Lock(); defer t.mu.Unlock(); return t.slewSettleSec }
 
 func (t *Telescope) TrackingRate() alpacadev.DriveRate {
 	t.mu.Lock()

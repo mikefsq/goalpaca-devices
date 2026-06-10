@@ -1,9 +1,10 @@
 // Command tenmicron is a standalone ASCOM Alpaca Telescope driver for 10Micron
 // GM-series mounts, built directly on the lx200/tenmicron protocol library.
-package main
+package driver
 
 import (
 	"context"
+	"log"
 	"math"
 	"sync"
 	"time"
@@ -23,9 +24,11 @@ const (
 // snapshot caches the last good value of each error-free getter, returned when
 // the mount is unreachable or a live read fails.
 type snapshot struct {
-	ra, dec, alt, az, lst     float64
-	pier                      alpacadev.PierSide
-	slewing, tracking, atPark bool
+	ra, dec, alt, az, lst             float64
+	guideRate                         float64 // deg/s (one rate, both axes)
+	pier                              alpacadev.PierSide
+	slewing, tracking, atPark, atHome bool
+	doesRefraction                    bool
 }
 
 // Telescope is the 10Micron Alpaca Telescope device. It owns the mount for the
@@ -42,8 +45,13 @@ type Telescope struct {
 
 	targetRA, targetDec      float64
 	siteLat, siteLon, siteEl float64
+	raRate, decRate          float64 // custom tracking-rate offsets (no mount read-back)
 	trackingRate             alpacadev.DriveRate
 	slewSettleSec            int
+	pulseUntil               time.Time // PulseGuide completion deadline (IsPulseGuiding)
+
+	// Optics — site/instrument profile, set via flags (the mount can't report them).
+	apertureDiameter, apertureArea, focalLength float64
 }
 
 // NewTelescope builds the driver for the 10Micron mount at addr (host:port).
@@ -55,7 +63,10 @@ func NewTelescope(addr string) *Telescope {
 
 // --- Hardware lifecycle + connection model ----------------------------------
 
-func (t *Telescope) Open(ctx context.Context) error { go t.manage(ctx); return nil }
+func (t *Telescope) Open(ctx context.Context) error {
+	go alpacadev.Supervise(ctx, t.ID, func() { t.manage(ctx) })
+	return nil
+}
 
 func (t *Telescope) Close(ctx context.Context) error {
 	t.mu.Lock()
@@ -74,22 +85,30 @@ func (t *Telescope) Connect(ctx context.Context) error {
 	return nil
 }
 
-func (t *Telescope) Connected() bool { t.mu.Lock(); defer t.mu.Unlock(); return t.m != nil }
+func (t *Telescope) Connected() bool                      { t.mu.Lock(); defer t.mu.Unlock(); return t.m != nil }
 func (t *Telescope) Disconnect(ctx context.Context) error { return nil }
 func (t *Telescope) Busy() bool                           { return t.Slewing() }
 
 // manage acquires, monitors and re-acquires the mount for the process lifetime.
 func (t *Telescope) manage(ctx context.Context) {
+	var lastErr string
 	for ctx.Err() == nil {
 		t.mu.Lock()
 		present := t.m != nil
 		t.mu.Unlock()
 		if !present {
-			if m, err := tenmicron.Connect(t.addr); err == nil {
+			m, err := tenmicron.Connect(t.addr)
+			if err == nil {
 				t.mu.Lock()
 				t.m = m
 				t.mu.Unlock()
+				log.Printf("tenmicron: mount %s connected", t.ID)
+				lastErr = ""
 			} else {
+				if es := err.Error(); es != lastErr { // log each new failure once, not every retry
+					log.Printf("tenmicron: mount %s connect failed: %v (retrying)", t.ID, err)
+					lastErr = es
+				}
 				sleepCtx(ctx, acquirePoll)
 			}
 			continue
@@ -98,10 +117,12 @@ func (t *Telescope) manage(ctx context.Context) {
 		m := t.m
 		t.mu.Unlock()
 		if _, err := m.RA(); err != nil { // a healthy mount answers RA
+			log.Printf("tenmicron: mount %s lost (%v); reconnecting", t.ID, err)
 			t.mu.Lock()
 			m.Close()
 			t.m = nil
 			t.mu.Unlock()
+			lastErr = ""
 			continue
 		}
 		sleepCtx(ctx, monitorPoll)
@@ -110,8 +131,41 @@ func (t *Telescope) manage(ctx context.Context) {
 
 func (t *Telescope) mount() *tenmicron.Mount { t.mu.Lock(); defer t.mu.Unlock(); return t.m }
 
-// --- Capabilities (10Micron: German-equatorial; park + pulse-guide + move-axis;
-// it has no find-home command) --------------------------------------------------
+// --- ASCOM Command* passthrough -------------------------------------------------
+// CommandBlind/String/Bool send a raw LX200 command the typed API doesn't wrap
+// (e.g. a 10Micron extended command), mapping to the core Blind/Get/Ack reply
+// shapes. lx200.Frame adds ':'…'#' framing unless raw. The server already gates
+// these by Connected()/Busy() (so they're rejected mid-slew); the nil-guard covers
+// the reconnect race.
+
+func (t *Telescope) CommandBlind(cmd string, raw bool) error {
+	m := t.mount()
+	if m == nil {
+		return alpacadev.ErrNotConnected
+	}
+	return m.Blind(lx200.Frame(cmd, raw))
+}
+
+func (t *Telescope) CommandString(cmd string, raw bool) (string, error) {
+	m := t.mount()
+	if m == nil {
+		return "", alpacadev.ErrNotConnected
+	}
+	return m.Get(lx200.Frame(cmd, raw))
+}
+
+func (t *Telescope) CommandBool(cmd string, raw bool) (bool, error) {
+	m := t.mount()
+	if m == nil {
+		return false, alpacadev.ErrNotConnected
+	}
+	return m.Ack(lx200.Frame(cmd, raw))
+}
+
+// --- Capabilities (10Micron: German-equatorial; park + pulse-guide + move-axis +
+// find-home) ---------------------------------------------------------------------
+// Note: :hF#/:h?# home commands work only on mounts with homing sensors
+// (GM4000QCI / AZ2000QCI); on a GM1000HPS FindHome is a no-op.
 
 func (t *Telescope) CanSlew() bool        { return true }
 func (t *Telescope) CanSlewAsync() bool   { return true }
@@ -119,6 +173,7 @@ func (t *Telescope) CanSync() bool        { return true }
 func (t *Telescope) CanSetTracking() bool { return true }
 func (t *Telescope) CanPark() bool        { return true }
 func (t *Telescope) CanUnpark() bool      { return true }
+func (t *Telescope) CanFindHome() bool    { return true }
 func (t *Telescope) CanPulseGuide() bool  { return true }
 func (t *Telescope) CanMoveAxis(axis alpacadev.TelescopeAxis) bool {
 	return axis == alpacadev.AxisPrimary || axis == alpacadev.AxisSecondary
@@ -198,6 +253,23 @@ func (t *Telescope) AtPark() bool {
 	return t.getB(&t.snap.atPark)
 }
 
+func (t *Telescope) AtHome() bool {
+	if m := t.mount(); m != nil {
+		if v, err := m.AtHome(); err == nil {
+			return t.setB(&t.snap.atHome, v)
+		}
+	}
+	return t.getB(&t.snap.atHome)
+}
+
+func (t *Telescope) FindHome() error {
+	m := t.mount()
+	if m == nil {
+		return alpacadev.ErrNotConnected
+	}
+	return m.FindHome()
+}
+
 func (t *Telescope) SideOfPier() alpacadev.PierSide {
 	if m := t.mount(); m != nil {
 		if ps, err := m.PierSide(); err == nil {
@@ -213,12 +285,16 @@ func (t *Telescope) SideOfPier() alpacadev.PierSide {
 }
 
 // Driver-remembered properties (the mount does not read these back).
-func (t *Telescope) TargetRightAscension() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.targetRA }
-func (t *Telescope) TargetDeclination() float64    { t.mu.Lock(); defer t.mu.Unlock(); return t.targetDec }
-func (t *Telescope) SiteLatitude() float64         { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLat }
-func (t *Telescope) SiteLongitude() float64        { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLon }
-func (t *Telescope) SiteElevation() float64        { t.mu.Lock(); defer t.mu.Unlock(); return t.siteEl }
-func (t *Telescope) SlewSettleTime() int           { t.mu.Lock(); defer t.mu.Unlock(); return t.slewSettleSec }
+func (t *Telescope) TargetRightAscension() float64 {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.targetRA
+}
+func (t *Telescope) TargetDeclination() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.targetDec }
+func (t *Telescope) SiteLatitude() float64      { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLat }
+func (t *Telescope) SiteLongitude() float64     { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLon }
+func (t *Telescope) SiteElevation() float64     { t.mu.Lock(); defer t.mu.Unlock(); return t.siteEl }
+func (t *Telescope) SlewSettleTime() int        { t.mu.Lock(); defer t.mu.Unlock(); return t.slewSettleSec }
 
 func (t *Telescope) TrackingRate() alpacadev.DriveRate {
 	t.mu.Lock()
@@ -473,7 +549,15 @@ func (t *Telescope) PulseGuide(dir alpacadev.GuideDirection, ms int) error {
 	if !ok {
 		return alpacadev.ErrInvalidValue
 	}
-	return m.PulseGuide(d, ms)
+	if err := m.PulseGuide(d, ms); err != nil {
+		return err
+	}
+	// :Mg…# returns immediately; the mount guides autonomously for ms, so record
+	// the window for IsPulseGuiding.
+	t.mu.Lock()
+	t.pulseUntil = time.Now().Add(time.Duration(ms) * time.Millisecond)
+	t.mu.Unlock()
+	return nil
 }
 
 func (t *Telescope) AxisRates(axis alpacadev.TelescopeAxis) []alpacadev.AxisRate {

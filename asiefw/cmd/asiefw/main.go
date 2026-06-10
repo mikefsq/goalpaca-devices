@@ -1,12 +1,11 @@
 // Command asiefw exposes a ZWO EFW filter wheel as a standalone ASCOM Alpaca
-// server, using the goalpaca/server (alpacadev) library and the goasi/efw SDK
-// wrapper.
+// server, using the goalpaca/server (alpacadev) library and the goasi/efw
+// pure-Go HID driver — no ZWO SDK runtime dependency.
 //
-// The ZWO EFWFilter shared library is NOT bundled — install it from the ZWO SDK
-// and point the linker/loader at it (pick the arch matching your build):
+// Builds pure-Go on Linux/Windows (CGO_ENABLED=0); macOS uses IOKit (cgo, on by
+// default). On Linux, grant hidraw access with a udev rule:
 //
-//	CGO_ENABLED=1 CGO_LDFLAGS="-L/path/to/sdk/lib" go build ./...
-//	LD_LIBRARY_PATH=/path/to/sdk/lib ./asiefw     # (DYLD_LIBRARY_PATH on macOS)
+//	KERNEL=="hidraw*", ATTRS{idVendor}=="03c3", MODE="0660", TAG+="uaccess"
 package main
 
 import (
@@ -18,6 +17,7 @@ import (
 	"syscall"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	driver "github.com/mikefsq/asiefw-alpaca"
 	"github.com/mikefsq/goasi/efw"
 )
 
@@ -26,6 +26,8 @@ func main() {
 	index := flag.Int("wheel", 0, "EFW filter wheel index (used only when -serial is empty)")
 	serial := flag.String("serial", "",
 		"bind the wheel with this serial (hex); recommended for multi-device and start-before-plug")
+	unidirectional := flag.Bool("unidirectional", false,
+		"unidirectional moves (always same rotation direction) for repeatable filter seating; default bidirectional (shortest path)")
 	discoveryMode := flag.String("discovery", "direct",
 		"discovery mode: direct (self-answer on 32227, no proxy needed) | register (heartbeat to discovery_proxy) | off")
 	discoveryServer := flag.String("discovery-server", "localhost:32227",
@@ -36,13 +38,13 @@ func main() {
 	// Do NOT require a wheel at startup: the service may be started before the
 	// device is plugged in. The driver brings the Alpaca endpoint up and acquires
 	// the wheel (by serial) whenever it appears.
-	if n := efw.GetNum(); n > 0 {
-		log.Printf("asiefw: %d EFW filter wheel(s) currently connected", n)
+	if devs, err := efw.Enumerate(); err == nil && len(devs) > 0 {
+		log.Printf("asiefw: %d EFW filter wheel(s) currently connected", len(devs))
 	} else {
 		log.Printf("asiefw: no EFW filter wheel yet — waiting for one to be attached")
 	}
 
-	wheel := NewASIFilterWheel(*index, *serial)
+	wheel := driver.NewASIFilterWheel(*index, *serial, *unidirectional)
 
 	var disc alpacadev.DiscoveryConfig
 	switch strings.ToLower(*discoveryMode) {

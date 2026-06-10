@@ -1,12 +1,10 @@
 // Command asieaf exposes a ZWO EAF focuser as a standalone ASCOM Alpaca server,
-// using the goalpaca/server (alpacadev) library and the goasi/eaf SDK wrapper.
+// using the goalpaca/server (alpacadev) library and the pure-Go goasi/eaf driver.
 //
-// The ZWO EAFFocuser shared library is NOT bundled — install it from the ZWO SDK
-// and point the linker/loader at it (pick the arch matching your build). On Linux
-// the SDK also needs libsdbus-c++.so.2 and libWrapperSdbus.so from the same dir:
+// Builds pure-Go on Linux/Windows (CGO_ENABLED=0); macOS uses IOKit (cgo, on by
+// default). On Linux, grant hidraw access with a udev rule:
 //
-//	CGO_ENABLED=1 CGO_LDFLAGS="-L/path/to/sdk/lib" go build ./...
-//	LD_LIBRARY_PATH=/path/to/sdk/lib ./asieaf     # (DYLD_LIBRARY_PATH on macOS)
+//	KERNEL=="hidraw*", ATTRS{idVendor}=="03c3", MODE="0660", TAG+="uaccess"
 package main
 
 import (
@@ -18,14 +16,15 @@ import (
 	"syscall"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	driver "github.com/mikefsq/asieaf-alpaca"
 	"github.com/mikefsq/goasi/eaf"
 )
 
 func main() {
 	port := flag.Int("port", 11112, "Alpaca HTTP port")
-	index := flag.Int("focuser", 0, "EAF focuser index (used only when -serial is empty)")
+	index := flag.Int("focuser", 0, "EAF focuser enumeration index")
 	serial := flag.String("serial", "",
-		"bind the focuser with this serial (hex); recommended for multi-device and start-before-plug")
+		"(currently ignored — serial binding awaits an eaf.SerialNumber decode; selection is by -focuser index)")
 	discoveryMode := flag.String("discovery", "direct",
 		"discovery mode: direct (self-answer on 32227, no proxy needed) | register (heartbeat to discovery_proxy) | off")
 	discoveryServer := flag.String("discovery-server", "localhost:32227",
@@ -35,14 +34,14 @@ func main() {
 
 	// Do NOT require a focuser at startup: the service may be started before the
 	// device is plugged in. The driver brings the Alpaca endpoint up and acquires
-	// the focuser (by serial) whenever it appears.
-	if n := eaf.GetNum(); n > 0 {
-		log.Printf("asieaf: %d EAF focuser(s) currently connected", n)
+	// the focuser by index whenever it appears.
+	if devs, err := eaf.Enumerate(); err == nil && len(devs) > 0 {
+		log.Printf("asieaf: %d EAF focuser(s) currently connected", len(devs))
 	} else {
 		log.Printf("asieaf: no EAF focuser yet — waiting for one to be attached")
 	}
 
-	foc := NewASIFocuser(*index, *serial)
+	foc := driver.NewASIFocuser(*index, *serial)
 
 	var disc alpacadev.DiscoveryConfig
 	switch strings.ToLower(*discoveryMode) {

@@ -1,3 +1,5 @@
+// Command rst is a standalone ASCOM Alpaca Telescope driver for Rainbow Astro
+// RST harmonic mounts (RST-135/300), built directly on the lx200/rst library.
 package main
 
 import (
@@ -10,6 +12,7 @@ import (
 	"syscall"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	driver "github.com/mikefsq/rst-alpaca"
 )
 
 func main() {
@@ -24,7 +27,7 @@ func main() {
 	if id == "" {
 		id = "auto"
 	}
-	tel := NewTelescope(*serial)
+	tel := driver.NewTelescope(*serial)
 	tel.ID = "rst-" + id
 	tel.DevName = "Rainbow Astro RST"
 	tel.Desc = fmt.Sprintf("Rainbow Astro RST mount (%s)", id)

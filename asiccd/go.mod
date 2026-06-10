@@ -1,4 +1,4 @@
-module github.com/mikefsq/asiccd
+module github.com/mikefsq/asiccd-alpaca
 
 go 1.21
 
@@ -8,3 +8,5 @@ require (
 )
 
 require github.com/astrogo/fitsio v0.2.1 // indirect
+
+replace github.com/mikefsq/goalpaca => ../../goalpaca

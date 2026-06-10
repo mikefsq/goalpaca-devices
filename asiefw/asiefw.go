@@ -1,4 +1,4 @@
-package main
+package driver
 
 import (
 	"context"
@@ -25,24 +25,29 @@ var _ alpacadev.FilterWheel = (*ASIFilterWheel)(nil)
 type ASIFilterWheel struct {
 	alpacadev.BaseFilterWheel
 
-	index      int
-	wantSerial string // if set, bind only the wheel with this serial (hex)
+	index          int
+	wantSerial     string // if set, bind only the wheel with this serial (hex)
+	unidirectional bool   // move mode, re-applied on every (re)acquire
 
-	mu        sync.Mutex
-	id        int  // EFW device ID (valid only while hwPresent)
-	hwPresent bool // wheel physically attached and SDK handle open
+	mu  sync.Mutex
+	dev *efw.EFW // open handle; nil when no wheel is attached
 
 	slots   int      // number of filter slots, cached at acquire
 	names   []string // per-slot names (defaults; client-presented)
 	offsets []int    // per-slot focus offsets (default zero)
+
+	// openDev opens the target wheel; set once at construction. Defaults to
+	// openConfigured (serial/index). Tests override it to inject a
+	// fake-transport-backed device and exercise the full stack without hardware.
+	openDev func() (*efw.EFW, error)
 }
 
 // NewASIFilterWheel creates the driver for a wheel selected by serial (preferred,
 // stable) or, if serial is "", by enumeration index. The UniqueID is known up
 // front from the serial, so the device is registered with a stable identity even
 // before the wheel is plugged in.
-func NewASIFilterWheel(index int, serial string) *ASIFilterWheel {
-	w := &ASIFilterWheel{index: index, wantSerial: strings.ToLower(serial)}
+func NewASIFilterWheel(index int, serial string, unidirectional bool) *ASIFilterWheel {
+	w := &ASIFilterWheel{index: index, wantSerial: strings.ToLower(serial), unidirectional: unidirectional}
 	w.Version = "0.1.0"
 	w.Info = "asiefw — ZWO EFW Alpaca driver over goasi"
 	w.IfaceVer = alpacadev.InterfaceVersionFilterWheel // IFilterWheelV3 (Platform 7)
@@ -53,6 +58,7 @@ func NewASIFilterWheel(index int, serial string) *ASIFilterWheel {
 		w.ID = fmt.Sprintf("EFW-fw%d", index) // provisional; adopts serial on first open
 		w.DevName = fmt.Sprintf("ASI EFW %d", index)
 	}
+	w.openDev = w.openConfigured
 	return w
 }
 
@@ -61,17 +67,17 @@ func NewASIFilterWheel(index int, serial string) *ASIFilterWheel {
 // Open starts the hardware-management goroutine and returns immediately, so the
 // Alpaca server comes up with or without a wheel attached.
 func (w *ASIFilterWheel) Open(ctx context.Context) error {
-	go w.manageHardware(ctx)
+	go alpacadev.Supervise(ctx, w.ID, func() { w.manageHardware(ctx) })
 	return nil
 }
 
-// Close releases the SDK on graceful shutdown only.
+// Close releases the device on graceful shutdown only.
 func (w *ASIFilterWheel) Close(ctx context.Context) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.hwPresent {
-		efw.Close(w.id)
-		w.hwPresent = false
+	if w.dev != nil {
+		w.dev.Close()
+		w.dev = nil
 	}
 	return nil
 }
@@ -87,11 +93,11 @@ func (w *ASIFilterWheel) Connect(ctx context.Context) error {
 }
 
 // Connected reports hardware presence: the device is "connected" exactly when the
-// wheel is attached and its SDK handle is open.
+// wheel is attached and its handle is open.
 func (w *ASIFilterWheel) Connected() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.hwPresent
+	return w.dev != nil
 }
 
 // Disconnect is a logical no-op: the driver owns the hardware for the life of the
@@ -109,7 +115,7 @@ func (w *ASIFilterWheel) Busy() bool { return w.Position() < 0 }
 func (w *ASIFilterWheel) manageHardware(ctx context.Context) {
 	for ctx.Err() == nil {
 		w.mu.Lock()
-		present := w.hwPresent
+		present := w.dev != nil
 		w.mu.Unlock()
 
 		if !present {
@@ -123,13 +129,13 @@ func (w *ASIFilterWheel) manageHardware(ctx context.Context) {
 
 		// Monitor: a healthy wheel reports its position without error.
 		w.mu.Lock()
-		_, err := efw.GetPosition(w.id)
+		_, err := w.dev.Position()
 		w.mu.Unlock()
 		if err != nil {
 			log.Printf("asiefw: filter wheel %s lost (%v); re-acquiring", w.ID, err)
 			w.mu.Lock()
-			efw.Close(w.id)
-			w.hwPresent = false // Connected() follows this; gate returns NotConnected
+			w.dev.Close()
+			w.dev = nil // Connected() follows this; gate returns NotConnected
 			w.mu.Unlock()
 			continue
 		}
@@ -137,66 +143,75 @@ func (w *ASIFilterWheel) manageHardware(ctx context.Context) {
 	}
 }
 
-// tryAcquire scans connected wheels for the target (by serial, else the
-// configured index), opens it, and caches its slot layout. Returns true once the
-// wheel is open and ready.
+// tryAcquire opens the target wheel — by factory serial (preferred, stable) or,
+// if no serial was configured, by enumeration index — and caches its slot layout.
+// Returns true once the wheel is open and ready.
 func (w *ASIFilterWheel) tryAcquire() bool {
-	n := efw.GetNum()
-	for i := 0; i < n; i++ {
-		id, err := efw.GetID(i)
-		if err != nil {
-			continue
-		}
-		if w.wantSerial == "" && i != w.index {
-			continue
-		}
-		if err := efw.Open(id); err != nil {
-			continue
-		}
-		sn, _ := efw.GetSerialNumber(id)
-		if w.wantSerial != "" && !strings.EqualFold(sn, w.wantSerial) {
-			efw.Close(id)
-			continue
-		}
-		w.configureOpened(id, sn)
-		return true
+	dev, err := w.openDev()
+	if err != nil {
+		return false
 	}
-	return false
+	w.configureOpened(dev)
+	return true
+}
+
+// openConfigured opens the target wheel by factory serial (preferred, stable) or,
+// if no serial was configured, by enumeration index. It is the default openDev.
+func (w *ASIFilterWheel) openConfigured() (*efw.EFW, error) {
+	if w.wantSerial != "" {
+		return efw.OpenBySerial(w.wantSerial)
+	}
+	return w.openByIndex()
+}
+
+// openByIndex opens the wheel at the configured enumeration index (fallback when
+// no serial is pinned). Index order is not stable across replug — prefer serial.
+func (w *ASIFilterWheel) openByIndex() (*efw.EFW, error) {
+	devs, err := efw.Enumerate()
+	if err != nil {
+		return nil, err
+	}
+	if w.index < 0 || w.index >= len(devs) {
+		return nil, fmt.Errorf("no EFW at index %d (%d attached)", w.index, len(devs))
+	}
+	return efw.OpenAt(devs[w.index].LocationID)
 }
 
 // configureOpened caches a freshly opened wheel's slot layout and publishes it as
-// the live handle. SlotNum can be 0 immediately after connection while the wheel
-// detects its slot count, so it is read until known (bounded).
-func (w *ASIFilterWheel) configureOpened(id int, serialHex string) {
-	var info efw.Info
+// the live handle. The slot count can be 0 immediately after connection while the
+// wheel detects it, so it is read until known (bounded).
+func (w *ASIFilterWheel) configureOpened(dev *efw.EFW) {
+	dev.SetUnidirectional(w.unidirectional) // host-side; re-applied each acquire
+	slots := 0
 	for tries := 0; tries < 50; tries++ {
-		info, _ = efw.GetProperty(id)
-		if info.SlotNum > 0 {
+		if s := dev.Slots(); s > 0 {
+			slots = s
 			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	names := make([]string, info.SlotNum)
-	offsets := make([]int, info.SlotNum)
+	names := make([]string, slots)
+	offsets := make([]int, slots)
 	for i := range names {
 		names[i] = fmt.Sprintf("Filter %d", i+1)
 	}
+	model, _ := dev.Model()
+	serial, _ := dev.SerialZWO()
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.id = id
-	w.slots = info.SlotNum
+	w.dev = dev
+	w.slots = slots
 	w.names = names
 	w.offsets = offsets
-	if info.Name != "" {
-		w.DevName = info.Name
+	if model != "" {
+		w.DevName = model
 	}
-	w.Desc = fmt.Sprintf("ZWO %s (%d slots)", info.Name, info.SlotNum)
-	if w.wantSerial == "" && strings.Trim(serialHex, "0") != "" {
-		w.ID = "EFW-" + serialHex // adopt the real serial when not pinned by flag
+	w.Desc = fmt.Sprintf("ZWO %s (%d slots)", model, slots)
+	if w.wantSerial == "" && serial != "" {
+		w.ID = "EFW-" + serial // adopt the real serial when not pinned by flag
 	}
-	w.hwPresent = true
 }
 
 // --- FilterWheel members ---
@@ -206,14 +221,14 @@ func (w *ASIFilterWheel) configureOpened(id int, serialHex string) {
 func (w *ASIFilterWheel) Position() int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if !w.hwPresent {
+	if w.dev == nil {
 		return -1
 	}
-	pos, err := efw.GetPosition(w.id)
+	pos, err := w.dev.Position()
 	if err != nil {
 		return -1
 	}
-	return pos // SDK already reports -1 while moving
+	return pos // already reports -1 while moving
 }
 
 // SetPosition initiates a move to the given slot (0-based). It returns once the
@@ -221,13 +236,13 @@ func (w *ASIFilterWheel) Position() int {
 func (w *ASIFilterWheel) SetPosition(slot int) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if !w.hwPresent {
+	if w.dev == nil {
 		return alpacadev.ErrNotConnected
 	}
 	if slot < 0 || slot >= w.slots {
 		return alpacadev.ErrInvalidValue
 	}
-	return efw.SetPosition(w.id, slot)
+	return w.dev.SetPosition(slot)
 }
 
 func (w *ASIFilterWheel) Names() []string {

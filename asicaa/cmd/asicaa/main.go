@@ -18,6 +18,7 @@ import (
 	"syscall"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	driver "github.com/mikefsq/asicaa-alpaca"
 	"github.com/mikefsq/goasi/caa"
 )
 
@@ -42,7 +43,7 @@ func main() {
 		log.Printf("asicaa: no CAA rotator yet — waiting for one to be attached")
 	}
 
-	rot := NewASIRotator(*index, *serial)
+	rot := driver.NewASIRotator(*index, *serial)
 
 	var disc alpacadev.DiscoveryConfig
 	switch strings.ToLower(*discoveryMode) {

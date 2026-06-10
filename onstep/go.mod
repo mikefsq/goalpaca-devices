@@ -1,4 +1,4 @@
-module github.com/mikefsq/onstep
+module github.com/mikefsq/onstep-alpaca
 
 go 1.25.0
 
@@ -12,3 +12,7 @@ require (
 	go.bug.st/serial v1.6.1 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 )
+
+replace github.com/mikefsq/lx200 => ../../lx200
+
+replace github.com/mikefsq/goalpaca => ../../goalpaca
