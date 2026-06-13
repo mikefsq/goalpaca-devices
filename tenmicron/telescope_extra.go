@@ -108,26 +108,20 @@ func (t *Telescope) SetDeclinationRate(arcsecPerSec float64) error {
 // The mount cannot report optics; these are configured at startup so ASCOM client
 // profiles (NINA, SGP, …) and downstream software can read consistent values.
 
-func (t *Telescope) ApertureDiameter() float64 {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.apertureDiameter
-}
-func (t *Telescope) ApertureArea() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.apertureArea }
-func (t *Telescope) FocalLength() float64  { t.mu.Lock(); defer t.mu.Unlock(); return t.focalLength }
+func (t *Telescope) ApertureDiameter() float64 { ap, _, _, _, _ := t.opticsStore().Optics(); return ap }
+func (t *Telescope) ApertureArea() float64     { _, area, _, _, _ := t.opticsStore().Optics(); return area }
+func (t *Telescope) FocalLength() float64      { _, _, fl, _, _ := t.opticsStore().Optics(); return fl }
 
 // SetOptics configures the instrument-profile optics (metres / m²). When
 // areaSqMeters is zero it defaults to the circular aperture area from the diameter.
+// The guide scope is set to the main scope (OAG default); a separate guide scope is
+// configured via the setoptics Action's guider_* fields.
 func (t *Telescope) SetOptics(diameterMeters, areaSqMeters, focalLengthMeters float64) {
 	if areaSqMeters == 0 && diameterMeters > 0 {
 		r := diameterMeters / 2
 		areaSqMeters = math.Pi * r * r
 	}
-	t.mu.Lock()
-	t.apertureDiameter = diameterMeters
-	t.apertureArea = areaSqMeters
-	t.focalLength = focalLengthMeters
-	t.mu.Unlock()
+	t.opticsStore().SetOptics(diameterMeters, areaSqMeters, focalLengthMeters, diameterMeters, focalLengthMeters)
 }
 
 // --- Alt/Az goto + sync (ASCOM order is azimuth, altitude) ------------------

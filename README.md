@@ -45,6 +45,7 @@ run one or the other (they share the default port).
 | Dir | Wheel | Backend | Port |
 |---|---|---|---|
 | `oasisfw` | Astroasis Oasis | **pure Go**, USB-HID ([`oasis-astro`](https://github.com/mikefsq/oasis-astro)) | 11123 |
+| `poaefw` | PlayerOne EFW | **pure Go**, USB-HID | 11124 |
 | `asiefw` | ZWO EFW | cgo, ZWO **EFW** SDK (via `goasi`) | 11113 |
 
 ## Rotators
@@ -53,26 +54,50 @@ run one or the other (they share the default port).
 |---|---|---|---|
 | `asicaa` | ZWO CAA (Camera Angle Adjuster) | cgo, ZWO **CAA** SDK (via `goasi`) | 11114 |
 
-## Build & run
+## The fleet — one process, one config
 
-Each driver is its own module — build any one in place:
+Rather than launch each driver by hand, **`astrofleet`** (in [`fleet/`](fleet/README.md))
+runs every enabled device in a single process from one JSON config — each on its own
+Alpaca port, behind a single UDP-32227 discovery responder, with per-device acquire/
+reconnect so it survives an empty bus and unplug/replug.
+
+It also serves two **optional native front-ends** over the same device objects (no
+`indiserver`, no translation shims — they are siblings of the Alpaca server, sharing
+the one source-of-truth device):
+
+- **INDI** (`"indi": { "enable": true, "port": 7624 }`) — one multiplexed server for
+  PHD2 / KStars-Ekos; a mount opts in with `"indi": true`.
+- **LX200** (`"lx200": { "enable": true, "basePort": 4030 }`) — a Meade-LX200 TCP
+  server per mount (one port each, assigned from `basePort`) for Stellarium / SkySafari.
+
+For client development with **no hardware**, the fleet has `sim-*` drivers (one per
+ASCOM type); `config/fleet.sim.json` is a ready-made full simulated fleet:
 
 ```sh
-cd astrocam  && CGO_ENABLED=0 go build ./cmd/astrocam   # pure-Go (cgo only for the macOS USB backend)
-cd tenmicron && go build .                               # pure-Go telescope
-cd asiccd    && CGO_ENABLED=1 go build .                 # ZWO SDK device (needs the ZWO lib)
-./tenmicron -addr 10.0.1.51:3492                         # then run it
+cd fleet && go run . -config config/fleet.sim.json
 ```
 
-The pure-Go drivers (telescopes, `astrocam`, `oasisfoc`/`oasisfw`, `focuslynx`,
-`focuscube`) need **no vendor SDK**; on Linux and Windows they build with
-`CGO_ENABLED=0` (the USB-HID and `astrocam` USB backends use cgo only on macOS). The
-`goasi`-based ZWO drivers (`asiccd`, `asieaf`, `asiefw`, `asicaa`) are cgo and require
-the ZWO ASI SDK runtime — see each driver's `README.md` and the `goasi` README.
+See [`fleet/README.md`](fleet/README.md) for the full config reference.
 
-> Note: the `Makefile` currently builds only the `goasi`/telescope subset
-> (`tenmicron asiam5 rst onstep asiccd asieaf asicaa asiefw`) into `./bin`; the pure-Go
-> drivers build standalone with `go build` as above.
+## Build
+
+From this directory the `Makefile` builds into `./bin`:
+
+```sh
+make                # every pure-Go driver + astrofleet
+make tenmicron      # one driver
+make astrofleet     # just the aggregator
+make sdk            # the cgo ZWO-SDK drivers (asiccd, asieaf, asiefw, asicaa) — needs the ZWO lib
+make sim            # run all simulated Alpaca devices (no hardware)
+```
+
+Or build any module in place: `cd tenmicron && go build .`, then e.g.
+`./tenmicron -addr 10.0.1.51:3492`. The pure-Go drivers (telescopes, `astrocam`,
+`oasisfoc`/`oasisfw`/`poaefw`, `focuslynx`, `focuscube`) need **no vendor SDK**; on
+Linux and Windows they build with `CGO_ENABLED=0` (the USB-HID and `astrocam` USB
+backends use cgo only on macOS). The `goasi`-based ZWO drivers (`asiccd`, `asieaf`,
+`asiefw`, `asicaa`) are cgo and require the ZWO ASI SDK runtime — see each driver's
+`README.md` and the `goasi` README.
 
 See each driver's `README.md` for its flags and behavior.
 

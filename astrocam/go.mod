@@ -1,4 +1,4 @@
-module github.com/mikefsq/asicam-alpaca
+module github.com/mikefsq/astrocam-alpaca
 
 go 1.25
 
@@ -7,3 +7,6 @@ require (
 	github.com/mikefsq/goalpaca v0.1.0
 )
 
+replace github.com/mikefsq/astrocam => ../../astrocam
+
+replace github.com/mikefsq/goalpaca => ../../goalpaca

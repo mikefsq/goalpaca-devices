@@ -1,0 +1,29 @@
+[Unit]
+Description=astrofleet — ASCOM Alpaca device fleet (mounts, focusers, filter wheels, cameras)
+Documentation=https://github.com/mikefsq
+# Wait for the network so discovery binds and networked mounts are reachable.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/astrofleet -config /etc/astrofleet/fleet.json
+# Restart if the process exits non-zero (e.g. a device goroutine panics — the
+# whole fleet shares one process, so systemd is the recovery net).
+Restart=on-failure
+RestartSec=5
+
+# Device access. Running as root is the simplest path on a dedicated CM5: it can
+# open USB (usbfs), serial (/dev/tty*), and hidraw without extra plumbing.
+# To harden, create a service user and grant the device groups instead of root:
+#   sudo useradd --system --no-create-home astrofleet
+#   sudo usermod -aG dialout,plugdev astrofleet      # serial + USB/HID
+# then ship udev rules giving plugdev access to the relevant idVendors, and set:
+#   User=astrofleet
+#   SupplementaryGroups=dialout plugdev
+User=root
+
+# Alpaca HTTP serves on the config "port" (default 11200); discovery answers UDP 32227.
+
+[Install]
+WantedBy=multi-user.target

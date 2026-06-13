@@ -5,12 +5,14 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log"
 	"os/signal"
 	"strings"
 	"syscall"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	"github.com/mikefsq/lx200/bridge"
 	driver "github.com/mikefsq/tenmicron-alpaca"
 )
 
@@ -23,6 +25,7 @@ func main() {
 	aperture := flag.Float64("aperture", 0, "optics: aperture diameter in metres (ASCOM ApertureDiameter)")
 	apertureArea := flag.Float64("aperture-area", 0, "optics: light-collecting area in m² (default: from diameter)")
 	focalLength := flag.Float64("focal-length", 0, "optics: focal length in metres (ASCOM FocalLength)")
+	lx200Port := flag.Int("lx200-port", 0, "if non-zero, also serve an LX200 TCP server on this port for Stellarium/SkySafari TelescopeControl")
 	flag.Parse()
 
 	if *addr == "" {
@@ -62,6 +65,24 @@ func main() {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Optional second front-end: an LX200 TCP server (Stellarium/SkySafari) over
+	// the SAME mount the Alpaca driver serves. It is a sibling consumer of the
+	// mount, not a layer over this driver — it drives tel.LiveMount() directly, and
+	// the mount's OpLock keeps the two front-ends from corrupting its target register.
+	if *lx200Port != 0 {
+		b := bridge.New(fmt.Sprintf(":%d", *lx200Port), tel.LiveMount,
+			bridge.WithMountType('G'), // 10Micron is a German equatorial
+			bridge.WithIdent("10micron", "tenmicron-bridge"),
+			bridge.WithLogger(log.Printf),
+		)
+		go func() {
+			log.Printf("tenmicron: serving LX200 bridge on :%d for mount %s", *lx200Port, *addr)
+			if err := b.Serve(ctx); err != nil && ctx.Err() == nil {
+				log.Printf("tenmicron: lx200 bridge: %v", err)
+			}
+		}()
+	}
 
 	log.Printf("tenmicron: serving Alpaca telescope on :%d for mount %s (Ctrl-C to stop)", *port, *addr)
 	if err := srv.Run(ctx); err != nil {

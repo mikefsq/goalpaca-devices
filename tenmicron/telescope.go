@@ -50,13 +50,14 @@ type Telescope struct {
 	slewSettleSec            int
 	pulseUntil               time.Time // PulseGuide completion deadline (IsPulseGuiding)
 
-	// Optics — site/instrument profile, set via flags (the mount can't report them).
-	apertureDiameter, apertureArea, focalLength float64
+	// Optics — instrument profile (the mount can't report it). Backed by an
+	// OpticsStore so the fleet can inject a holder shared with the INDI front-end.
+	optics alpacadev.OpticsStore
 }
 
 // NewTelescope builds the driver for the 10Micron mount at addr (host:port).
 func NewTelescope(addr string) *Telescope {
-	t := &Telescope{addr: addr, trackingRate: alpacadev.DriveSidereal}
+	t := &Telescope{addr: addr, trackingRate: alpacadev.DriveSidereal, optics: &localOptics{}}
 	t.IfaceVer = alpacadev.InterfaceVersionTelescope
 	return t
 }
@@ -130,6 +131,18 @@ func (t *Telescope) manage(ctx context.Context) {
 }
 
 func (t *Telescope) mount() *tenmicron.Mount { t.mu.Lock(); defer t.mu.Unlock(); return t.m }
+
+// LiveMount returns the mount that is connected right now as a lx200.Mount, or
+// ErrNotConnected. It is the seam an independent front-end (the LX200 bridge for
+// Stellarium/SkySafari) consumes so it drives the same mount object this driver
+// does — the single source of truth — rather than talking to this wrapper. The
+// bridge calls it per operation, so a reconnect here is picked up transparently.
+func (t *Telescope) LiveMount() (lx200.Mount, error) {
+	if m := t.mount(); m != nil {
+		return m, nil
+	}
+	return nil, alpacadev.ErrNotConnected
+}
 
 // --- ASCOM Command* passthrough -------------------------------------------------
 // CommandBlind/String/Bool send a raw LX200 command the typed API doesn't wrap
@@ -469,6 +482,14 @@ func (t *Telescope) AbortSlew() error {
 }
 
 func (t *Telescope) SlewToCoordinatesAsync(ra, dec float64) error {
+	m := t.mount()
+	if m == nil {
+		return alpacadev.ErrNotConnected
+	}
+	// Hold the mount's OpLock across the whole set-target-then-slew sequence so it
+	// cannot interleave with the LX200 bridge's, which would leave the device's
+	// single target register holding one client's RA with another's Dec.
+	defer m.OpLock()()
 	if err := t.SetTargetRightAscension(ra); err != nil {
 		return err
 	}
@@ -503,6 +524,11 @@ func (t *Telescope) startSlew() error {
 }
 
 func (t *Telescope) SyncToCoordinates(ra, dec float64) error {
+	m := t.mount()
+	if m == nil {
+		return alpacadev.ErrNotConnected
+	}
+	defer m.OpLock()() // atomic vs the LX200 bridge — see SlewToCoordinatesAsync
 	if err := t.SetTargetRightAscension(ra); err != nil {
 		return err
 	}

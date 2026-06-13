@@ -21,9 +21,11 @@ const txQ = "ClientID=1&ClientTransactionID=1"
 // fakeHID is a scripted oasisfoc.Transport: it echoes a valid-opcode reply for any
 // command, with a scripted override per opcode (e.g. the status reply).
 type fakeHID struct {
-	mu      sync.Mutex
-	lastOp  byte
-	replies map[byte][]byte
+	mu       sync.Mutex
+	lastOp   byte
+	replies  map[byte][]byte
+	statusFn func() []byte // if set, overrides the 0x32 status reply call-by-call
+	stopped  bool          // set true once a StopMove (0x37) is written
 }
 
 func (f *fakeHID) Write(buf []byte) (int, error) {
@@ -31,6 +33,9 @@ func (f *fakeHID) Write(buf []byte) (int, error) {
 	defer f.mu.Unlock()
 	if len(buf) > 1 {
 		f.lastOp = buf[1]
+		if buf[1] == 0x37 { // StopMove
+			f.stopped = true
+		}
 	}
 	return len(buf), nil
 }
@@ -40,6 +45,9 @@ func (f *fakeHID) Read(buf []byte, timeoutMS int) (int, error) {
 	defer f.mu.Unlock()
 	if timeoutMS <= 0 {
 		return 0, nil // drain
+	}
+	if f.lastOp == 0x32 && f.statusFn != nil {
+		return copy(buf, f.statusFn()), nil
 	}
 	if r, ok := f.replies[f.lastOp]; ok {
 		return copy(buf, r), nil
@@ -170,8 +178,8 @@ func cfgReply() []byte { // 0x30 part-1: maxStep 80000, beeps on
 func extReply() []byte { // 0x3a part-2: heatingTemp 2500 (25°C), rest 0
 	r := make([]byte, 42)
 	r[0], r[1] = 0x3a, 0x28
-	r[6], r[7], r[8], r[9] = 0x00, 0x01, 0x38, 0x80 // maxStep
-	r[17], r[18], r[19] = 1, 1, 1                   // beeps/bt (data[15:18])
+	r[6], r[7], r[8], r[9] = 0x00, 0x01, 0x38, 0x80     // maxStep
+	r[17], r[18], r[19] = 1, 1, 1                       // beeps/bt (data[15:18])
 	r[21], r[22], r[23], r[24] = 0x00, 0x00, 0x09, 0xc4 // heatingTemp @data[19:23]
 	return r
 }
@@ -179,7 +187,7 @@ func extReply() []byte { // 0x3a part-2: heatingTemp 2500 (25°C), rest 0
 func verReply() []byte { // 0x02: hardware 1.2.0.0, firmware 2.1.1.0
 	r := make([]byte, 36)
 	r[0], r[1] = 0x02, 0x24
-	r[6], r[7] = 0x01, 0x02            // hardware 1.2.0.0 (data[4:8])
+	r[6], r[7] = 0x01, 0x02                // hardware 1.2.0.0 (data[4:8])
 	r[10], r[11], r[12] = 0x02, 0x01, 0x01 // firmware 2.1.1.0 (data[8:12])
 	return r
 }
@@ -374,4 +382,140 @@ func TestOasisFocuserHardware(t *testing.T) {
 		t.Fatalf("restore move: ErrorNumber=%d", r.ErrorNumber)
 	}
 	waitNotMoving(t, base, 30*time.Second)
+}
+
+// TestSyncShortMove: a short move (≤ syncMoveMaxSteps) blocks inside Move until the
+// device reports idle AND at target, so IsMoving is already false on return — no client
+// poll wait. The scripted status reports "moving at start" for the first reads, then
+// "idle at target".
+func TestSyncShortMove(t *testing.T) {
+	const start, target = 5000, 5100 // 100-step move, under the threshold
+	reads := 0
+	f := &fakeHID{replies: map[byte][]byte{}}
+	f.statusFn = func() []byte {
+		reads++
+		if reads <= 4 { // first couple of polls: still moving, not yet at target
+			return statusReply(start, 1)
+		}
+		return statusReply(target, 0) // settled at target, idle
+	}
+	foc := NewOasisFocuser(0)
+	foc.dev = oasisfoc.New(f, oasisfoc.DeviceInfo{})
+	foc.maxStep = 80000
+
+	t0 := time.Now()
+	if err := foc.Move(target); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+	el := time.Since(t0)
+	if el < syncMovePoll {
+		t.Errorf("short Move returned in %v; should block until the device settles", el)
+	}
+	if el > syncMoveCap {
+		t.Errorf("short Move blocked %v; exceeds the %v cap", el, syncMoveCap)
+	}
+	if foc.IsMoving() {
+		t.Error("IsMoving should be false immediately after a synchronous short Move")
+	}
+}
+
+// TestNoOpMove: a move whose target already equals the live position is a no-op — it must
+// return immediately (no settle block) and must NOT issue a MoveTo (0x36). NINA re-sends the
+// same target on a separate connection; that duplicate should resolve instantly.
+func TestNoOpMove(t *testing.T) {
+	const pos = 41700
+	f := &fakeHID{replies: map[byte][]byte{}}
+	f.statusFn = func() []byte { return statusReply(pos, 0) } // always at target, idle
+	foc := NewOasisFocuser(0)
+	foc.dev = oasisfoc.New(f, oasisfoc.DeviceInfo{})
+	foc.maxStep = 80000
+
+	t0 := time.Now()
+	if err := foc.Move(pos); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+	if el := time.Since(t0); el >= syncMovePoll {
+		t.Errorf("no-op Move took %v; should return immediately without the settle block", el)
+	}
+	f.mu.Lock()
+	lastOp := f.lastOp
+	f.mu.Unlock()
+	if lastOp == 0x36 { // MoveTo
+		t.Error("no-op Move issued a MoveTo (0x36); should skip re-commanding when already at target")
+	}
+}
+
+// TestConcurrentMoveHalt: a Halt issued while a synchronous Move is blocking must run
+// concurrently (separate goroutine, as Go's HTTP server does), stop the device, and let
+// the Move return promptly — with no data race on device access (run under -race).
+func TestConcurrentMoveHalt(t *testing.T) {
+	f := &fakeHID{replies: map[byte][]byte{}}
+	f.statusFn = func() []byte {
+		if f.stopped {
+			return statusReply(5040, 0) // idle once StopMove was issued
+		}
+		return statusReply(5010, 1) // moving
+	}
+	foc := NewOasisFocuser(0)
+	foc.dev = oasisfoc.New(f, oasisfoc.DeviceInfo{})
+	foc.maxStep = 80000
+
+	done := make(chan error, 1)
+	go func() { done <- foc.Move(5100) }() // short move → blocks; device reports moving
+	time.Sleep(40 * time.Millisecond)      // let the block start polling
+	if err := foc.Halt(); err != nil {
+		t.Fatalf("Halt: %v", err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Move: %v", err)
+		}
+	case <-time.After(syncMoveCap + 500*time.Millisecond):
+		t.Fatal("Move did not return after a concurrent Halt")
+	}
+}
+
+// TestSyncMoveStoppedShort: if the device stops short of target (a concurrent /halt or a
+// soft-limit stop) the synchronous block must release as soon as motion ends — not spin
+// to the cap waiting for an at-target that will never come.
+func TestSyncMoveStoppedShort(t *testing.T) {
+	const start, target = 5000, 5100 // short move (synchronous path)
+	reads := 0
+	f := &fakeHID{replies: map[byte][]byte{}}
+	f.statusFn = func() []byte {
+		reads++
+		if reads <= 4 {
+			return statusReply(start+10, 1) // moving, mid-travel
+		}
+		return statusReply(start+40, 0) // halted: idle, NOT at target
+	}
+	foc := NewOasisFocuser(0)
+	foc.dev = oasisfoc.New(f, oasisfoc.DeviceInfo{})
+	foc.maxStep = 80000
+
+	t0 := time.Now()
+	if err := foc.Move(target); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+	if el := time.Since(t0); el >= syncMoveCap {
+		t.Errorf("stopped-short Move blocked %v; should release when motion ends, not spin to the cap", el)
+	}
+}
+
+// TestAsyncLongMove: a move beyond syncMoveMaxSteps returns immediately (async) even
+// while the device still reports moving — it must not block the handler.
+func TestAsyncLongMove(t *testing.T) {
+	f := &fakeHID{replies: map[byte][]byte{0x32: statusReply(5000, 1)}} // always moving
+	foc := NewOasisFocuser(0)
+	foc.dev = oasisfoc.New(f, oasisfoc.DeviceInfo{})
+	foc.maxStep = 80000
+
+	t0 := time.Now()
+	if err := foc.Move(60000); err != nil { // ~55000 steps, far over the threshold
+		t.Fatalf("Move: %v", err)
+	}
+	if el := time.Since(t0); el >= syncMoveCap {
+		t.Errorf("long Move blocked %v; should return immediately (async)", el)
+	}
 }

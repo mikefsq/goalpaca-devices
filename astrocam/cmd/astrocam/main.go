@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	driver "github.com/mikefsq/asicam-alpaca"
+	driver "github.com/mikefsq/astrocam-alpaca"
 	"github.com/mikefsq/astrocam"
 	_ "github.com/mikefsq/astrocam/sensors" // registers the PID -> sensor profile table (required by astrocam.Open)
 	alpacadev "github.com/mikefsq/goalpaca/server"

@@ -12,6 +12,6 @@ require (
 	golang.org/x/sys v0.43.0 // indirect
 )
 
-replace github.com/mikefsq/optec-astro => ../../optec-astro
+replace github.com/mikefsq/optec-astro => ../../optec
 
 replace github.com/mikefsq/goalpaca => ../../goalpaca

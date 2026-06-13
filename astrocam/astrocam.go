@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -13,10 +14,20 @@ import (
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
+// camDebug logs per-exposure arm/read/total timing to the console. Off by default; set
+// ASICAM_DEBUG=1 (or true/yes/on) to diagnose frame-turnaround (e.g. the 174 free-run latency).
+var camDebug = func() bool {
+	switch strings.ToLower(os.Getenv("ASICAM_DEBUG")) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}()
+
+func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
+
 // PureASICamera adapts the pure-Go astrocam.Camera to the alpacadev.Camera + Hardware
-// interfaces. It is the cgo-SDK-free sibling of asiccd: same Alpaca behaviour, but the
-// hardware is driven by the reverse-engineered asicam driver (USB control transfers over
-// IOKit/usbfs/WinUSB) instead of ZWO's libASICamera2.
+// interfaces. It is the cgo-SDK-free USB control transfers over IOKit/usbfs/WinUSB).
 //
 // astrocam.Camera is internally concurrency-safe (per-transport control-transfer serialization
 // + a capture-state mutex + an owned TEC goroutine), so several Alpaca HTTP handlers can hit
@@ -400,11 +411,17 @@ func (c *PureASICamera) runExposure(light bool) {
 
 	bpp := c.cam.OutputDepth()
 	buf := make([]byte, c.cam.FrameBytes())
+	t0 := time.Now()
 	if err := c.cam.StartExposure(light); err != nil {
 		c.exposeOp.Fail(fmt.Errorf("arm: %w", err))
 		return
 	}
+	tArm := time.Now()
 	n, err := c.cam.GetDataAfterExp(buf)
+	if camDebug {
+		log.Printf("asicam-alpaca: %s exposure arm=%.0fms read=%.0fms total=%.0fms n=%d/%d",
+			c.ID, ms(tArm.Sub(t0)), ms(time.Since(tArm)), ms(time.Since(t0)), n, c.cam.FrameBytes())
+	}
 
 	c.mu.Lock()
 	aborted := c.aborted

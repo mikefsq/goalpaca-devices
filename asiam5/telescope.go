@@ -128,6 +128,15 @@ func (t *Telescope) manage(ctx context.Context) {
 
 func (t *Telescope) mount() *am5.Mount { t.mu.Lock(); defer t.mu.Unlock(); return t.m }
 
+// LiveMount returns the connected mount as a lx200.Mount (or ErrNotConnected), the
+// seam the LX200 bridge and INDI server consume to drive the same mount object.
+func (t *Telescope) LiveMount() (lx200.Mount, error) {
+	if m := t.mount(); m != nil {
+		return m, nil
+	}
+	return nil, alpacadev.ErrNotConnected
+}
+
 // --- ASCOM Command* passthrough -------------------------------------------------
 // CommandBlind/String/Bool send a raw LX200 command the typed API doesn't wrap
 // (e.g. an AM5 extended command), mapping to the core Blind/Get/Ack reply shapes.

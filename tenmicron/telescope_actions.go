@@ -18,13 +18,15 @@ import (
 // Action is a one-call convenience that applies any subset of all six fields.
 
 func (t *Telescope) SupportedActions() []string {
-	return []string{"setenvironment", "setrefractionpressure", "setrefractiontemperature"}
+	return []string{"setenvironment", "setrefractionpressure", "setrefractiontemperature", "setoptics"}
 }
 
 func (t *Telescope) Action(name, params string) (string, error) {
 	switch strings.ToLower(name) {
 	case "setenvironment":
 		return t.actionSetEnvironment(params)
+	case "setoptics":
+		return t.actionSetOptics(params)
 	case "setrefractionpressure":
 		v, err := strconv.ParseFloat(strings.TrimSpace(params), 64)
 		if err != nil {
