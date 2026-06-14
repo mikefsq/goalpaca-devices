@@ -78,9 +78,22 @@ type resp struct {
 // injected directly (in-package test), so manage()/Open are never started.
 func newStack(t *testing.T, replies map[string]string) (string, *fakeTransport) {
 	t.Helper()
-	f := &fakeTransport{replies: replies}
+	// Defaults so the snapshot-priming poll (pollOnce) resolves every command it
+	// issues; the caller's map overrides any of these. Getters are snapshot-served, so
+	// the snapshot must be primed the way manage() does on connect.
+	merged := map[string]string{
+		":Ginfo#": "0.000000,0.000000,E,0.00000,0.00000,2451545.0,1,0#", // neutral status
+		":h?#":    "0",     // home not found — single status byte, no '#'
+		":Ggui#":  "15.0#", // guide rate (arcsec/s)
+		":GREF#":  "0",     // refraction off — single status byte, no '#'
+	}
+	for k, v := range replies {
+		merged[k] = v
+	}
+	f := &fakeTransport{replies: merged}
 	tel := NewTelescope("test")
 	tel.m = &tenmicron.Mount{Conn: lx200.New(f, time.Second)}
+	_ = tel.pollOnce(tel.m, true) // prime the snapshot (as manage() does on connect)
 
 	srv := alpacadev.New(alpacadev.Config{
 		Discovery:    alpacadev.DiscoveryConfig{Mode: alpacadev.DiscoveryOff},
@@ -147,7 +160,7 @@ func TestCapabilitiesWired(t *testing.T) {
 }
 
 func TestDoesRefraction(t *testing.T) {
-	base, f := newStack(t, map[string]string{":GREF#": "1#", ":SREF0#": "1"})
+	base, f := newStack(t, map[string]string{":GREF#": "1", ":SREF0#": "1"}) // :GREF# = bare byte
 	if r := get(t, base, "doesrefraction"); r.ErrorNumber != 0 || r.Value != true {
 		t.Errorf("doesrefraction = %v (err %d), want true", r.Value, r.ErrorNumber)
 	}

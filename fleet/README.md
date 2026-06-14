@@ -165,8 +165,19 @@ Cross-compile for a Raspberry Pi CM5 (no C toolchain needed):
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o astrofleet .
 ```
 
-USB/HID drivers on Linux need hidraw/usbfs access — add a udev rule for the
-relevant vendor IDs (e.g. `KERNEL=="hidraw*", ATTRS{idVendor}=="03c3", MODE="0660", TAG+="uaccess"`).
+USB/HID drivers on Linux need usbfs/hidraw access. The pure-Go ASI camera driver
+talks to the camera over usbfs (`/dev/bus/usb/*`) and binds by **factory serial** —
+which ASI cameras expose *not* as a USB descriptor (so `lsusb`/`dmesg` never show it)
+but in flash, read via a vendor control transfer once the device is opened. So serial
+binding needs read-write access to the device node. Install the shipped rules:
+
+```sh
+sudo cp deploy/99-astrofleet.rules /etc/udev/rules.d/
+sudo udevadm control --reload && sudo udevadm trigger   # then replug the camera
+```
+
+`deploy/install.sh` does this for you. The file covers ZWO (`03c3`) and PlayerOne
+(`a0a0`); add other vendors' `idVendor` lines as you wire their drivers in.
 
 ## Deploy as a systemd service
 

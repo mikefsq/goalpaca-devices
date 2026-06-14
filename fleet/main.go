@@ -211,7 +211,11 @@ func startBridges(ctx context.Context, cfg *Config, devices []built) {
 			port = next
 			next++
 		}
-		srv := bridge.New(fmt.Sprintf(":%d", port), lm.LiveMount, bridge.WithLogger(log.Printf))
+		opts := []bridge.Option{bridge.WithLogger(log.Printf)}
+		if cfg.LX200.ReadOnlySite {
+			opts = append(opts, bridge.WithReadOnlySite())
+		}
+		srv := bridge.New(fmt.Sprintf(":%d", port), lm.LiveMount, opts...)
 		p := port
 		go func() {
 			log.Printf("astrofleet: LX200 bridge on :%d for %s", p, b.spec.Driver)

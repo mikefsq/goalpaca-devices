@@ -13,6 +13,7 @@ BIN_DST=/usr/local/bin/astrofleet
 CONF_DIR=/etc/astrofleet
 CONF_DST="$CONF_DIR/fleet.json"
 UNIT_DST=/etc/systemd/system/astrofleet.service
+RULES_DST=/etc/udev/rules.d/99-astrofleet.rules
 HERE="$(cd "$(dirname "$0")/.." && pwd)" # fleet/ root
 
 if [[ $EUID -ne 0 ]]; then
@@ -37,6 +38,11 @@ fi
 
 echo "installing unit -> $UNIT_DST"
 install -m 0644 "$HERE/deploy/astrofleet.service" "$UNIT_DST"
+
+echo "installing udev rules -> $RULES_DST"
+install -m 0644 "$HERE/deploy/99-astrofleet.rules" "$RULES_DST"
+udevadm control --reload && udevadm trigger
+echo "  (replug USB cameras/devices so the new permissions apply)"
 
 systemctl daemon-reload
 systemctl enable --now astrofleet.service

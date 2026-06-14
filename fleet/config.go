@@ -40,6 +40,12 @@ type Config struct {
 type LX200Config struct {
 	Enable   bool `json:"enable,omitempty"`
 	BasePort int  `json:"basePort,omitempty"` // default 4030 when Enable is set
+
+	// ReadOnlySite makes the bridge ACK a client's site/time set commands without
+	// writing them to the mount, so an atlas (SkySafari, Stellarium) can't overwrite a
+	// modeled mount's surveyed site/clock and invalidate its pointing model. Reads still
+	// report the mount's real values. Off by default (the atlas can sync site/time).
+	ReadOnlySite bool `json:"readOnlySite,omitempty"`
 }
 
 // basePort returns the LX200 base port, defaulting to 4030.

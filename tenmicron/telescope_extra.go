@@ -165,14 +165,9 @@ func validAltAz(az, alt float64) bool {
 func (t *Telescope) GuideRateRightAscension() float64 { return t.guideRate() }
 func (t *Telescope) GuideRateDeclination() float64    { return t.guideRate() }
 
-func (t *Telescope) guideRate() float64 {
-	if m := t.mount(); m != nil {
-		if v, err := m.GuideRate(); err == nil { // lib returns arcsec/s
-			return t.setF(&t.snap.guideRate, v/arcsecPerDeg)
-		}
-	}
-	return t.getF(&t.snap.guideRate)
-}
+// guideRate is snapshot-served — the poller's slow set refreshes it and setGuideRate
+// updates it on a write; no mount I/O per GET.
+func (t *Telescope) guideRate() float64 { return t.getF(&t.snap.guideRate) }
 
 func (t *Telescope) SetGuideRateRightAscension(degPerSec float64) error {
 	return t.setGuideRate(degPerSec)
@@ -200,14 +195,8 @@ func (t *Telescope) setGuideRate(degPerSec float64) error {
 
 // --- Refraction (the default reported false; the mount has a refraction model) -
 
-func (t *Telescope) DoesRefraction() bool {
-	if m := t.mount(); m != nil {
-		if on, err := m.RefractionCorrection(); err == nil {
-			return t.setB(&t.snap.doesRefraction, on)
-		}
-	}
-	return t.getB(&t.snap.doesRefraction)
-}
+// DoesRefraction is snapshot-served (poller slow set + SetDoesRefraction); no mount I/O.
+func (t *Telescope) DoesRefraction() bool { return t.getB(&t.snap.doesRefraction) }
 
 func (t *Telescope) SetDoesRefraction(on bool) error {
 	m := t.mount()

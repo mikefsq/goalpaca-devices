@@ -6,6 +6,7 @@ import (
 	"context"
 	"log"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,13 +19,23 @@ const (
 	maxAxisRate = 6.0 // advertised MoveAxis ceiling (deg/s); snapped to a preset
 	slewTimeout = 3 * time.Minute
 	acquirePoll = 3 * time.Second
-	monitorPoll = 2 * time.Second
+	monitorPoll = 1 * time.Second        // snapshot refresh cadence when idle/tracking
+	slewPoll    = 250 * time.Millisecond // faster refresh while slewing (responsive progress)
+	fullPoll    = 5 * time.Second        // cadence for the slow-changing set (home/guide/refraction)
+
+	// mountCacheTTL is the mount's :Ginfo# cache lifetime while this driver polls it.
+	// Longer than monitorPoll so the LX200 bridge and INDI server (which read the same
+	// mount live) ride the poller's cache between cycles instead of refetching; the
+	// poller force-refreshes each cycle (pollOnce → Refresh), so its own reads stay live.
+	mountCacheTTL = 2 * time.Second
 )
 
-// snapshot caches the last good value of each error-free getter, returned when
-// the mount is unreachable or a live read fails.
+// snapshot is the cached mount state every getter is served from. The background
+// poller (pollOnce, driven by manage) refreshes it; a property GET is then a cheap
+// locked read with no mount I/O — so a client never pays a round-trip per property or
+// queues on the single mount link. This mirrors how a native ASCOM mount driver works.
 type snapshot struct {
-	ra, dec, alt, az, lst             float64
+	ra, dec, alt, az                  float64
 	guideRate                         float64 // deg/s (one rate, both axes)
 	pier                              alpacadev.PierSide
 	slewing, tracking, atPark, atHome bool
@@ -49,6 +60,7 @@ type Telescope struct {
 	trackingRate             alpacadev.DriveRate
 	slewSettleSec            int
 	pulseUntil               time.Time // PulseGuide completion deadline (IsPulseGuiding)
+	canHome                  bool      // homing supported (model-derived at connect; see primeStatics)
 
 	// Optics — instrument profile (the mount can't report it). Backed by an
 	// OpticsStore so the fleet can inject a holder shared with the INDI front-end.
@@ -57,7 +69,9 @@ type Telescope struct {
 
 // NewTelescope builds the driver for the 10Micron mount at addr (host:port).
 func NewTelescope(addr string) *Telescope {
-	t := &Telescope{addr: addr, trackingRate: alpacadev.DriveSidereal, optics: &localOptics{}}
+	// canHome defaults true (most 10Micron mounts home); primeStatics narrows it from
+	// the model on connect. A pre-connect read still reports the optimistic default.
+	t := &Telescope{addr: addr, trackingRate: alpacadev.DriveSidereal, optics: &localOptics{}, canHome: true}
 	t.IfaceVer = alpacadev.InterfaceVersionTelescope
 	return t
 }
@@ -90,9 +104,13 @@ func (t *Telescope) Connected() bool                      { t.mu.Lock(); defer t
 func (t *Telescope) Disconnect(ctx context.Context) error { return nil }
 func (t *Telescope) Busy() bool                           { return t.Slewing() }
 
-// manage acquires, monitors and re-acquires the mount for the process lifetime.
+// manage acquires, monitors and re-acquires the mount for the process lifetime. The
+// monitor cycle IS the status poll: each tick refreshes the snapshot (pollOnce) that
+// every getter is served from, so there is no separate health check and no
+// per-property mount I/O. The cadence tightens while slewing for responsive progress.
 func (t *Telescope) manage(ctx context.Context) {
 	var lastErr string
+	var lastFull time.Time // when the slow-changing set was last refreshed
 	for ctx.Err() == nil {
 		t.mu.Lock()
 		present := t.m != nil
@@ -100,9 +118,18 @@ func (t *Telescope) manage(ctx context.Context) {
 		if !present {
 			m, err := tenmicron.Connect(t.addr)
 			if err == nil {
+				m.SetStatusTTL(mountCacheTTL) // poller is the sole :Ginfo# refresher; other front-ends ride its cache
+				if perr := t.pollOnce(m, true); perr != nil { // prime the snapshot before clients see Connected
+					m.Close()
+					err = perr
+				}
+			}
+			if err == nil {
+				t.primeStatics(m) // stored site coords + model (CanFindHome); best-effort
 				t.mu.Lock()
 				t.m = m
 				t.mu.Unlock()
+				lastFull = time.Now()
 				log.Printf("tenmicron: mount %s connected", t.ID)
 				lastErr = ""
 			} else {
@@ -117,7 +144,8 @@ func (t *Telescope) manage(ctx context.Context) {
 		t.mu.Lock()
 		m := t.m
 		t.mu.Unlock()
-		if _, err := m.RA(); err != nil { // a healthy mount answers RA
+		full := time.Since(lastFull) >= fullPoll
+		if err := t.pollOnce(m, full); err != nil { // the poll is also the liveness check
 			log.Printf("tenmicron: mount %s lost (%v); reconnecting", t.ID, err)
 			t.mu.Lock()
 			m.Close()
@@ -126,9 +154,91 @@ func (t *Telescope) manage(ctx context.Context) {
 			lastErr = ""
 			continue
 		}
-		sleepCtx(ctx, monitorPoll)
+		if full {
+			lastFull = time.Now()
+		}
+		interval := monitorPoll
+		if t.getB(&t.snap.slewing) {
+			interval = slewPoll
+		}
+		sleepCtx(ctx, interval)
 	}
 }
+
+// pollOnce refreshes the snapshot from the mount — the background read every getter is
+// served from. It does ONE forced :Ginfo# (m.Refresh) for the whole volatile set; that
+// read also re-arms the mount's status cache, so the LX200 bridge and INDI server —
+// which read the same mount live — ride this poller's value (with a cache TTL longer
+// than the poll interval, set on connect) instead of each issuing their own round-trip
+// on the single mount link. A :Ginfo# failure means the link is down and is returned so
+// manage reconnects. When full, it also refreshes the slow-changing set
+// (home/guide-rate/refraction) — separate round-trips done only every fullPoll;
+// transient errors on those keep the last good value.
+func (t *Telescope) pollOnce(m *tenmicron.Mount, full bool) error {
+	st, err := m.Refresh() // forced :Ginfo#; re-arms the shared cache for the other front-ends
+	if err != nil {
+		return err
+	}
+	t.mu.Lock()
+	t.snap.ra, t.snap.dec, t.snap.alt, t.snap.az = st.RA, st.Dec, st.Alt, st.Az
+	t.snap.pier = alpacadev.PierSide(st.Pier)
+	t.snap.slewing, t.snap.tracking, t.snap.atPark = st.IsSlewing(), st.IsTracking(), st.IsParked()
+	t.mu.Unlock()
+
+	if !full {
+		return nil
+	}
+	atHome, ahErr := m.AtHome()
+	guide, gErr := m.GuideRate() // arcsec/s
+	refr, rErr := m.RefractionCorrection()
+	t.mu.Lock()
+	if ahErr == nil {
+		t.snap.atHome = atHome
+	}
+	if gErr == nil {
+		t.snap.guideRate = guide / arcsecPerDeg
+	}
+	if rErr == nil {
+		t.snap.doesRefraction = refr
+	}
+	t.mu.Unlock()
+	return nil
+}
+
+// primeStatics reads the fixed/slow mount facts once on connect: the stored site
+// coordinates (so SiteLatitude/Longitude/Elevation — and the local SiderealTime —
+// report the mount's real values instead of 0 until a client pushes them) and the
+// model (so CanFindHome reflects whether this mount actually homes). Best-effort: a
+// failed read leaves the existing value.
+func (t *Telescope) primeStatics(m *tenmicron.Mount) {
+	if lat, err := m.SiteLatitude(); err == nil {
+		t.mu.Lock()
+		t.siteLat = lat
+		t.mu.Unlock()
+	}
+	if lon, err := m.SiteLongitude(); err == nil {
+		t.mu.Lock()
+		t.siteLon = lon
+		t.mu.Unlock()
+	}
+	if el, err := m.SiteElevation(); err == nil {
+		t.mu.Lock()
+		t.siteEl = el
+		t.mu.Unlock()
+	}
+	if p, err := m.Product(); err == nil {
+		t.mu.Lock()
+		t.canHome = isHomingModel(p)
+		t.mu.Unlock()
+	}
+}
+
+// isHomingModel reports whether a 10Micron model supports a homing search (:hF#). The
+// GM1000 family has no home sensor — FindHome is a no-op and the native driver reports
+// CanFindHome=false — so report false for it; the larger homing-capable mounts
+// (GM3000/GM4000/AZ…) keep the default true. Narrow (only the confirmed no-home family)
+// so the capability is never stripped from a mount that has it.
+func isHomingModel(product string) bool { return !strings.Contains(product, "GM1000") }
 
 func (t *Telescope) mount() *tenmicron.Mount { t.mu.Lock(); defer t.mu.Unlock(); return t.m }
 
@@ -164,7 +274,18 @@ func (t *Telescope) CommandString(cmd string, raw bool) (string, error) {
 	if m == nil {
 		return "", alpacadev.ErrNotConnected
 	}
-	return m.Get(lx200.Frame(cmd, raw))
+	s, err := m.Get(lx200.Frame(cmd, raw))
+	if err != nil {
+		return "", err
+	}
+	if raw {
+		// ASCOM raw=true means "return the device's exact reply". lx200 Get strips the
+		// '#' terminator (handy for typed reads), but a raw passthrough must be verbatim:
+		// 10Micron replies are '#'-terminated and the NINA TenMicron plugin's ANTLR
+		// parsers require the trailing '#' (and the unmodified comma/colon/'*' payload).
+		s += "#"
+	}
+	return s, nil
 }
 
 func (t *Telescope) CommandBool(cmd string, raw bool) (bool, error) {
@@ -186,7 +307,7 @@ func (t *Telescope) CanSync() bool        { return true }
 func (t *Telescope) CanSetTracking() bool { return true }
 func (t *Telescope) CanPark() bool        { return true }
 func (t *Telescope) CanUnpark() bool      { return true }
-func (t *Telescope) CanFindHome() bool    { return true }
+func (t *Telescope) CanFindHome() bool    { t.mu.Lock(); defer t.mu.Unlock(); return t.canHome }
 func (t *Telescope) CanPulseGuide() bool  { return true }
 func (t *Telescope) CanMoveAxis(axis alpacadev.TelescopeAxis) bool {
 	return axis == alpacadev.AxisPrimary || axis == alpacadev.AxisSecondary
@@ -194,85 +315,41 @@ func (t *Telescope) CanMoveAxis(axis alpacadev.TelescopeAxis) bool {
 
 // --- Position / status getters ----------------------------------------------
 
-func (t *Telescope) RightAscension() float64 {
-	if m := t.mount(); m != nil {
-		if v, err := m.RA(); err == nil {
-			return t.setF(&t.snap.ra, v)
-		}
-	}
-	return t.getF(&t.snap.ra)
-}
+// These return the last value the background poller read into the snapshot — no
+// synchronous mount I/O per call (see snapshot / pollOnce). Freshness is bounded by
+// the poll cadence (slewPoll while slewing, else monitorPoll).
+func (t *Telescope) RightAscension() float64 { return t.getF(&t.snap.ra) }
+func (t *Telescope) Declination() float64    { return t.getF(&t.snap.dec) }
+func (t *Telescope) Altitude() float64       { return t.getF(&t.snap.alt) }
+func (t *Telescope) Azimuth() float64        { return t.getF(&t.snap.az) }
+func (t *Telescope) Slewing() bool           { return t.getB(&t.snap.slewing) }
+func (t *Telescope) Tracking() bool          { return t.getB(&t.snap.tracking) }
+func (t *Telescope) AtPark() bool            { return t.getB(&t.snap.atPark) }
+func (t *Telescope) AtHome() bool            { return t.getB(&t.snap.atHome) }
 
-func (t *Telescope) Declination() float64 {
-	if m := t.mount(); m != nil {
-		if v, err := m.Dec(); err == nil {
-			return t.setF(&t.snap.dec, v)
-		}
-	}
-	return t.getF(&t.snap.dec)
-}
-
-func (t *Telescope) Altitude() float64 {
-	if m := t.mount(); m != nil {
-		if v, err := m.Altitude(); err == nil {
-			return t.setF(&t.snap.alt, v)
-		}
-	}
-	return t.getF(&t.snap.alt)
-}
-
-func (t *Telescope) Azimuth() float64 {
-	if m := t.mount(); m != nil {
-		if v, err := m.Azimuth(); err == nil {
-			return t.setF(&t.snap.az, v)
-		}
-	}
-	return t.getF(&t.snap.az)
-}
-
+// SiderealTime is computed locally (mean LST from the system UTC clock + site
+// longitude) rather than the mount's :GS# round-trip — it takes a frequent un-batched
+// call (NINA polls it constantly) off the mount link entirely. The value tracks the
+// mount's apparent LST to ~1 arcsec (~0.07 s), negligible for display and flip timing,
+// and relies only on the box clock, which the driver already trusts for UTCDate.
 func (t *Telescope) SiderealTime() float64 {
-	if m := t.mount(); m != nil {
-		if v, err := m.SiderealTime(); err == nil {
-			return t.setF(&t.snap.lst, v)
-		}
-	}
-	return t.getF(&t.snap.lst)
+	t.mu.Lock()
+	lon := t.siteLon
+	t.mu.Unlock()
+	return localSiderealTime(time.Now().UTC(), lon)
 }
 
-func (t *Telescope) Slewing() bool {
-	if m := t.mount(); m != nil {
-		if v, err := m.Slewing(); err == nil {
-			return t.setB(&t.snap.slewing, v)
-		}
+// localSiderealTime returns mean local sidereal time in hours (0..24) for a UTC instant
+// and site longitude in degrees east: GMST from the J2000 linear term, plus longitude.
+func localSiderealTime(utc time.Time, lonDegEast float64) float64 {
+	jd := 2440587.5 + float64(utc.Unix())/86400.0 + float64(utc.Nanosecond())/86400e9
+	d := jd - 2451545.0 // days since J2000.0
+	gmst := math.Mod(18.697374558+24.06570982441908*d, 24)
+	lst := math.Mod(gmst+lonDegEast/15, 24)
+	if lst < 0 {
+		lst += 24
 	}
-	return t.getB(&t.snap.slewing)
-}
-
-func (t *Telescope) Tracking() bool {
-	if m := t.mount(); m != nil {
-		if v, err := m.Tracking(); err == nil {
-			return t.setB(&t.snap.tracking, v)
-		}
-	}
-	return t.getB(&t.snap.tracking)
-}
-
-func (t *Telescope) AtPark() bool {
-	if m := t.mount(); m != nil {
-		if v, err := m.AtPark(); err == nil {
-			return t.setB(&t.snap.atPark, v)
-		}
-	}
-	return t.getB(&t.snap.atPark)
-}
-
-func (t *Telescope) AtHome() bool {
-	if m := t.mount(); m != nil {
-		if v, err := m.AtHome(); err == nil {
-			return t.setB(&t.snap.atHome, v)
-		}
-	}
-	return t.getB(&t.snap.atHome)
+	return lst
 }
 
 func (t *Telescope) FindHome() error {
@@ -284,14 +361,6 @@ func (t *Telescope) FindHome() error {
 }
 
 func (t *Telescope) SideOfPier() alpacadev.PierSide {
-	if m := t.mount(); m != nil {
-		if ps, err := m.PierSide(); err == nil {
-			t.mu.Lock()
-			t.snap.pier = alpacadev.PierSide(ps)
-			t.mu.Unlock()
-			return alpacadev.PierSide(ps)
-		}
-	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.snap.pier

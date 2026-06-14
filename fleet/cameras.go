@@ -47,6 +47,35 @@ func (s *ccdSource) Frame() (int, int, []byte, error) {
 	return f.Width, f.Height, f.Pixels, nil
 }
 
+// asiCCDSource is a ccdSource that also exposes the ASI camera's gain, offset, and
+// subframe ROI, so the INDI CCD device advertises CCD_CONTROLS and CCD_FRAME. It drives
+// the astrocam camera object's Go methods directly — the Alpaca HTTP server is a
+// separate, parallel front-end over the same object, not in this path.
+type asiCCDSource struct {
+	ccdSource
+	cam *asicamdrv.PureASICamera
+}
+
+func (s *asiCCDSource) Gain() (int, int, int)   { return s.cam.Gain(), s.cam.GainMin(), s.cam.GainMax() }
+func (s *asiCCDSource) SetGain(n int) error     { return s.cam.SetGain(n) }
+func (s *asiCCDSource) Offset() (int, int, int) { return s.cam.Offset(), s.cam.OffsetMin(), s.cam.OffsetMax() }
+func (s *asiCCDSource) SetOffset(n int) error   { return s.cam.SetOffset(n) }
+func (s *asiCCDSource) Subframe() (int, int, int, int) {
+	return s.cam.StartX(), s.cam.StartY(), s.cam.NumX(), s.cam.NumY()
+}
+func (s *asiCCDSource) SetSubframe(x, y, w, h int) error {
+	if err := s.cam.SetStartX(x); err != nil {
+		return err
+	}
+	if err := s.cam.SetStartY(y); err != nil {
+		return err
+	}
+	if err := s.cam.SetNumX(w); err != nil {
+		return err
+	}
+	return s.cam.SetNumY(h)
+}
+
 // astrocamINDI adds the LiveCamera seam to the astrocam Alpaca driver, so it appears
 // over INDI as a guide camera. astrocam itself needs no changes — this fleet-side
 // wrapper adapts its existing Alpaca camera surface. The Alpaca behaviour is
@@ -54,11 +83,11 @@ func (s *ccdSource) Frame() (int, int, []byte, error) {
 // connection so the INDI CCD device only drives the camera once it is acquired.
 type astrocamINDI struct {
 	*asicamdrv.PureASICamera
-	src *ccdSource
+	src ccd.Camera
 }
 
 func newAstrocamINDI(c *asicamdrv.PureASICamera) *astrocamINDI {
-	return &astrocamINDI{PureASICamera: c, src: &ccdSource{c: c}}
+	return &astrocamINDI{PureASICamera: c, src: &asiCCDSource{ccdSource: ccdSource{c: c}, cam: c}}
 }
 
 func (a *astrocamINDI) LiveCamera() (ccd.Camera, error) {
@@ -69,6 +98,10 @@ func (a *astrocamINDI) LiveCamera() (ccd.Camera, error) {
 }
 
 var (
-	_ ccd.Camera = (*ccdSource)(nil)
-	_ liveCamera = (*astrocamINDI)(nil)
+	_ ccd.Camera           = (*ccdSource)(nil)
+	_ ccd.Camera           = (*asiCCDSource)(nil)
+	_ ccd.GainController   = (*asiCCDSource)(nil)
+	_ ccd.OffsetController = (*asiCCDSource)(nil)
+	_ ccd.Subframer        = (*asiCCDSource)(nil)
+	_ liveCamera           = (*astrocamINDI)(nil)
 )
