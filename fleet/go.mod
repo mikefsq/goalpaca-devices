@@ -7,9 +7,9 @@ go 1.25.0
 replace (
 	github.com/mikefsq/asiam5-alpaca => ../asiam5
 	github.com/mikefsq/asicam-alpaca => ../astrocam
-	github.com/mikefsq/astrocam => ../../astrocam
 	github.com/mikefsq/asieaf-alpaca => ../asieaf
 	github.com/mikefsq/asiefw-alpaca => ../asiefw
+	github.com/mikefsq/astrocam => ../../astrocam
 	github.com/mikefsq/focuscube-alpaca => ../focuscube
 	github.com/mikefsq/focuslynx-alpaca => ../focuslynx
 	github.com/mikefsq/goalpaca => ../../goalpaca
@@ -23,7 +23,6 @@ replace (
 	github.com/mikefsq/optec-astro => ../../optec
 	github.com/mikefsq/pegasus-astro => ../../pegasus-astro
 	github.com/mikefsq/playeroneAstro => ../../playeroneAstro
-	github.com/mikefsq/poaefw-alpaca => ../poaefw
 	github.com/mikefsq/rst-alpaca => ../rst
 	github.com/mikefsq/tenmicron-alpaca => ../tenmicron
 )
@@ -31,9 +30,9 @@ replace (
 require (
 	github.com/mikefsq/asiam5-alpaca v0.0.0-00010101000000-000000000000
 	github.com/mikefsq/asicam-alpaca v0.0.0-00010101000000-000000000000
-	github.com/mikefsq/astrocam v0.0.0
 	github.com/mikefsq/asieaf-alpaca v0.0.0-00010101000000-000000000000
 	github.com/mikefsq/asiefw-alpaca v0.0.0-00010101000000-000000000000
+	github.com/mikefsq/astrocam v0.0.0
 	github.com/mikefsq/focuscube-alpaca v0.0.0-00010101000000-000000000000
 	github.com/mikefsq/focuslynx-alpaca v0.0.0-00010101000000-000000000000
 	github.com/mikefsq/goalpaca v0.1.0
@@ -42,9 +41,9 @@ require (
 	github.com/mikefsq/oasisfoc-alpaca v0.0.0-00010101000000-000000000000
 	github.com/mikefsq/oasisfw-alpaca v0.0.0-00010101000000-000000000000
 	github.com/mikefsq/onstep-alpaca v0.0.0-00010101000000-000000000000
-	github.com/mikefsq/poaefw-alpaca v0.0.0-00010101000000-000000000000
 	github.com/mikefsq/rst-alpaca v0.0.0-00010101000000-000000000000
 	github.com/mikefsq/tenmicron-alpaca v0.0.0-00010101000000-000000000000
+	golang.org/x/net v0.46.0
 )
 
 require (

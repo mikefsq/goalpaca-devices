@@ -51,7 +51,8 @@ type PureASICamera struct {
 	mu        sync.Mutex
 	hwPresent atomic.Bool // camera open; read lock-free by Connected()
 	exposeOp  alpacadev.Op
-	frame     []byte // last readout, raw little-endian
+	exposeWG  sync.WaitGroup // tracks the in-flight runExposure goroutine, so teardown joins it before Close frees the handle
+	frame     []byte         // last readout, raw little-endian
 	frameW    int
 	frameH    int
 	frameBpp  int // bytes/pixel of the last readout (2 = RAW16, 1 = RAW8)
@@ -109,14 +110,26 @@ func (c *PureASICamera) Open(ctx context.Context) error {
 
 // Close releases the camera on graceful shutdown only (cam.Close stops cooling + USB).
 func (c *PureASICamera) Close(ctx context.Context) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.cam != nil && c.hwPresent.Load() {
-		_ = c.cam.StopExposure()
-		_ = c.cam.Close()
-		c.hwPresent.Store(false)
-	}
+	c.teardown()
 	return nil
+}
+
+// teardown aborts any in-flight exposure and waits for the readout goroutine to exit
+// before closing the camera, so no control transfer outlives the freed USB handle (the
+// use-after-free that crashed mid-readout on an unplug/reconnect). It must be called
+// WITHOUT holding c.mu: runExposure takes c.mu as it finishes, so joining it under the
+// lock would deadlock. cam.Close is idempotent, so this is safe to call more than once.
+func (c *PureASICamera) teardown() {
+	if c.hwPresent.Load() {
+		_ = c.AbortExposure() // signal the in-flight readout to unwind (sets aborted + StopExposure)
+	}
+	c.exposeWG.Wait() // join it before freeing the handle
+	c.mu.Lock()
+	if c.cam != nil {
+		_ = c.cam.Close()
+	}
+	c.hwPresent.Store(false)
+	c.mu.Unlock()
 }
 
 // Connected reports hardware presence; the Alpaca logical connection IS the hardware state.
@@ -164,10 +177,7 @@ func (c *PureASICamera) manageHardware(ctx context.Context) {
 			continue
 		}
 		log.Printf("asicam-alpaca: camera %s unplugged (x%d); re-acquiring", c.ID, misses)
-		c.mu.Lock()
-		_ = c.cam.Close()
-		c.hwPresent.Store(false)
-		c.mu.Unlock()
+		c.teardown()
 		misses = 0
 	}
 }
@@ -397,6 +407,7 @@ func (c *PureASICamera) StartExposure(duration float64, light bool) error {
 	c.mu.Unlock()
 
 	c.exposeOp.Begin()
+	c.exposeWG.Add(1)
 	go c.runExposure(light)
 	return nil
 }
@@ -405,6 +416,7 @@ func (c *PureASICamera) StartExposure(duration float64, light bool) error {
 // host-timed integration + readout, so this whole call lives in its own goroutine and never
 // holds the adapter mu across it (other handlers — temperature, cooler power — keep working).
 func (c *PureASICamera) runExposure(light bool) {
+	defer c.exposeWG.Done()
 	c.mu.Lock()
 	w, h := c.numX, c.numY
 	c.mu.Unlock()

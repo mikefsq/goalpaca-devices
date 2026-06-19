@@ -10,7 +10,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -69,6 +68,13 @@ func main() {
 		logger = log.New(os.Stderr, "alpaca ", log.LstdFlags|log.Lmsgprefix)
 	}
 
+	// Resolve "listen" into concrete bind addresses (one per interface address, both
+	// stacks) and the interfaces they live on. Empty means bind every interface.
+	listenAddrs, listenIfaces, err := resolveListen(cfg.Listen)
+	if err != nil {
+		log.Fatalf("astrofleet: %v", err)
+	}
+
 	c := counters{}
 	var servers []*alpacadev.Server
 	var ports []int
@@ -83,6 +89,7 @@ func main() {
 		}
 		srv := alpacadev.New(alpacadev.Config{
 			AlpacaPort:          spec.Port,
+			Hosts:               listenAddrs,
 			Discovery:           alpacadev.DiscoveryConfig{Mode: alpacadev.DiscoveryOff},
 			ServerName:          "astrofleet",
 			Manufacturer:        "mikefsq",
@@ -104,7 +111,9 @@ func main() {
 		servers = append(servers, srv)
 		ports = append(ports, spec.Port)
 		devices = append(devices, b)
-		log.Printf("astrofleet: %s on :%d", spec.Driver, spec.Port)
+		for _, line := range listenLines(spec.Port, listenAddrs) {
+			log.Printf("astrofleet: %s on %s", spec.Driver, line)
+		}
 	}
 	if len(servers) == 0 {
 		log.Fatalf("astrofleet: no enabled devices in %s", *cfgPath)
@@ -114,14 +123,14 @@ func main() {
 	defer stop()
 
 	if !strings.EqualFold(cfg.Discovery, "off") {
-		if err := runDiscovery(ctx, ports, cfg.IPv6); err != nil {
+		if err := runDiscovery(ctx, ports, cfg.ipv6Enabled(), listenIfaces); err != nil {
 			log.Fatalf("astrofleet: discovery: %v", err)
 		}
 		log.Printf("astrofleet: discovery responder on :%d for %d port(s)", discoveryPort, len(ports))
 	}
 
-	startINDI(ctx, cfg, devices)
-	startBridges(ctx, cfg, devices)
+	startINDI(ctx, cfg, devices, listenAddrs)
+	startBridges(ctx, cfg, devices, listenAddrs)
 
 	errc := make(chan error, len(servers))
 	for _, s := range servers {
@@ -144,11 +153,12 @@ func main() {
 // device drives the same mount object the Alpaca server does — it is a sibling
 // front-end, not a layer over it. INDI has no discovery, so the device names (which
 // clients select by) must be unique; a collision is a startup error.
-func startINDI(ctx context.Context, cfg *Config, devices []built) {
+func startINDI(ctx context.Context, cfg *Config, devices []built, listenAddrs []string) {
 	if !cfg.Indi.Enable {
 		return
 	}
-	hub := indiserver.New(fmt.Sprintf(":%d", cfg.Indi.port()), indiserver.WithLogger(log.Printf))
+	indiAddrs := listenAddrsFor(cfg.Indi.port(), listenAddrs)
+	hub := indiserver.New(indiAddrs[0], indiserver.WithLogger(log.Printf), indiserver.WithListenAddrs(indiAddrs...))
 	added := 0
 	for _, b := range devices {
 		if !b.spec.indiEnabled() {
@@ -182,7 +192,7 @@ func startINDI(ctx context.Context, cfg *Config, devices []built) {
 		return
 	}
 	go func() {
-		log.Printf("astrofleet: INDI server on :%d for %d device(s)", cfg.Indi.port(), added)
+		log.Printf("astrofleet: INDI server on %v for %d device(s)", indiAddrs, added)
 		if err := hub.Serve(ctx); err != nil && ctx.Err() == nil {
 			log.Printf("astrofleet: indi: %v", err)
 		}
@@ -193,7 +203,7 @@ func startINDI(ctx context.Context, cfg *Config, devices []built) {
 // Each mount needs its own port (the LX200 protocol can't multiplex), so when the
 // fleet-level "lx200" block is enabled every mount gets one assigned from BasePort
 // upward; a mount can pin its own with "lx200Port", which also enables it on its own.
-func startBridges(ctx context.Context, cfg *Config, devices []built) {
+func startBridges(ctx context.Context, cfg *Config, devices []built, listenAddrs []string) {
 	next := cfg.LX200.basePort()
 	for _, b := range devices {
 		lm, ok := b.dev.(liveMounter)
@@ -215,14 +225,18 @@ func startBridges(ctx context.Context, cfg *Config, devices []built) {
 		if cfg.LX200.ReadOnlySite {
 			opts = append(opts, bridge.WithReadOnlySite())
 		}
-		srv := bridge.New(fmt.Sprintf(":%d", port), lm.LiveMount, opts...)
-		p := port
-		go func() {
-			log.Printf("astrofleet: LX200 bridge on :%d for %s", p, b.spec.Driver)
-			if err := srv.Serve(ctx); err != nil && ctx.Err() == nil {
-				log.Printf("astrofleet: lx200 bridge: %v", err)
-			}
-		}()
+		// LX200 can't multiplex, but it is stateless over LiveMount, so bind one
+		// server per listen address (matching the Alpaca/INDI bind set).
+		for _, addr := range listenAddrsFor(port, listenAddrs) {
+			srv := bridge.New(addr, lm.LiveMount, opts...)
+			a, driver := addr, b.spec.Driver
+			go func() {
+				log.Printf("astrofleet: LX200 bridge on %s for %s", a, driver)
+				if err := srv.Serve(ctx); err != nil && ctx.Err() == nil {
+					log.Printf("astrofleet: lx200 bridge: %v", err)
+				}
+			}()
+		}
 	}
 }
 

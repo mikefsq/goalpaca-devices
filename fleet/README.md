@@ -50,7 +50,6 @@ in list order (the first `focuser` is `focuser/0`, the next `focuser/1`, …).
 | `focuslynx` | focuser | `index` | `channel` (1 or 2) |
 | `asiefw` | filterwheel | `serial` or `index` | `unidirectional` |
 | `oasisfw` | filterwheel | `index` | |
-| `poaefw` | filterwheel | `serial` or `index` | `unidirectional` |
 
 All entries accept an optional `name` to override the device's display name.
 
@@ -70,7 +69,9 @@ object (state stays consistent across all of them).
   no discovery, so the port is fixed and names must be unique. Membership is **opt-in**:
   a device joins only when it sets `"indi": true` (default Alpaca-only). Mounts join as
   a telescope+guider; **`asicam` cameras join as a CCD guide camera** (CCD_INFO pixel
-  size + FITS frames) — so set `"indi": true` on your guide camera to drive it from PHD2.
+  size + FITS frames, plus the camera's gain, offset, and subframe ROI as `CCD_CONTROLS`
+  and `CCD_FRAME`, defined on connect with the camera's live ranges) — so set
+  `"indi": true` on your guide camera to drive it from PHD2.
   A mount's `"guideRate"` (fraction of sidereal, default 0.5) is reported to PHD2;
   tenmicron and am5 report their *actual* rate from the mount and ignore this, while
   rst/onstep use the configured value.
@@ -94,6 +95,34 @@ object (state stays consistent across all of them).
 
 Alpaca clients (NINA) still auto-discover via UDP 32227 as before; these are additive.
 
+The discovery responder answers both IPv4 broadcast and IPv6 multicast (group
+`ff12::a1:9aca`), so clients find the fleet over whichever they use. IPv6 is on by
+default and joins the group on every multicast-capable interface; set `"ipv6": false`
+to bind IPv4 only. On a host with no usable IPv6 the responder logs once and IPv4 is
+unaffected.
+
+#### Restricting which interfaces the fleet serves (`listen`)
+
+By default every server binds the wildcard (`:port`) — all interfaces, both IP
+stacks. Set top-level `"listen"` to restrict the fleet to specific interfaces. It is
+applied **consistently** to the Alpaca device servers, the LX200 bridges, the INDI
+hub, *and* discovery (which then only advertises where the fleet actually listens).
+Each entry is either:
+
+- **an interface name** (e.g. `"en0"`, or `"eth0"`/`"lo"` on Linux) — expands to *all*
+  of that interface's addresses: IPv4, IPv6 global, and IPv6 link-local. **Use this to
+  serve both IP stacks** on an interface. Robust to DHCP since the name is stable.
+- **an IP literal** (e.g. `"10.0.1.20"`) — binds exactly that one address. Note a bare
+  IPv4 literal serves **IPv4 only** (no IPv6); name the interface to get both.
+
+```json
+"listen": ["lo", "eth0"]
+```
+
+serves loopback and the wired NIC (both stacks) and keeps the fleet off everything
+else — e.g. a VM bridge. The startup log prints one line per bound address. Omit
+`listen` to bind all interfaces.
+
 ### Simulated devices (client development)
 
 For developing a client with no hardware, the fleet has `sim-*` drivers — one per
@@ -108,7 +137,8 @@ go run . -config config/fleet.sim.json    # a full simulated fleet, each on its 
 `sim-telescope` and `sim-camera` also light up the **INDI front-ends** — the mount
 appears over INDI (`:7624`) and LX200 (`:4030`), and a `sim-camera` with `"indi": true`
 appears as an **INDI guide camera** (CCD_INFO pixel size + FITS frames over the CCD1
-BLOB). So `fleet.sim.json` is a full no-hardware testbed: PHD2 can connect the sim mount
+BLOB). The sim camera exposes no gain/offset/subframe, so — unlike `asicam` — it omits
+`CCD_CONTROLS`/`CCD_FRAME`. So `fleet.sim.json` is a full no-hardware testbed: PHD2 can connect the sim mount
 *and* the sim guide camera over INDI and run the whole guide loop, Stellarium can slew
 the mount over LX200, and your Alpaca client drives everything. The remaining `sim-*`
 devices are Alpaca-only until the matching INDI device types exist.

@@ -1,7 +1,6 @@
 {
   "discovery": "direct",
-  "ipv6": false,
-
+  "listen": ["en0"],
   "indi":  { "enable": true, "port": 7624 },
   "lx200": { "enable": true, "basePort": 4030 },
 
@@ -20,8 +19,6 @@
 
     { "driver": "focuslynx", "port": 11122, "index": 0, "channel": 1, "enable": false },
 
-    { "driver": "oasisfw", "port": 11123, "index": 0 },
-
-    { "driver": "poaefw", "port": 11124, "serial": "EFW01234", "unidirectional": true, "enable": false  }
+    { "driver": "oasisfw", "port": 11123, "index": 0 }
   ]
 }

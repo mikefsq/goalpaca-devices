@@ -11,10 +11,22 @@ import (
 // discovery responder) hosting exactly the devices listed in Devices. A device is
 // "enabled" by appearing in the list; remove it to disable it.
 type Config struct {
-	Port            int    `json:"port"`
-	Discovery       string `json:"discovery"` // direct | register | off
-	DiscoveryServer string `json:"discoveryServer,omitempty"`
-	IPv6            bool   `json:"ipv6,omitempty"`
+	Discovery string `json:"discovery"` // direct | off
+
+	// Listen restricts which interfaces the fleet serves on, applied consistently to
+	// the Alpaca servers, LX200 bridges, INDI hub, and discovery (which then only
+	// advertises where it listens). Each entry is an interface name (e.g. "en0",
+	// "eth0", "lo") — expanding to all of its addresses, both IP stacks — or an IP
+	// literal (binding just that address; a bare IPv4 literal is IPv4-only). Empty
+	// (the default) binds every interface (":port") on both stacks. See resolveListen.
+	Listen []string `json:"listen,omitempty"`
+
+	// IPv6 also answers Alpaca discovery over IPv6 multicast (group ff12::a1:9aca),
+	// alongside the always-on IPv4 broadcast responder. Defaults to true (the field
+	// is a pointer, so an omitted value still means on) since Alpaca clients probe
+	// over both; set "ipv6": false to bind IPv4 only. Best-effort: on a host with no
+	// usable IPv6 it logs once and IPv4 discovery is unaffected.
+	IPv6 *bool `json:"ipv6,omitempty"`
 
 	// LogRequests logs one line per HTTP request (client address, method, URI,
 	// response status, duration). Defaults to true (the field is a pointer so an
@@ -76,6 +88,9 @@ func (i IndiConfig) port() int {
 // logRequests reports whether per-request logging is enabled (default true).
 func (c *Config) logRequests() bool { return c.LogRequests == nil || *c.LogRequests }
 
+// ipv6Enabled reports whether IPv6 discovery should be answered (default true).
+func (c *Config) ipv6Enabled() bool { return c.IPv6 == nil || *c.IPv6 }
+
 // indiEnabled reports whether this device should join the INDI hub. Opt-in: a device
 // joins only when it sets "indi": true; the default is Alpaca-only.
 func (d DeviceSpec) indiEnabled() bool { return d.Indi != nil && *d.Indi }
@@ -92,7 +107,7 @@ func (d DeviceSpec) enabled() bool { return d.Enable == nil || *d.Enable }
 // Bind by a stable identity where the driver supports one (serial / TCP addr);
 // otherwise the device is selected by enumeration Index (0-based).
 type DeviceSpec struct {
-	Driver string `json:"driver"` // tenmicron|asiam5|onstep|rst|asicam|asieaf|asiefw|oasisfoc|oasisfw|poaefw|focuscube|focuslynx
+	Driver string `json:"driver"` // tenmicron|asiam5|onstep|rst|asicam|asieaf|asiefw|oasisfoc|oasisfw|focuscube|focuslynx
 	Name   string `json:"name,omitempty"`
 
 	// Enable toggles this device without removing its entry. Defaults to true
@@ -113,7 +128,7 @@ type DeviceSpec struct {
 	LX200Port int `json:"lx200Port,omitempty"`
 
 	Index    int    `json:"index,omitempty"`    // enumeration index (index-bound drivers)
-	Serial   string `json:"serial,omitempty"`   // stable USB serial (asicam/asieaf/asiefw/poaefw/focuscube and serial mounts)
+	Serial   string `json:"serial,omitempty"`   // stable USB serial (asicam/asieaf/asiefw/focuscube and serial mounts)
 	Nickname string `json:"nickname,omitempty"` // stable protocol nickname (focuslynx; resolves hub+channel at connect)
 	Addr     string `json:"addr,omitempty"`     // TCP host:port (tenmicron, networked mounts)
 

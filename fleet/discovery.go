@@ -10,6 +10,8 @@ import (
 	"time"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	"golang.org/x/net/ipv4"
+	"golang.org/x/net/ipv6"
 )
 
 const (
@@ -23,7 +25,11 @@ const (
 // fixed at startup (all devices are in-process and known), so there is no
 // heartbeat. The socket is bound with SO_REUSEADDR/SO_REUSEPORT so it co-binds
 // alongside other (non-Go / vendor) Alpaca servers answering on 32227.
-func runDiscovery(ctx context.Context, ports []int, ipv6 bool) error {
+// runDiscovery starts the fleet discovery responder. When ifaces is non-empty
+// (i.e. "listen" scopes the fleet to specific interfaces), discovery answers only
+// on those interfaces — so it advertises the fleet exactly where it actually
+// listens. A nil/empty ifaces answers on every interface (the wildcard default).
+func runDiscovery(ctx context.Context, ports []int, ipv6 bool, ifaces map[int]bool) error {
 	resp := make([][]byte, len(ports))
 	for i, p := range ports {
 		resp[i], _ = json.Marshal(struct {
@@ -36,25 +42,90 @@ func runDiscovery(ctx context.Context, ports []int, ipv6 bool) error {
 	if err != nil {
 		return err
 	}
-	go serveDiscovery(ctx, pc.(*net.UDPConn), resp)
+	go serveDiscovery(ctx, pc.(*net.UDPConn), resp, ifaces)
 
 	if ipv6 {
-		gaddr := &net.UDPAddr{IP: net.ParseIP(discoveryV6Group), Port: discoveryPort}
-		if c6, err := net.ListenMulticastUDP("udp6", nil, gaddr); err != nil {
-			log.Printf("astrofleet: discovery IPv6 join failed: %v", err)
-		} else {
-			go serveDiscovery(ctx, c6, resp)
+		if err := listenV6(ctx, lc, resp, ifaces); err != nil {
+			log.Printf("astrofleet: discovery IPv6 disabled: %v", err)
 		}
 	}
 	return nil
 }
 
-func serveDiscovery(ctx context.Context, c *net.UDPConn, resp [][]byte) {
+// listenV6 answers Alpaca IPv6 discovery probes. It binds one [::]:32227 socket
+// and joins the Alpaca multicast group on every up, multicast-capable interface,
+// so the fleet is discoverable on all links. net.ListenMulticastUDP(…, nil, …)
+// joins only the one kernel-chosen interface, which misses clients probing from a
+// different NIC (e.g. ethernet vs Wi-Fi) — Alpaca clients probe on each of theirs.
+// Best-effort: a per-interface join failure is skipped; only a total failure (no
+// IPv6, no interface joined) returns an error and leaves IPv4 discovery running.
+func listenV6(ctx context.Context, lc net.ListenConfig, resp [][]byte, ifaces map[int]bool) error {
+	pc, err := lc.ListenPacket(ctx, "udp6", fmt.Sprintf("[::]:%d", discoveryPort))
+	if err != nil {
+		return err
+	}
+	conn := pc.(*net.UDPConn)
+	group := &net.UDPAddr{IP: net.ParseIP(discoveryV6Group)}
+	p := ipv6.NewPacketConn(conn)
+	ifs, _ := net.Interfaces()
+	var joined int
+	for i := range ifs {
+		ifi := ifs[i]
+		if ifi.Flags&net.FlagUp == 0 || ifi.Flags&net.FlagMulticast == 0 {
+			continue
+		}
+		if len(ifaces) > 0 && !ifaces[ifi.Index] {
+			continue // "listen" scopes us off this interface
+		}
+		if err := p.JoinGroup(&ifi, group); err == nil {
+			joined++
+		}
+	}
+	if joined == 0 {
+		conn.Close()
+		return fmt.Errorf("no multicast-capable interface joined %s", discoveryV6Group)
+	}
+	log.Printf("astrofleet: discovery IPv6 on [%s]:%d (%d interface(s))", discoveryV6Group, discoveryPort, joined)
+	go serveDiscovery(ctx, conn, resp, nil) // reception is already limited to joined interfaces
+	return nil
+}
+
+// serveDiscovery answers probes on c. When ifaces is non-empty it replies only to
+// probes that arrived on one of those interfaces (so a "listen"-scoped fleet does
+// not advertise on interfaces it isn't serving); a nil ifaces answers on all.
+func serveDiscovery(ctx context.Context, c *net.UDPConn, resp [][]byte, ifaces map[int]bool) {
 	defer c.Close()
+
+	// Interface-scoped path: read the inbound interface via a control message and
+	// drop probes from interfaces we don't listen on. Falls back to answering all if
+	// the OS won't report the inbound interface.
+	var p *ipv4.PacketConn
+	if len(ifaces) > 0 {
+		p = ipv4.NewPacketConn(c)
+		if err := p.SetControlMessage(ipv4.FlagInterface, true); err != nil {
+			p = nil
+		}
+	}
+
 	buf := make([]byte, 2048)
 	for ctx.Err() == nil {
 		_ = c.SetReadDeadline(time.Now().Add(time.Second))
-		n, src, err := c.ReadFromUDP(buf)
+		var (
+			n   int
+			src net.Addr
+			err error
+		)
+		if p != nil {
+			var cm *ipv4.ControlMessage
+			n, cm, src, err = p.ReadFrom(buf)
+			if err == nil && cm != nil && !ifaces[cm.IfIndex] {
+				continue // probe arrived on an interface we don't serve
+			}
+		} else {
+			var ua *net.UDPAddr
+			n, ua, err = c.ReadFromUDP(buf)
+			src = ua
+		}
 		if err != nil {
 			continue
 		}
@@ -62,7 +133,7 @@ func serveDiscovery(ctx context.Context, c *net.UDPConn, resp [][]byte) {
 			continue
 		}
 		for _, b := range resp {
-			_, _ = c.WriteToUDP(b, src) // one datagram per device port
+			_, _ = c.WriteTo(b, src) // one datagram per device port
 		}
 	}
 }

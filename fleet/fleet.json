@@ -1,9 +1,8 @@
 {
   "discovery": "direct",
-  "ipv6": false,
-
+  "listen": ["bridge100", "en0"],
   "indi":  { "enable": true, "port": 7624 },
-  "lx200": { "enable": true, "basePort": 4030, "readOnlySite": true },
+  "lx200": { "enable": true, "basePort": 4030},
 
   "devices": [
     { "driver": "tenmicron", "port": 11110, "name": "10Micron", "addr": "192.168.3.10:3492",
@@ -13,6 +12,7 @@
 
     { "driver": "asicam", "port": 11111, "serial": "2e19c40425000900", "name": "Main camera" },
     { "driver": "asicam", "port": 11112, "serial": "1810190e15000900", "name": "Guide camera", "indi": true },
+    { "driver": "asicam", "port": 11113, "serial": "282cd5081b090900", "name": "Guide2 camera", "indi": true },
 
     { "driver": "oasisfoc", "port": 11120, "index": 0 },
 

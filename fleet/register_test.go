@@ -166,7 +166,7 @@ func TestRegisterErrors(t *testing.T) {
 func TestLoadConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "fleet.json")
-	const body = `{"port":12000,"discovery":"off","devices":[{"driver":"oasisfoc"},{"driver":"tenmicron","addr":"x:1"}]}`
+	const body = `{"discovery":"off","listen":["lo0"],"devices":[{"driver":"oasisfoc"},{"driver":"tenmicron","addr":"x:1"}]}`
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestLoadConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Port != 12000 || cfg.Discovery != "off" || len(cfg.Devices) != 2 {
+	if cfg.Discovery != "off" || len(cfg.Listen) != 1 || len(cfg.Devices) != 2 {
 		t.Fatalf("parsed config wrong: %+v", cfg)
 	}
 
