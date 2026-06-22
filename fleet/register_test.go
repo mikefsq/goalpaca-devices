@@ -187,3 +187,24 @@ func TestLoadConfig(t *testing.T) {
 		t.Error("unknown config field should be rejected")
 	}
 }
+
+// TestPerPortServersNumberFromZero: each device runs on its OWN per-port Alpaca server
+// (as main.go wires it), so its ASCOM device number must be 0 on that server — even the
+// fleet's 2nd/3rd camera. A fleet-global counter used to make them camera/1, camera/2, so
+// a client (PHD2) pointed at that port and asking for camera/0 got HTTP 400.
+func TestPerPortServersNumberFromZero(t *testing.T) {
+	for _, serial := range []string{"camA", "camB", "camC"} {
+		srv := alpacadev.New(alpacadev.Config{
+			Discovery: alpacadev.DiscoveryConfig{Mode: alpacadev.DiscoveryOff}, ServerName: "t", Manufacturer: "t",
+		})
+		if _, err := registerDevice(srv, DeviceSpec{Driver: "asicam", Serial: serial}, 0, counters{}); err != nil {
+			t.Fatalf("registerDevice(%s): %v", serial, err)
+		}
+		ts := httptest.NewServer(http.HandlerFunc(srv.ServeHTTP))
+		devs := configured(t, ts.URL)
+		ts.Close()
+		if len(devs) != 1 || devs[0].DeviceType != "camera" || devs[0].DeviceNumber != 0 {
+			t.Errorf("serial %s: got %+v, want exactly one camera/0", serial, devs)
+		}
+	}
+}

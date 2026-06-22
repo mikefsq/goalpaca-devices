@@ -75,7 +75,6 @@ func main() {
 		log.Fatalf("astrofleet: %v", err)
 	}
 
-	c := counters{}
 	var servers []*alpacadev.Server
 	var ports []int
 	var devices []built
@@ -96,7 +95,13 @@ func main() {
 			ManufacturerVersion: "0.1.0",
 			Logger:              logger,
 		})
-		dev, err := registerDevice(srv, spec, spec.Port, c)
+		// Each device gets its OWN per-port Alpaca server, so its ASCOM device number must
+		// be assigned per-server (each starting at 0) — not across the whole fleet. A shared
+		// counter made the 2nd camera "camera/1" on its own port, so a client (PHD2) pointed
+		// at that port and asking for camera/0 got 400. A fresh per-server counter makes every
+		// camera "camera/0" on its port, and still numbers correctly if a server ever hosts
+		// several devices of one type.
+		dev, err := registerDevice(srv, spec, spec.Port, counters{})
 		if err != nil {
 			log.Fatalf("astrofleet: device %q: %v", spec.Driver, err)
 		}

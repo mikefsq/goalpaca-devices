@@ -1,6 +1,5 @@
 {
   "discovery": "direct",
-  "listen": ["bridge100", "en0"],
   "indi":  { "enable": true, "port": 7624 },
   "lx200": { "enable": true, "basePort": 4030},
 
@@ -11,8 +10,8 @@
       "indi": true, "guideRate": 0.5 },
 
     { "driver": "asicam", "port": 11111, "serial": "2e19c40425000900", "name": "Main camera" },
-    { "driver": "asicam", "port": 11112, "serial": "1810190e15000900", "name": "Guide camera", "indi": true },
-    { "driver": "asicam", "port": 11113, "serial": "282cd5081b090900", "name": "Guide2 camera", "indi": true },
+    { "driver": "asicam", "port": 11112, "serial": "1810190e15000900", "name": "MC camera", "indi": false },
+    { "driver": "asicam", "port": 11113, "serial": "282cd5081b090900", "name": "Guide camera", "indi": false },
 
     { "driver": "oasisfoc", "port": 11120, "index": 0 },
 
