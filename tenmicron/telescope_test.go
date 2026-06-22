@@ -83,9 +83,9 @@ func newStack(t *testing.T, replies map[string]string) (string, *fakeTransport) 
 	// the snapshot must be primed the way manage() does on connect.
 	merged := map[string]string{
 		":Ginfo#": "0.000000,0.000000,E,0.00000,0.00000,2451545.0,1,0#", // neutral status
-		":h?#":    "0",     // home not found — single status byte, no '#'
-		":Ggui#":  "15.0#", // guide rate (arcsec/s)
-		":GREF#":  "0",     // refraction off — single status byte, no '#'
+		":h?#":    "0",                                                  // home not found — single status byte, no '#'
+		":Ggui#":  "15.0#",                                              // guide rate (arcsec/s)
+		":GREF#":  "0",                                                  // refraction off — single status byte, no '#'
 	}
 	for k, v := range replies {
 		merged[k] = v
@@ -270,6 +270,7 @@ func TestCustomRates(t *testing.T) {
 	base, f := newStack(t, map[string]string{
 		":RR+000.5000#": "1", // RA 1:1
 		":RD+000.0665#": "1", // 1.0 arcsec/s ÷ 15.0410681 ≈ 0.0665
+		":Sdat1#":       "1", // a non-zero Dec rate auto-enables dual-axis tracking
 	})
 	for _, m := range []string{"cansetrightascensionrate", "cansetdeclinationrate"} {
 		if get(t, base, m).Value != true {
@@ -290,6 +291,9 @@ func TestCustomRates(t *testing.T) {
 	}
 	if !f.wrote(":RD+000.0665#") {
 		t.Errorf("Dec rate did not send :RD+000.0665#; writes=%v", f.writes)
+	}
+	if !f.wrote(":Sdat1#") { // the coupling: a non-zero Dec rate enables dual-axis tracking
+		t.Errorf("Dec rate did not enable dual-axis tracking (:Sdat1#); writes=%v", f.writes)
 	}
 	if v, _ := get(t, base, "declinationrate").Value.(float64); v != 1.0 {
 		t.Errorf("declinationrate readback = %v, want 1.0", v)
@@ -360,6 +364,45 @@ func TestSetEnvironmentPartial(t *testing.T) {
 		if strings.HasPrefix(unwanted, ":St") || strings.HasPrefix(unwanted, ":Sg") || strings.HasPrefix(unwanted, ":SUDT") {
 			t.Errorf("partial update sent an unrequested command %q", unwanted)
 		}
+	}
+}
+
+func TestDualAxisTrackingAction(t *testing.T) {
+	base, f := newStack(t, map[string]string{
+		":Gdat#":  "1#", // read-back (Get reads to '#')
+		":Sdat1#": "1",
+		":Sdat0#": "1",
+	})
+	sa, _ := get(t, base, "supportedactions").Value.([]any)
+	found := false
+	for _, a := range sa {
+		if s, _ := a.(string); s == "dualaxistracking" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("dualaxistracking not in supportedactions: %v", sa)
+	}
+	// read (empty params)
+	if r := put(t, base, "action", "Action=dualaxistracking&Parameters="); r.ErrorNumber != 0 || r.Value != "true" {
+		t.Errorf("read dualaxistracking = %v (err %d), want \"true\"", r.Value, r.ErrorNumber)
+	}
+	// set false / true
+	if r := put(t, base, "action", "Action=dualaxistracking&Parameters=false"); r.ErrorNumber != 0 {
+		t.Errorf("set dualaxistracking false: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":Sdat0#") {
+		t.Errorf("did not send :Sdat0#; writes=%v", f.writes)
+	}
+	if r := put(t, base, "action", "Action=dualaxistracking&Parameters=true"); r.ErrorNumber != 0 {
+		t.Errorf("set dualaxistracking true: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":Sdat1#") {
+		t.Errorf("did not send :Sdat1#; writes=%v", f.writes)
+	}
+	// bad param → InvalidValue
+	if r := put(t, base, "action", "Action=dualaxistracking&Parameters=maybe"); r.ErrorNumber != 0x401 {
+		t.Errorf("bad param: err %d, want 0x401", r.ErrorNumber)
 	}
 }
 

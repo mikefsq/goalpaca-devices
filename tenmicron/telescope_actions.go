@@ -18,7 +18,7 @@ import (
 // Action is a one-call convenience that applies any subset of all six fields.
 
 func (t *Telescope) SupportedActions() []string {
-	return []string{"setenvironment", "setrefractionpressure", "setrefractiontemperature", "setoptics"}
+	return []string{"setenvironment", "setrefractionpressure", "setrefractiontemperature", "setoptics", "dualaxistracking"}
 }
 
 func (t *Telescope) Action(name, params string) (string, error) {
@@ -27,6 +27,8 @@ func (t *Telescope) Action(name, params string) (string, error) {
 		return t.actionSetEnvironment(params)
 	case "setoptics":
 		return t.actionSetOptics(params)
+	case "dualaxistracking":
+		return t.actionDualAxisTracking(params)
 	case "setrefractionpressure":
 		v, err := strconv.ParseFloat(strings.TrimSpace(params), 64)
 		if err != nil {
@@ -49,6 +51,32 @@ func (t *Telescope) Action(name, params string) (string, error) {
 		return "", m.SetRefractionTemperature(v)
 	default:
 		return "", alpacadev.NewError(alpacadev.ErrNumNotImplemented, "unknown action "+name)
+	}
+}
+
+// actionDualAxisTracking reads or sets dual-axis tracking (:Gdat#/:SdatN#) — the mount
+// driving BOTH axes to follow the refraction/pointing model. There is no standard ASCOM
+// Telescope member for it, so it is exposed as an Action. params: empty or "?" reads and
+// returns "true"/"false"; "true"/"false" (also 1/0, on/off) sets it. Disabling is
+// equatorial-only — an AltAz mount rejects it (error surfaced to the caller).
+func (t *Telescope) actionDualAxisTracking(params string) (string, error) {
+	m := t.mount()
+	if m == nil {
+		return "", alpacadev.ErrNotConnected
+	}
+	switch strings.TrimSpace(strings.ToLower(params)) {
+	case "", "?", "get":
+		on, err := m.DualAxisTracking()
+		if err != nil {
+			return "", err
+		}
+		return strconv.FormatBool(on), nil
+	case "true", "1", "on":
+		return "", m.SetDualAxisTracking(true)
+	case "false", "0", "off":
+		return "", m.SetDualAxisTracking(false)
+	default:
+		return "", alpacadev.NewError(alpacadev.ErrNumInvalidValue, "dualaxistracking: want true/false (or empty to read)")
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	"github.com/mikefsq/lx200/tenmicron"
 )
 
 // This file wires the ASCOM Telescope members the base wrapper left as
@@ -97,6 +98,16 @@ func (t *Telescope) SetDeclinationRate(arcsecPerSec float64) error {
 	if m == nil {
 		return alpacadev.ErrNotConnected
 	}
+	// The mount's :RD declination offset only drives the axis while dual-axis tracking is
+	// on, so a non-zero Dec rate implies it — enable it first, else the rate silently
+	// no-ops. We do NOT auto-disable on zero: dual-axis tracking is also wanted for
+	// refraction following, and disabling is equatorial-only. Toggle it explicitly via the
+	// dualaxistracking Action.
+	if arcsecPerSec != 0 {
+		if err := m.SetDualAxisTracking(true); err != nil {
+			return err
+		}
+	}
 	if err := m.SetCustomDecRate(arcsecPerSec / siderealArcsecPerSec); err != nil {
 		return err
 	}
@@ -185,11 +196,20 @@ func (t *Telescope) setGuideRate(degPerSec float64) error {
 	if m == nil {
 		return alpacadev.ErrNotConnected
 	}
-	// One physical guide rate; setting either axis sets both.
-	if err := m.SetGuideRate(degPerSec * arcsecPerDeg); err != nil {
+	// One physical guide rate; setting either axis sets both. Clamp to the mount's
+	// supported band [0.1×, 1.0×] sidereal (the lib clamps the wire to the same bounds) so
+	// the value we store and report back matches what the mount actually accepted.
+	arcsec := degPerSec * arcsecPerDeg
+	if arcsec > tenmicron.GuideRateMaxArcsec {
+		arcsec = tenmicron.GuideRateMaxArcsec
+	}
+	if arcsec < tenmicron.GuideRateMinArcsec {
+		arcsec = tenmicron.GuideRateMinArcsec
+	}
+	if err := m.SetGuideRate(arcsec); err != nil {
 		return err
 	}
-	t.setF(&t.snap.guideRate, degPerSec)
+	t.setF(&t.snap.guideRate, arcsec/arcsecPerDeg)
 	return nil
 }
 
