@@ -164,11 +164,13 @@ list when they (re)connect.
 Everything logs to stderr, so under systemd it all lands in the journal
 (`journalctl -u astrofleet -f`):
 
-- **Client requests** — one line per Alpaca HTTP request: client address, method,
-  URI, response status, and duration (PUT form body included). On by default; set
-  `"logRequests": false` in the config to quiet a chatty client.
+- **Client requests / responses** — verbose per-request Alpaca HTTP logging and
+  per-message INDI traffic. **Off by default**; set `"debug": true` in the config to
+  enable. Lifecycle logs below (listening lines, device and INDI client
+  connect/disconnect) print regardless of `debug`.
   ```
   alpaca 2026/06/08 21:14:03 10.0.1.20:51514 GET /api/v1/telescope/0/rightascension -> 200 (1ms)
+  indi: <- 10.0.1.20:51520 getProperties device="" name=""
   ```
 - **Device connect / disconnect** — each driver logs when it acquires its hardware
   and when it loses it (with the error that caused the drop, then it reconnects):

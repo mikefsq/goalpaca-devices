@@ -63,7 +63,7 @@ func main() {
 	}
 
 	var logger *log.Logger
-	if cfg.logRequests() {
+	if cfg.Debug {
 		// One line per Alpaca request (client addr, method, URI, status, duration).
 		logger = log.New(os.Stderr, "alpaca ", log.LstdFlags|log.Lmsgprefix)
 	}
@@ -158,7 +158,10 @@ func startINDI(ctx context.Context, cfg *Config, devices []built, listenAddrs []
 		return
 	}
 	indiAddrs := listenAddrsFor(cfg.Indi.port(), listenAddrs)
-	hub := indiserver.New(indiAddrs[0], indiserver.WithLogger(log.Printf), indiserver.WithListenAddrs(indiAddrs...))
+	hub := indiserver.New(indiAddrs[0],
+		indiserver.WithLogger(log.Printf),
+		indiserver.WithListenAddrs(indiAddrs...),
+		indiserver.WithDebug(cfg.Debug))
 	added := 0
 	for _, b := range devices {
 		if !b.spec.indiEnabled() {

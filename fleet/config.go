@@ -28,10 +28,11 @@ type Config struct {
 	// usable IPv6 it logs once and IPv4 discovery is unaffected.
 	IPv6 *bool `json:"ipv6,omitempty"`
 
-	// LogRequests logs one line per HTTP request (client address, method, URI,
-	// response status, duration). Defaults to true (the field is a pointer so an
-	// omitted value still means on); set false to quiet a chatty client.
-	LogRequests *bool `json:"logRequests,omitempty"`
+	// Debug enables verbose per-request/response traffic logging for the Alpaca
+	// servers (one line per HTTP request) and the INDI hub (per-message traffic).
+	// Defaults to false. Lifecycle logs — the "listening" lines and INDI client
+	// connect/disconnect — print regardless.
+	Debug bool `json:"debug,omitempty"`
 
 	// Indi optionally hosts a single in-process INDI server (one port, devices that
 	// opt in via "indi": true, multiplexed by device name) for cross-platform clients
@@ -85,8 +86,6 @@ func (i IndiConfig) port() int {
 	return i.Port
 }
 
-// logRequests reports whether per-request logging is enabled (default true).
-func (c *Config) logRequests() bool { return c.LogRequests == nil || *c.LogRequests }
 
 // ipv6Enabled reports whether IPv6 discovery should be answered (default true).
 func (c *Config) ipv6Enabled() bool { return c.IPv6 == nil || *c.IPv6 }
