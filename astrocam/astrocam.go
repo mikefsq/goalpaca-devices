@@ -56,7 +56,14 @@ type PureASICamera struct {
 	frameW    int
 	frameH    int
 	frameBpp  int // bytes/pixel of the last readout (2 = RAW16, 1 = RAW8)
-	aborted   bool
+
+	// exposeEpoch tags each exposure generation. StartExposure and AbortExposure bump it;
+	// runExposure captures its value when it arms and, at completion, publishes its result
+	// (Op state + frame) ONLY if the epoch still matches. So a superseded or aborted readout
+	// that returns late is dropped instead of clobbering the exposure that replaced it — the
+	// abort→re-expose race that surfaced as client-caused exposure failures. Atomic: read by
+	// the readout goroutine without holding c.mu (which it never holds across the readout).
+	exposeEpoch atomic.Uint64
 
 	lastDuration float64
 	lastStart    time.Time
@@ -121,7 +128,7 @@ func (c *PureASICamera) Close(ctx context.Context) error {
 // lock would deadlock. cam.Close is idempotent, so this is safe to call more than once.
 func (c *PureASICamera) teardown() {
 	if c.hwPresent.Load() {
-		_ = c.AbortExposure() // signal the in-flight readout to unwind (sets aborted + StopExposure)
+		_ = c.AbortExposure() // signal the in-flight readout to unwind (bumps the epoch + StopExposure)
 	}
 	c.exposeWG.Wait() // join it before freeing the handle
 	c.mu.Lock()
@@ -403,22 +410,40 @@ func (c *PureASICamera) StartExposure(duration float64, light bool) error {
 	c.lastStart = time.Now().UTC()
 	c.haveLast = true
 	c.frame = nil
-	c.aborted = false
+	epoch := c.exposeEpoch.Add(1) // open a new generation; supersedes any in-flight readout
 	c.mu.Unlock()
 
 	c.exposeOp.Begin()
 	c.exposeWG.Add(1)
-	go c.runExposure(light)
+	go c.runExposure(light, epoch)
 	return nil
 }
+
+// readoutGrace bounds how long past the (host-timed) integration the frame readout may run
+// before the watchdog treats it as hung. A real USB readout of a full frame is sub-second, so
+// this only trips on a genuine stall — notably the USB2 174's worker, which can block forever on
+// a stalled bulk read. Generous on purpose: false-tripping a slow-but-valid read is worse than a
+// late recovery, so the deadline (2×exposure + this) sits well above any legitimate readout.
+const readoutGrace = 20 * time.Second
 
 // runExposure arms then reads one frame. astrocam.GetDataAfterExp blocks for the whole
 // host-timed integration + readout, so this whole call lives in its own goroutine and never
 // holds the adapter mu across it (other handlers — temperature, cooler power — keep working).
-func (c *PureASICamera) runExposure(light bool) {
+//
+// A watchdog bounds the readout: if it overruns the deadline, StopExposure unblocks the in-flight
+// bulk read so GetDataAfterExp returns and the op fails. Without it, a stalled read (seen on the
+// USB2 174) pins exposeOp at OpBusy forever — CameraState=Exposing, Busy()=true — so every later
+// StartExposure is rejected with InvalidOperation (1035) until the camera is manually aborted.
+//
+// epoch is this exposure's generation (see exposeEpoch). The readout can return AFTER an abort or
+// a superseding StartExposure has already moved on; in that case the epoch no longer matches and
+// this goroutine drops its result rather than publishing it onto an Op that now belongs to a
+// newer exposure.
+func (c *PureASICamera) runExposure(light bool, epoch uint64) {
 	defer c.exposeWG.Done()
 	c.mu.Lock()
 	w, h := c.numX, c.numY
+	dur := c.lastDuration
 	c.mu.Unlock()
 
 	bpp := c.cam.OutputDepth()
@@ -429,17 +454,37 @@ func (c *PureASICamera) runExposure(light bool) {
 		return
 	}
 	tArm := time.Now()
+
+	// Watchdog: preempt a hung readout after a generous deadline so the op can fail and recover.
+	deadline := 2*time.Duration(dur*float64(time.Second)) + readoutGrace
+	done := make(chan struct{})
+	var timedOut atomic.Bool
+	go func() {
+		select {
+		case <-done:
+		case <-time.After(deadline):
+			timedOut.Store(true)
+			_ = c.cam.StopExposure() // unblock the stalled bulk read so GetDataAfterExp returns
+		}
+	}()
+
 	n, err := c.cam.GetDataAfterExp(buf)
+	close(done)
 	if camDebug {
 		log.Printf("asicam-alpaca: %s exposure arm=%.0fms read=%.0fms total=%.0fms n=%d/%d",
 			c.ID, ms(tArm.Sub(t0)), ms(time.Since(tArm)), ms(time.Since(t0)), n, c.cam.FrameBytes())
 	}
 
-	c.mu.Lock()
-	aborted := c.aborted
-	c.mu.Unlock()
-	if aborted {
-		c.exposeOp.Reset()
+	// Publish only if still the current generation. An AbortExposure or a superseding
+	// StartExposure since this readout began has bumped the epoch; this result is stale and
+	// must not touch the shared Op/frame — doing so would Fail or Complete the exposure that
+	// replaced it (the abort→re-expose clobber). The superseding caller owns the Op now, and
+	// AbortExposure has already Reset it.
+	if c.exposeEpoch.Load() != epoch {
+		return
+	}
+	if timedOut.Load() {
+		c.exposeOp.Fail(fmt.Errorf("readout timed out after %s — camera not delivering frame", deadline))
 		return
 	}
 	if err != nil {
@@ -455,9 +500,7 @@ func (c *PureASICamera) runExposure(light bool) {
 }
 
 func (c *PureASICamera) AbortExposure() error {
-	c.mu.Lock()
-	c.aborted = true
-	c.mu.Unlock()
+	c.exposeEpoch.Add(1) // invalidate the in-flight readout: its late return must not publish
 	_ = c.cam.StopExposure()
 	c.exposeOp.Reset()
 	return nil
