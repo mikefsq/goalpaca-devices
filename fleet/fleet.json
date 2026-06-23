@@ -9,9 +9,9 @@
       "guiderAperture": 110, "guiderFocalLength": 550,
       "indi": true, "guideRate": 0.5 },
 
-    { "driver": "asicam", "port": 11111, "serial": "2e19c40425000900", "name": "Main camera", "indi": true },
-    { "driver": "asicam", "port": 11112, "serial": "1810190e15000900", "name": "MC camera", "indi": true },
-    { "driver": "asicam", "port": 11113, "serial": "282cd5081b090900", "name": "Guide camera", "indi": false },
+    { "driver": "asicam", "port": 11111, "serial": "2e19c40425000900", "name": "Main camera", "fixdefects": true, "indi": true },
+    { "driver": "asicam", "port": 11112, "serial": "1810190e15000900", "name": "MC camera", "fixdefects": true, "indi": true },
+    { "driver": "asicam", "port": 11113, "serial": "282cd5081b090900", "name": "Guide camera", "fixdefects": true, "indi": false },
 
     { "driver": "oasisfoc", "port": 11120, "index": 0 },
 

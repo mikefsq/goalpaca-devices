@@ -75,6 +75,12 @@ type PureASICamera struct {
 	startX, startY int
 	numX, numY     int
 
+	// Factory hot-pixel correction (gosnap -fixdefects parity). Off by default; enabled by
+	// the fleet "fixdefects" spec field via SetFixDefects. The per-unit defect map is read
+	// once from SPI flash and applied to full-frame RAW16 frames in runExposure.
+	fixDefects bool
+	defectMap  *astrocam.DefectMap
+
 	// Cached ranges (filled at acquire).
 	gainMin, gainMax     int
 	offsetMin, offsetMax int
@@ -105,6 +111,11 @@ func NewPureASICamera(index int, serial string) *PureASICamera {
 	}
 	return c
 }
+
+// SetFixDefects enables factory hot-pixel correction (mirrors gosnap -fixdefects): the
+// per-unit defect map read once from SPI flash, neighbour-averaged into full-frame RAW16
+// frames. Off by default; set by the fleet from the "fixdefects" device-spec field.
+func (c *PureASICamera) SetFixDefects(on bool) { c.fixDefects = on }
 
 // --- Hardware lifecycle ---
 
@@ -443,6 +454,7 @@ func (c *PureASICamera) runExposure(light bool, epoch uint64) {
 	defer c.exposeWG.Done()
 	c.mu.Lock()
 	w, h := c.numX, c.numY
+	sx, sy := c.startX, c.startY
 	dur := c.lastDuration
 	c.mu.Unlock()
 
@@ -491,12 +503,42 @@ func (c *PureASICamera) runExposure(light bool, epoch uint64) {
 		c.exposeOp.Fail(fmt.Errorf("readout: %w", err))
 		return
 	}
+	if c.fixDefects {
+		c.applyDefects(buf[:n], w, h, sx, sy, bpp)
+	}
 	c.mu.Lock()
 	c.frame = buf[:n]
 	c.frameW, c.frameH = w, h
 	c.frameBpp = bpp
 	c.mu.Unlock()
 	c.exposeOp.Complete()
+}
+
+// applyDefects applies the factory hot-pixel map to a full-frame RAW16 frame in place,
+// neighbour-averaging each hot/dead pixel — copied from gosnap -fixdefects (cmd/gosnap).
+// Full-frame RAW16 only (the map is full-sensor), so ROI / RAW8 / binned frames are left
+// raw. The map is read from SPI flash once and cached. Gated by SetFixDefects.
+func (c *PureASICamera) applyDefects(frame []byte, w, h, sx, sy, bpp int) {
+	info := c.cam.Info()
+	if bpp != 2 || sx != 0 || sy != 0 || w != info.MaxWidth || h != info.MaxHeight {
+		return // map is full-sensor RAW16 only
+	}
+	c.mu.Lock()
+	dm := c.defectMap
+	c.mu.Unlock()
+	if dm == nil {
+		loaded, err := c.cam.LoadDefectMap(info.MaxWidth, info.MaxHeight)
+		if err != nil {
+			if camDebug {
+				log.Printf("asicam-alpaca: %s fixdefects: load map: %v (frame left raw)", c.ID, err)
+			}
+			return
+		}
+		c.mu.Lock()
+		c.defectMap, dm = loaded, loaded
+		c.mu.Unlock()
+	}
+	dm.ApplyRAW16(frame)
 }
 
 func (c *PureASICamera) AbortExposure() error {

@@ -87,6 +87,7 @@ func registerDevice(srv *alpacadev.Server, spec DeviceSpec, port int, c counters
 	// ---- Cameras ----
 	case "asicam":
 		d := asicamdrv.NewPureASICamera(spec.Index, spec.Serial)
+		d.SetFixDefects(spec.FixDefects) // "fixdefects": true → factory hot-pixel correction
 		if spec.Name != "" {
 			d.DevName = spec.Name
 		}

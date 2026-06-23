@@ -212,7 +212,7 @@ func TestSyncToAltAz(t *testing.T) {
 
 func TestDestinationSideOfPier(t *testing.T) {
 	base, _ := newStack(t, map[string]string{
-		":Sr12:00:00#": "1", ":Sd+45*00:00#": "1", ":GTsid#": "2#", // 2 => West
+		":Sr12:00:00#": "1", ":Sd+45*00:00#": "1", ":GTsid#": "2", // 2 => West (bare digit, no '#')
 	})
 	r := getQ(t, base, "destinationsideofpier", "RightAscension=12.0&Declination=45.0")
 	if r.ErrorNumber != 0 {
@@ -224,7 +224,7 @@ func TestDestinationSideOfPier(t *testing.T) {
 }
 
 func TestSetPark(t *testing.T) {
-	base, f := newStack(t, map[string]string{":PyX#": "0#"})
+	base, f := newStack(t, map[string]string{":PyX#": "0"}) // bare status byte, no '#'
 	if r := put(t, base, "setpark", ""); r.ErrorNumber != 0 {
 		t.Errorf("setpark: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
 	}
@@ -369,7 +369,7 @@ func TestSetEnvironmentPartial(t *testing.T) {
 
 func TestDualAxisTrackingAction(t *testing.T) {
 	base, f := newStack(t, map[string]string{
-		":Gdat#":  "1#", // read-back (Get reads to '#')
+		":Gdat#":  "1", // read-back: single bare status byte, no '#' (AckByte)
 		":Sdat1#": "1",
 		":Sdat0#": "1",
 	})

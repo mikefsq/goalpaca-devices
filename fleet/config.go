@@ -86,7 +86,6 @@ func (i IndiConfig) port() int {
 	return i.Port
 }
 
-
 // ipv6Enabled reports whether IPv6 discovery should be answered (default true).
 func (c *Config) ipv6Enabled() bool { return c.IPv6 == nil || *c.IPv6 }
 
@@ -134,6 +133,7 @@ type DeviceSpec struct {
 	Channel        int  `json:"channel,omitempty"`        // focuslynx hub channel (1 or 2)
 	MaxStep        int  `json:"maxstep,omitempty"`        // focuscube travel (device doesn't report it)
 	Unidirectional bool `json:"unidirectional,omitempty"` // filter wheels: always rotate one way
+	FixDefects     bool `json:"fixdefects,omitempty"`     // asicam: apply the factory hot-pixel map to full-frame RAW16 frames (default off)
 
 	Aperture     float64 `json:"aperture,omitempty"`     // optics (telescopes): mm (e.g. 130)
 	ApertureArea float64 `json:"apertureArea,omitempty"` // optics: m² (default from diameter)

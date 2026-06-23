@@ -118,7 +118,7 @@ func (t *Telescope) manage(ctx context.Context) {
 		if !present {
 			m, err := tenmicron.Connect(t.addr)
 			if err == nil {
-				m.SetStatusTTL(mountCacheTTL) // poller is the sole :Ginfo# refresher; other front-ends ride its cache
+				m.SetStatusTTL(mountCacheTTL)                 // poller is the sole :Ginfo# refresher; other front-ends ride its cache
 				if perr := t.pollOnce(m, true); perr != nil { // prime the snapshot before clients see Connected
 					m.Close()
 					err = perr
