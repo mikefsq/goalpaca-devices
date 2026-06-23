@@ -51,19 +51,15 @@ type PureASICamera struct {
 	mu        sync.Mutex
 	hwPresent atomic.Bool // camera open; read lock-free by Connected()
 	exposeOp  alpacadev.Op
-	exposeWG  sync.WaitGroup // tracks the in-flight runExposure goroutine, so teardown joins it before Close frees the handle
+	exposeWG  sync.WaitGroup // tracks the in-flight runExposure goroutine; teardown and AbortExposure join it
+	// exposeMu serializes the StartExposure/AbortExposure lifecycle sequences so AbortExposure's
+	// join (exposeWG.Wait) can never race a concurrent StartExposure's exposeWG.Add. Held only
+	// across those short sequences, never across a readout (which takes c.mu, not this).
+	exposeMu sync.Mutex
 	frame     []byte         // last readout, raw little-endian
 	frameW    int
 	frameH    int
 	frameBpp  int // bytes/pixel of the last readout (2 = RAW16, 1 = RAW8)
-
-	// exposeEpoch tags each exposure generation. StartExposure and AbortExposure bump it;
-	// runExposure captures its value when it arms and, at completion, publishes its result
-	// (Op state + frame) ONLY if the epoch still matches. So a superseded or aborted readout
-	// that returns late is dropped instead of clobbering the exposure that replaced it — the
-	// abort→re-expose race that surfaced as client-caused exposure failures. Atomic: read by
-	// the readout goroutine without holding c.mu (which it never holds across the readout).
-	exposeEpoch atomic.Uint64
 
 	lastDuration float64
 	lastStart    time.Time
@@ -139,7 +135,7 @@ func (c *PureASICamera) Close(ctx context.Context) error {
 // lock would deadlock. cam.Close is idempotent, so this is safe to call more than once.
 func (c *PureASICamera) teardown() {
 	if c.hwPresent.Load() {
-		_ = c.AbortExposure() // signal the in-flight readout to unwind (bumps the epoch + StopExposure)
+		_ = c.AbortExposure() // signal the in-flight readout to unwind (StopExposure)
 	}
 	c.exposeWG.Wait() // join it before freeing the handle
 	c.mu.Lock()
@@ -421,12 +417,13 @@ func (c *PureASICamera) StartExposure(duration float64, light bool) error {
 	c.lastStart = time.Now().UTC()
 	c.haveLast = true
 	c.frame = nil
-	epoch := c.exposeEpoch.Add(1) // open a new generation; supersedes any in-flight readout
 	c.mu.Unlock()
 
+	c.exposeMu.Lock()
 	c.exposeOp.Begin()
 	c.exposeWG.Add(1)
-	go c.runExposure(light, epoch)
+	go c.runExposure(light)
+	c.exposeMu.Unlock()
 	return nil
 }
 
@@ -445,12 +442,7 @@ const readoutGrace = 20 * time.Second
 // bulk read so GetDataAfterExp returns and the op fails. Without it, a stalled read (seen on the
 // USB2 174) pins exposeOp at OpBusy forever — CameraState=Exposing, Busy()=true — so every later
 // StartExposure is rejected with InvalidOperation (1035) until the camera is manually aborted.
-//
-// epoch is this exposure's generation (see exposeEpoch). The readout can return AFTER an abort or
-// a superseding StartExposure has already moved on; in that case the epoch no longer matches and
-// this goroutine drops its result rather than publishing it onto an Op that now belongs to a
-// newer exposure.
-func (c *PureASICamera) runExposure(light bool, epoch uint64) {
+func (c *PureASICamera) runExposure(light bool) {
 	defer c.exposeWG.Done()
 	c.mu.Lock()
 	w, h := c.numX, c.numY
@@ -487,14 +479,6 @@ func (c *PureASICamera) runExposure(light bool, epoch uint64) {
 			c.ID, ms(tArm.Sub(t0)), ms(time.Since(tArm)), ms(time.Since(t0)), n, c.cam.FrameBytes())
 	}
 
-	// Publish only if still the current generation. An AbortExposure or a superseding
-	// StartExposure since this readout began has bumped the epoch; this result is stale and
-	// must not touch the shared Op/frame — doing so would Fail or Complete the exposure that
-	// replaced it (the abort→re-expose clobber). The superseding caller owns the Op now, and
-	// AbortExposure has already Reset it.
-	if c.exposeEpoch.Load() != epoch {
-		return
-	}
 	if timedOut.Load() {
 		c.exposeOp.Fail(fmt.Errorf("readout timed out after %s — camera not delivering frame", deadline))
 		return
@@ -541,10 +525,18 @@ func (c *PureASICamera) applyDefects(frame []byte, w, h, sx, sy, bpp int) {
 	dm.ApplyRAW16(frame)
 }
 
+// AbortExposure stops the in-flight readout and waits for its goroutine to fully exit before
+// returning, so the next StartExposure can never be clobbered by a late readout publishing onto
+// its Op. StopExposure unblocks the bulk read (the watchdog is the backstop if it doesn't); the
+// joined readout's terminal Complete/Fail is then cleared by Reset. Safe when nothing is exposing
+// (exposeWG.Wait returns immediately). Must not be called holding c.mu — runExposure takes c.mu as
+// it finishes, so joining it under that lock would deadlock.
 func (c *PureASICamera) AbortExposure() error {
-	c.exposeEpoch.Add(1) // invalidate the in-flight readout: its late return must not publish
-	_ = c.cam.StopExposure()
-	c.exposeOp.Reset()
+	c.exposeMu.Lock()
+	defer c.exposeMu.Unlock()
+	_ = c.cam.StopExposure() // unblock the in-flight bulk read so runExposure returns
+	c.exposeWG.Wait()        // join it: no late readout can publish after this
+	c.exposeOp.Reset()       // clear the terminal state the joined readout left
 	return nil
 }
 

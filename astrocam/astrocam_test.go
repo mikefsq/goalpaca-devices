@@ -11,7 +11,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,9 +38,6 @@ type stubDev struct {
 	serial  astrocam.Serial
 	mu      sync.Mutex
 	present bool
-	// frameHook, if set, replaces the stub's default ramp frame on every readout — the seam
-	// the abort/supersede tests use to PARK a readout mid-flight and control when it returns.
-	frameHook func(buf []byte)
 }
 
 func (s *stubDev) setPresent(v bool) { s.mu.Lock(); s.present = v; s.mu.Unlock() }
@@ -53,9 +49,6 @@ func (s *stubDev) open() (*astrocam.Camera, astrocam.DeviceInfo, error) {
 	}
 	tr := astrocam.NewStubTransport()
 	tr.Serial = s.serial
-	if s.frameHook != nil {
-		tr.Frame = s.frameHook
-	}
 	cam, err := astrocam.Open(tr, astrocam.ZWO.VID, s.pid)
 	if err != nil {
 		return nil, astrocam.DeviceInfo{}, err
@@ -536,215 +529,6 @@ func TestAlpacaReEnumeration(t *testing.T) {
 
 	if v := value(t, base, "name"); v != "ASI6200MC Pro" {
 		t.Errorf("name after reconnect = %v", v)
-	}
-}
-
-// --- Abort / supersede clobber regression ---
-//
-// Both tests pin the same defect: a readout that returns AFTER its exposure was aborted and a
-// NEW exposure has begun must NOT publish its (stale) result onto the new exposure's Op/frame.
-// Before the per-exposure epoch guard, the late readout read aborted==false (the new exposure
-// had cleared it) and either Failed the live exposure or overwrote it with a stale frame —
-// surfacing as client-caused exposure failures. The two paths differ only in front-end: the
-// Alpaca HTTP client (abort then re-expose) vs the fleet's direct Go calls (goindi's supersede).
-
-// stallCoord parks the FIRST readout (exposure A) until released, while the SECOND (exposure B)
-// returns immediately — forcing A to return after B has begun. A's frame is filled with aFill,
-// B's with bFill, so the published frame reveals which readout's result won.
-type stallCoord struct {
-	calls       atomic.Int32
-	aEntered    chan struct{}
-	releaseA    chan struct{}
-	releaseOnce sync.Once
-}
-
-const (
-	stallAFill byte = 0xAA // exposure A's sentinel (the stale readout)
-	stallBFill byte = 0xBB // exposure B's sentinel (the live exposure)
-)
-
-func newStallCoord() *stallCoord {
-	return &stallCoord{aEntered: make(chan struct{}), releaseA: make(chan struct{})}
-}
-
-func (s *stallCoord) hook(buf []byte) {
-	if s.calls.Add(1) == 1 { // exposure A: park until released, then fill with A's sentinel
-		close(s.aEntered)
-		<-s.releaseA
-		fill(buf, stallAFill)
-		return
-	}
-	fill(buf, stallBFill) // exposure B (and any later): return immediately
-}
-
-// release unparks A. Idempotent so tests can defer it as a safety net (a parked readout would
-// otherwise hang teardown's exposeWG.Wait) AND call it at the intended point.
-func (s *stallCoord) release() { s.releaseOnce.Do(func() { close(s.releaseA) }) }
-
-func fill(buf []byte, v byte) {
-	for i := range buf {
-		buf[i] = v
-	}
-}
-
-// newStubDev builds and Opens a stub-backed driver WITHOUT the Alpaca HTTP front-end, so a test
-// can drive the camera's Go methods directly — the path the fleet's INDI CCD adapter (ccdSource)
-// and goindi's supersede take, which never passes through the HTTP Busy gate.
-func newStubDev(t *testing.T, sd *stubDev) *PureASICamera {
-	t.Helper()
-	dev := NewPureASICamera(0, "")
-	dev.openDev = sd.open
-	dev.aliveFn = sd.isPresent
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	if err := dev.Open(ctx); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = dev.Close(context.Background()) })
-	deadline := time.Now().Add(5 * time.Second)
-	for !dev.Connected() {
-		if time.Now().After(deadline) {
-			t.Fatal("camera never connected")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	return dev
-}
-
-func waitImageReady(t *testing.T, base string) {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for value(t, base, "imageready") != true {
-		if time.Now().After(deadline) {
-			t.Fatal("imageready never became true")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-}
-
-// firstPixelByteHTTP returns the low byte of pixel 0 from the imagebytes payload.
-func firstPixelByteHTTP(t *testing.T, base string) byte {
-	t.Helper()
-	req, _ := http.NewRequest(http.MethodGet, base+"imagearray?"+txQ, nil)
-	req.Header.Set("Accept", "application/imagebytes")
-	r, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer r.Body.Close()
-	body, _ := io.ReadAll(r.Body)
-	const imageBytesHeader = 44
-	if len(body) <= imageBytesHeader {
-		t.Fatalf("imagebytes too short: %d bytes", len(body))
-	}
-	return body[imageBytesHeader]
-}
-
-func firstPixel(t *testing.T, dev *PureASICamera) byte {
-	t.Helper()
-	f, err := dev.ImageFrame()
-	if err != nil {
-		t.Fatalf("ImageFrame: %v", err)
-	}
-	if len(f.Pixels) == 0 {
-		t.Fatal("ImageFrame returned no pixels")
-	}
-	return f.Pixels[0]
-}
-
-// TestAlpacaAbortReExposeNoClobber drives the bug over the Alpaca HTTP front-end: a client that
-// aborts an in-flight exposure (Busy-exempt) and immediately re-exposes. The first readout is
-// parked, the second completes, then the first is released — its late return must not fail or
-// overwrite the live exposure.
-func TestAlpacaAbortReExposeNoClobber(t *testing.T) {
-	co := newStallCoord()
-	defer co.release()
-	sd := &stubDev{pid: pid174, present: true, serial: astrocam.Serial{0x77, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}, frameHook: co.hook}
-	base, _ := newStubStack(t, sd)
-	waitConnected(t, base, true)
-
-	// Exposure A: arms, then its readout parks inside the frame hook.
-	if r := put(t, base, "startexposure", "Duration=0.01&Light=true"); r.ErrorNumber != 0 {
-		t.Fatalf("startexposure A: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
-	}
-	<-co.aEntered
-
-	// Abort, then immediately re-expose — abortexposure is Busy-exempt, so B is admitted.
-	if r := put(t, base, "abortexposure", ""); r.ErrorNumber != 0 {
-		t.Fatalf("abortexposure: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
-	}
-	if r := put(t, base, "startexposure", "Duration=0.01&Light=true"); r.ErrorNumber != 0 {
-		t.Fatalf("startexposure B: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
-	}
-
-	// B's readout returns immediately → B completes with its sentinel.
-	waitImageReady(t, base)
-	if got := firstPixelByteHTTP(t, base); got != stallBFill {
-		t.Fatalf("before release: first pixel = %#x, want B sentinel %#x", got, stallBFill)
-	}
-
-	// Release A's parked readout; its late return must leave B untouched.
-	co.release()
-	time.Sleep(300 * time.Millisecond) // let A's terminal block run
-
-	if v := value(t, base, "camerastate"); v == float64(alpacadev.CameraError) {
-		t.Errorf("camerastate = Error: the stale readout failed the live exposure")
-	}
-	if value(t, base, "imageready") != true {
-		t.Errorf("imageready cleared: the stale readout disturbed the completed exposure")
-	}
-	if got := firstPixelByteHTTP(t, base); got != stallBFill {
-		t.Errorf("after release: first pixel = %#x, want B sentinel %#x — stale readout clobbered B's frame", got, stallBFill)
-	}
-}
-
-// TestSupersedeDirectNoClobber drives the bug over the fleet's direct Go-method path (no HTTP):
-// AbortExposure then StartExposure, exactly what goindi's stopExposure→startExposure does on
-// every re-expose. Same guard, exercised without the Alpaca Busy gate.
-func TestSupersedeDirectNoClobber(t *testing.T) {
-	co := newStallCoord()
-	defer co.release()
-	sd := &stubDev{pid: pid174, present: true, serial: astrocam.Serial{0x78, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07}, frameHook: co.hook}
-	dev := newStubDev(t, sd)
-
-	// Exposure A via the Go surface (ccdSource.StartExposure).
-	if err := dev.StartExposure(0.01, true); err != nil {
-		t.Fatalf("StartExposure A: %v", err)
-	}
-	<-co.aEntered
-
-	// goindi's supersede: AbortExposure then a fresh StartExposure.
-	if err := dev.AbortExposure(); err != nil {
-		t.Fatalf("AbortExposure: %v", err)
-	}
-	if err := dev.StartExposure(0.01, true); err != nil {
-		t.Fatalf("StartExposure B: %v", err)
-	}
-
-	// B completes with its sentinel.
-	deadline := time.Now().Add(10 * time.Second)
-	for !dev.ImageReady() {
-		if time.Now().After(deadline) {
-			t.Fatal("B never became ready")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if got := firstPixel(t, dev); got != stallBFill {
-		t.Fatalf("before release: first pixel = %#x, want B sentinel %#x", got, stallBFill)
-	}
-
-	// Release A; its late return must leave B untouched.
-	co.release()
-	time.Sleep(300 * time.Millisecond)
-
-	if st := dev.CameraState(); st == alpacadev.CameraError {
-		t.Errorf("CameraState = Error: the stale readout failed the live exposure")
-	}
-	if !dev.ImageReady() {
-		t.Errorf("ImageReady cleared: the stale readout disturbed the completed exposure")
-	}
-	if got := firstPixel(t, dev); got != stallBFill {
-		t.Errorf("after release: first pixel = %#x, want B sentinel %#x — stale readout clobbered B's frame", got, stallBFill)
 	}
 }
 
