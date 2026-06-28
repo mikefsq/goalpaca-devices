@@ -7,8 +7,7 @@ import (
 )
 
 // alpacaCamera is the subset of the Alpaca camera interface the INDI CCD adapter
-// needs. Both goalpaca/sim.Camera and astrocam's PureASICamera satisfy it, so one
-// adapter serves the simulator and the real ZWO camera with no driver changes.
+// needs. Both goalpaca/sim.Camera and astrocam's PureASICamera satisfy it.
 type alpacaCamera interface {
 	PixelSizeX() float64
 	PixelSizeY() float64
@@ -21,8 +20,8 @@ type alpacaCamera interface {
 	AbortExposure() error
 }
 
-// ccdSource adapts an Alpaca camera to ccd.Camera (the frame source the INDI CCD
-// device drives). RAW frames pass through untouched.
+// ccdSource adapts an Alpaca camera to ccd.Camera (the INDI CCD frame source). RAW
+// frames pass through untouched.
 type ccdSource struct{ c alpacaCamera }
 
 func (s *ccdSource) PixelSizeUm() (float64, float64)  { return s.c.PixelSizeX(), s.c.PixelSizeY() }
@@ -48,18 +47,19 @@ func (s *ccdSource) Frame() (int, int, []byte, error) {
 }
 
 // asiCCDSource is a ccdSource that also exposes the ASI camera's gain, offset, and
-// subframe ROI, so the INDI CCD device advertises CCD_CONTROLS and CCD_FRAME. It drives
-// the astrocam camera object's Go methods directly — the Alpaca HTTP server is a
-// separate, parallel front-end over the same object, not in this path.
+// subframe ROI, so the INDI CCD device advertises CCD_CONTROLS and CCD_FRAME. It
+// drives the astrocam camera object's Go methods directly.
 type asiCCDSource struct {
 	ccdSource
 	cam *asicamdrv.PureASICamera
 }
 
-func (s *asiCCDSource) Gain() (int, int, int)   { return s.cam.Gain(), s.cam.GainMin(), s.cam.GainMax() }
-func (s *asiCCDSource) SetGain(n int) error     { return s.cam.SetGain(n) }
-func (s *asiCCDSource) Offset() (int, int, int) { return s.cam.Offset(), s.cam.OffsetMin(), s.cam.OffsetMax() }
-func (s *asiCCDSource) SetOffset(n int) error   { return s.cam.SetOffset(n) }
+func (s *asiCCDSource) Gain() (int, int, int) { return s.cam.Gain(), s.cam.GainMin(), s.cam.GainMax() }
+func (s *asiCCDSource) SetGain(n int) error   { return s.cam.SetGain(n) }
+func (s *asiCCDSource) Offset() (int, int, int) {
+	return s.cam.Offset(), s.cam.OffsetMin(), s.cam.OffsetMax()
+}
+func (s *asiCCDSource) SetOffset(n int) error { return s.cam.SetOffset(n) }
 func (s *asiCCDSource) Subframe() (int, int, int, int) {
 	return s.cam.StartX(), s.cam.StartY(), s.cam.NumX(), s.cam.NumY()
 }
@@ -77,10 +77,9 @@ func (s *asiCCDSource) SetSubframe(x, y, w, h int) error {
 }
 
 // astrocamINDI adds the LiveCamera seam to the astrocam Alpaca driver, so it appears
-// over INDI as a guide camera. astrocam itself needs no changes — this fleet-side
-// wrapper adapts its existing Alpaca camera surface. The Alpaca behaviour is
-// unchanged (the driver is embedded), and LiveCamera gates on a live hardware
-// connection so the INDI CCD device only drives the camera once it is acquired.
+// over INDI as a guide camera. The driver is embedded (Alpaca behaviour unchanged);
+// LiveCamera gates on a live hardware connection so the INDI CCD device drives the
+// camera only once it is acquired.
 type astrocamINDI struct {
 	*asicamdrv.PureASICamera
 	src ccd.Camera

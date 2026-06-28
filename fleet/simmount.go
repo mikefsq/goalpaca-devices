@@ -8,11 +8,9 @@ import (
 	"github.com/mikefsq/lx200"
 )
 
-// simMount is the Alpaca telescope simulator (goalpaca/sim) with a LiveMount seam
-// bolted on, so the SAME simulated mount is exposed over Alpaca AND drives the
-// fleet's INDI and LX200 front-ends — a no-hardware testbed for all three protocols
-// at once. (Plain sim-* devices are Alpaca-only; this is the one that lights up the
-// extra front-ends, because they consume a lx200.Mount.)
+// simMount is the Alpaca telescope simulator (goalpaca/sim) with a LiveMount seam, so
+// the same simulated mount is exposed over Alpaca and drives the fleet's INDI and
+// LX200 front-ends — a no-hardware testbed for all three protocols.
 type simMount struct {
 	*sim.Telescope
 	lx     *simMountAdapter
@@ -32,8 +30,7 @@ func newSimMount(name string) *simMount {
 func (s *simMount) LiveMount() (lx200.Mount, error) { return s.lx, nil }
 
 // UseOptics + the optics getters let the sim report a configured optical train over
-// both Alpaca (ApertureDiameter/FocalLength) and INDI (TELESCOPE_INFO), seeded from
-// the fleet config like a real mount.
+// both Alpaca (ApertureDiameter/FocalLength) and INDI (TELESCOPE_INFO).
 func (s *simMount) UseOptics(o alpacadev.OpticsStore) { s.optics = o }
 
 func (s *simMount) ApertureDiameter() float64 {
@@ -61,8 +58,7 @@ func (s *simMount) FocalLength() float64 {
 }
 
 // simMountAdapter presents the sim.Telescope as a lx200.Mount (+ Guider, OpLocker,
-// PierSider). Both front-ends drive the one underlying simulated telescope, so its
-// state stays consistent across Alpaca, INDI and LX200.
+// PierSider). All front-ends drive the one underlying simulated telescope.
 type simMountAdapter struct {
 	t    *sim.Telescope
 	opMu sync.Mutex
@@ -83,9 +79,8 @@ func (a *simMountAdapter) Slewing() (bool, error)        { return a.t.Slewing(),
 func (a *simMountAdapter) Tracking() (bool, error)       { return a.t.Tracking(), nil }
 func (a *simMountAdapter) SetTracking(on bool) error     { return a.t.SetTracking(on) }
 
-// PulseGuide (lx200.Guider) — the property PHD2 guides with. It also nudges the
-// simulated star (simSky), closing the guide loop so PHD2's corrections are visible
-// in the sim camera's frames.
+// PulseGuide (lx200.Guider) issues a guide pulse and nudges the simulated star
+// (simSky), closing the guide loop so corrections show in the sim camera's frames.
 func (a *simMountAdapter) PulseGuide(d lx200.Direction, ms int) error {
 	simSky.pulse(d, ms)
 	return a.t.PulseGuide(guideDir(d), ms)
@@ -94,9 +89,8 @@ func (a *simMountAdapter) PulseGuide(d lx200.Direction, ms int) error {
 // OpLock (lx200.OpLocker) serializes the INDI/LX200 front-ends' multi-step gotos.
 func (a *simMountAdapter) OpLock() func() { a.opMu.Lock(); return a.opMu.Unlock }
 
-// PierSide (lx200.PierSider) — same enum values as lx200.PierSide. The sim has no
-// real pier, so report a side (East) when it returns Unknown, so PHD2's side-of-pier
-// handling is exercised.
+// PierSide (lx200.PierSider) reports the pier side, substituting East when the sim
+// returns Unknown (it has no real pier).
 func (a *simMountAdapter) PierSide() (lx200.PierSide, error) {
 	s := lx200.PierSide(a.t.SideOfPier())
 	if s == lx200.PierUnknown {

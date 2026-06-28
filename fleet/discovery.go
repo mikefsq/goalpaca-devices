@@ -20,15 +20,11 @@ const (
 	discoveryV6Group = "ff12::00a1:9aca" // IPv6 discovery multicast group
 )
 
-// runDiscovery answers Alpaca discovery probes on UDP 32227 for every fleet
-// device port, sending one {"AlpacaPort":N} datagram per port. The port table is
-// fixed at startup (all devices are in-process and known), so there is no
-// heartbeat. The socket is bound with SO_REUSEADDR/SO_REUSEPORT so it co-binds
-// alongside other (non-Go / vendor) Alpaca servers answering on 32227.
-// runDiscovery starts the fleet discovery responder. When ifaces is non-empty
-// (i.e. "listen" scopes the fleet to specific interfaces), discovery answers only
-// on those interfaces — so it advertises the fleet exactly where it actually
-// listens. A nil/empty ifaces answers on every interface (the wildcard default).
+// runDiscovery answers Alpaca discovery probes on UDP 32227 for every fleet device
+// port, sending one {"AlpacaPort":N} datagram per port. The socket is bound with
+// SO_REUSEADDR/SO_REUSEPORT so it co-binds alongside other Alpaca servers on 32227.
+// When ifaces is non-empty (i.e. "listen" scopes the fleet), discovery answers only
+// on those interfaces; a nil/empty ifaces answers on every interface.
 func runDiscovery(ctx context.Context, ports []int, ipv6 bool, ifaces map[int]bool) error {
 	resp := make([][]byte, len(ports))
 	for i, p := range ports {
@@ -52,13 +48,10 @@ func runDiscovery(ctx context.Context, ports []int, ipv6 bool, ifaces map[int]bo
 	return nil
 }
 
-// listenV6 answers Alpaca IPv6 discovery probes. It binds one [::]:32227 socket
-// and joins the Alpaca multicast group on every up, multicast-capable interface,
-// so the fleet is discoverable on all links. net.ListenMulticastUDP(…, nil, …)
-// joins only the one kernel-chosen interface, which misses clients probing from a
-// different NIC (e.g. ethernet vs Wi-Fi) — Alpaca clients probe on each of theirs.
-// Best-effort: a per-interface join failure is skipped; only a total failure (no
-// IPv6, no interface joined) returns an error and leaves IPv4 discovery running.
+// listenV6 answers Alpaca IPv6 discovery probes. It binds one [::]:32227 socket and
+// joins the Alpaca multicast group on every up, multicast-capable interface, so the
+// fleet is discoverable on all links. Best-effort: a per-interface join failure is
+// skipped; only a total failure returns an error and leaves IPv4 discovery running.
 func listenV6(ctx context.Context, lc net.ListenConfig, resp [][]byte, ifaces map[int]bool) error {
 	pc, err := lc.ListenPacket(ctx, "udp6", fmt.Sprintf("[::]:%d", discoveryPort))
 	if err != nil {

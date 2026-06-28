@@ -14,14 +14,9 @@ import (
 var _ alpacadev.Focuser = (*PegasusFocuser)(nil)
 
 // PegasusFocuser adapts a pegasus-astro/focuscube focuser to the alpacadev.Focuser +
-// Hardware interfaces. The FocusCube does not report a travel limit (MaxStep is a
-// host-side setting in the vendor driver too), so MaxStep is configured at startup.
-//
-// Temperature compensation is intentionally left unavailable (TempCompAvailable=false):
-// the FocusCube serial protocol has no on-device temp-comp command — Pegasus performs
-// compensation host-side — so the driver inherits BaseFocuser's not-implemented
-// behavior, which is the correct ASCOM contract for a focuser that only reports
-// temperature. (A host-side compensation loop could live here instead, if wanted.)
+// Hardware interfaces. The FocusCube does not report a travel limit, so MaxStep is
+// configured at startup. TempCompAvailable is false: the serial protocol has no
+// on-device temp-comp command (compensation is host-side).
 type PegasusFocuser struct {
 	alpacadev.BaseFocuser
 
@@ -36,9 +31,8 @@ type PegasusFocuser struct {
 }
 
 // NewPegasusFocuser creates the driver for the FocusCube at the given enumeration
-// index, with the host-configured maximum step (used for range validation/report).
-// The binding follows plug order — prefer NewPegasusFocuserBySerial for a stable
-// identity when more than one FTDI device may be attached.
+// index, with the host-configured maximum step. Binding follows plug order; prefer
+// NewPegasusFocuserBySerial for a stable identity.
 func NewPegasusFocuser(index, maxStep int) *PegasusFocuser {
 	f := &PegasusFocuser{index: index, maxStep: maxStep}
 	f.Version = "0.1.0"
@@ -50,11 +44,10 @@ func NewPegasusFocuser(index, maxStep int) *PegasusFocuser {
 	return f
 }
 
-// NewPegasusFocuserBySerial binds the Alpaca device (devNum is used only for the
-// stable ID) to the FocusCube whose USB serial number is serial. The serial is read
-// from the USB descriptor by the enumerator before the port is opened, so the binding
-// is plug-order- and platform-independent and disambiguates several FTDI devices
-// sharing VID 0x0403 — the FTDI analogue of the FocusLynx driver's nickname binding.
+// NewPegasusFocuserBySerial binds the Alpaca device (devNum used only for the stable
+// ID) to the FocusCube whose USB serial number is serial. The serial is read from the
+// USB descriptor before the port opens, so the binding is plug-order- and
+// platform-independent and disambiguates several FTDI devices sharing VID 0x0403.
 func NewPegasusFocuserBySerial(devNum int, serial string, maxStep int) *PegasusFocuser {
 	f := &PegasusFocuser{index: devNum, serial: serial, maxStep: maxStep}
 	f.Version = "0.1.0"
@@ -158,8 +151,7 @@ func (f *PegasusFocuser) openByIndex() (*focuscube.FocusCube, error) {
 	return focuscube.OpenPort(devs[f.index].Port)
 }
 
-// openBySerial binds to the FocusCube whose USB serial matches f.serial, resolved from
-// the enumerator's USB-descriptor properties before the port is opened.
+// openBySerial binds to the FocusCube whose USB serial matches f.serial.
 func (f *PegasusFocuser) openBySerial() (*focuscube.FocusCube, error) {
 	return focuscube.OpenBySerial(f.serial)
 }

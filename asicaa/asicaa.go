@@ -17,16 +17,14 @@ import (
 var _ alpacadev.Rotator = (*ASIRotator)(nil)
 
 // ASIRotator adapts a goasi/caa rotator (ZWO Camera Angle Adjuster) to the
-// alpacadev.Rotator + Hardware interfaces. It is the device-specific code: it
-// knows about goasi/ZWO; the library does not.
+// alpacadev.Rotator + Hardware interfaces.
 //
-// Position model: the hardware angle reported by caa.GetDegree is treated as the
-// ASCOM MechanicalPosition. The sky Position is mechanical + syncOffset, a
-// software offset set by Sync. Reverse is delegated to the hardware (CAASetReverse).
+// Position model: the hardware angle from caa.GetDegree is the ASCOM
+// MechanicalPosition. Sky Position is mechanical + syncOffset (set by Sync).
+// Reverse is delegated to the hardware.
 //
-// The CAA SDK is not safe for concurrent per-device calls and Alpaca HTTP
-// handlers run concurrently, so all caa access is serialized by mu. mu is never
-// held across a sleep.
+// The CAA SDK is not safe for concurrent per-device calls; all caa access is
+// serialized by mu. mu is never held across a sleep.
 type ASIRotator struct {
 	alpacadev.BaseRotator
 
@@ -45,10 +43,9 @@ type ASIRotator struct {
 // CanReverse reports that the hardware supports reversing direction.
 func (r *ASIRotator) CanReverse() bool { return true }
 
-// NewASIRotator creates the driver for a rotator selected by serial (preferred,
-// stable) or, if serial is "", by enumeration index. The UniqueID is known up
-// front from the serial, so the device is registered with a stable identity even
-// before the rotator is plugged in.
+// NewASIRotator creates the driver for a rotator selected by serial, or by
+// enumeration index if serial is "". With a serial the device has a stable
+// identity before the rotator is plugged in.
 func NewASIRotator(index int, serial string) *ASIRotator {
 	r := &ASIRotator{index: index, wantSerial: strings.ToLower(serial)}
 	r.Version = "0.1.0"
@@ -85,9 +82,7 @@ func (r *ASIRotator) Close(ctx context.Context) error {
 	return nil
 }
 
-// Connect is the client's presence handshake: it succeeds iff the rotator is
-// attached (Connected ≡ hwPresent). It does not open hardware — the driver
-// already owns it.
+// Connect succeeds iff the rotator is attached. It does not open hardware.
 func (r *ASIRotator) Connect(ctx context.Context) error {
 	if !r.Connected() {
 		return alpacadev.ErrNotConnected
@@ -95,26 +90,22 @@ func (r *ASIRotator) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Connected reports hardware presence: the device is "connected" exactly when the
-// rotator is attached and its SDK handle is open.
+// Connected reports true when the rotator is attached and its SDK handle is open.
 func (r *ASIRotator) Connected() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.hwPresent
 }
 
-// Disconnect is a logical no-op: the driver owns the hardware for the life of the
-// process; connection state follows the hardware, not client sessions.
+// Disconnect is a no-op: connection state follows the hardware, not client sessions.
 func (r *ASIRotator) Disconnect(ctx context.Context) error { return nil }
 
-// Busy reports a transitory state in which mutating writes are rejected — here,
-// while the rotator is moving. On-demand SDK read (no cached state) so a client
-// sees move-completion with no added latency.
+// Busy rejects mutating writes while the rotator is moving.
 func (r *ASIRotator) Busy() bool { return r.IsMoving() }
 
 // manageHardware acquires, monitors, and re-acquires the rotator for the life of
-// the process. When none is present it polls; when present it pings the SDK and,
-// on removal, closes the handle, drops the client session, and resumes acquiring.
+// the process: polls when absent, pings the SDK when present, closes the handle
+// on removal.
 func (r *ASIRotator) manageHardware(ctx context.Context) {
 	for ctx.Err() == nil {
 		r.mu.Lock()
@@ -138,7 +129,7 @@ func (r *ASIRotator) manageHardware(ctx context.Context) {
 			log.Printf("asicaa: rotator %s lost (%v); re-acquiring", r.ID, err)
 			r.mu.Lock()
 			caa.Close(r.id)
-			r.hwPresent = false // Connected() follows this; gate returns NotConnected
+			r.hwPresent = false
 			r.mu.Unlock()
 			continue
 		}
@@ -185,7 +176,7 @@ func (r *ASIRotator) configureOpened(id int, serialHex string) {
 	}
 	r.Desc = fmt.Sprintf("ZWO %s rotator", info.Name)
 	if r.wantSerial == "" && strings.Trim(serialHex, "0") != "" {
-		r.ID = "CAA-" + serialHex // adopt the real serial when not pinned by flag
+		r.ID = "CAA-" + serialHex // adopt real serial when not pinned by flag
 	}
 	r.hwPresent = true
 }

@@ -8,12 +8,10 @@ import (
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
-// Optics is the shared source of truth for the telescope's optical-train
-// parameters — the mount can't report them, so they come from config and can be
-// updated at runtime via the setoptics Action. The fleet injects ONE holder
-// (alpacadev.OpticsStore) that the INDI front-end (TELESCOPE_INFO) also reads, so
-// the two front-ends never diverge; a standalone driver uses the built-in
-// localOptics. Values are metres / m².
+// Optical-train parameters: the mount can't report them, so they come from config and
+// can be updated at runtime via the setoptics Action. The fleet injects one holder
+// (alpacadev.OpticsStore) that the INDI front-end (TELESCOPE_INFO) also reads; a
+// standalone driver uses localOptics. Values are metres / m².
 
 // localOptics is the default in-process OpticsStore.
 type localOptics struct {
@@ -39,9 +37,8 @@ func (t *Telescope) opticsStore() alpacadev.OpticsStore {
 	return t.optics
 }
 
-// UseOptics replaces the optics holder with a shared one. The fleet injects a holder
-// that the INDI front-end reads too, so setoptics on the Alpaca side is reported by
-// INDI's TELESCOPE_INFO. Call before serving.
+// UseOptics replaces the optics holder with a shared one (the fleet injects a holder
+// the INDI front-end reads too). Call before serving.
 func (t *Telescope) UseOptics(s alpacadev.OpticsStore) {
 	t.mu.Lock()
 	t.optics = s
@@ -59,10 +56,9 @@ type opticsParams struct {
 	GuiderFocalLength *float64 `json:"guider_focal_length,omitempty"` // mm
 }
 
-// actionSetOptics applies the present fields of the JSON payload to the optics
-// holder, so ApertureDiameter/FocalLength (Alpaca) and the INDI TELESCOPE_INFO both
-// report the new optical train. It does not touch the mount (optics is driver
-// metadata), so it works whether or not the mount is connected.
+// actionSetOptics applies the present payload fields to the optics holder, so
+// ApertureDiameter/FocalLength (Alpaca) and INDI TELESCOPE_INFO report the new optical
+// train. Does not touch the mount, so it works whether or not the mount is connected.
 func (t *Telescope) actionSetOptics(params string) (string, error) {
 	var p opticsParams
 	if err := json.Unmarshal([]byte(params), &p); err != nil {

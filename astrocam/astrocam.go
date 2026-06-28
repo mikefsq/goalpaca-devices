@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -14,8 +15,8 @@ import (
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
-// camDebug logs per-exposure arm/read/total timing to the console. Off by default; set
-// ASICAM_DEBUG=1 (or true/yes/on) to diagnose frame-turnaround (e.g. the 174 free-run latency).
+// camDebug logs per-exposure arm/read/total timing. Off by default; set ASICAM_DEBUG=1
+// (or true/yes/on) to enable.
 var camDebug = func() bool {
 	switch strings.ToLower(os.Getenv("ASICAM_DEBUG")) {
 	case "1", "true", "yes", "on":
@@ -27,10 +28,9 @@ var camDebug = func() bool {
 func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 
 // PureASICamera adapts the pure-Go astrocam.Camera to the alpacadev.Camera + Hardware
-// interfaces. It is the cgo-SDK-free USB control transfers over IOKit/usbfs/WinUSB).
+// interfaces (cgo-SDK-free USB control transfers over IOKit/usbfs/WinUSB).
 //
-// astrocam.Camera is internally concurrency-safe (per-transport control-transfer serialization
-// + a capture-state mutex + an owned TEC goroutine), so several Alpaca HTTP handlers can hit
+// astrocam.Camera is internally concurrency-safe, so several Alpaca HTTP handlers can hit
 // it at once. The adapter's own mu guards only adapter-side state (geometry, the exposure
 // result, flags); it is never held across a blocking readout or a cooling state change.
 type PureASICamera struct {
@@ -39,9 +39,9 @@ type PureASICamera struct {
 	index      int
 	wantSerial string // if set, bind only the camera with this serial (hex)
 
-	// Injection seams (default to the real USB paths; the stub-transport e2e tests
-	// override them): openDev opens — but does not Init — the target camera; aliveFn
-	// reports whether it is still present.
+	// Injection seams (default to the real USB paths; stub-transport e2e tests override them):
+	// openDev opens — but does not Init — the target camera; aliveFn reports whether it is
+	// still present.
 	openDev func() (*astrocam.Camera, astrocam.DeviceInfo, error)
 	aliveFn func() bool
 
@@ -52,14 +52,14 @@ type PureASICamera struct {
 	hwPresent atomic.Bool // camera open; read lock-free by Connected()
 	exposeOp  alpacadev.Op
 	exposeWG  sync.WaitGroup // tracks the in-flight runExposure goroutine; teardown and AbortExposure join it
-	// exposeMu serializes the StartExposure/AbortExposure lifecycle sequences so AbortExposure's
-	// join (exposeWG.Wait) can never race a concurrent StartExposure's exposeWG.Add. Held only
-	// across those short sequences, never across a readout (which takes c.mu, not this).
+	// exposeMu serializes the StartExposure/AbortExposure lifecycle so AbortExposure's join
+	// (exposeWG.Wait) can never race a concurrent StartExposure's exposeWG.Add. Held only across
+	// those short sequences, never across a readout (which takes c.mu, not this).
 	exposeMu sync.Mutex
-	frame     []byte         // last readout, raw little-endian
-	frameW    int
-	frameH    int
-	frameBpp  int // bytes/pixel of the last readout (2 = RAW16, 1 = RAW8)
+	frame    []byte // last readout, raw little-endian
+	frameW   int
+	frameH   int
+	frameBpp int // bytes/pixel of the last readout (2 = RAW16, 1 = RAW8)
 
 	lastDuration float64
 	lastStart    time.Time
@@ -71,9 +71,9 @@ type PureASICamera struct {
 	startX, startY int
 	numX, numY     int
 
-	// Factory hot-pixel correction (gosnap -fixdefects parity). Off by default; enabled by
-	// the fleet "fixdefects" spec field via SetFixDefects. The per-unit defect map is read
-	// once from SPI flash and applied to full-frame RAW16 frames in runExposure.
+	// Factory hot-pixel correction. Off by default; enabled by the fleet "fixdefects" spec field
+	// via SetFixDefects. The per-unit defect map is read once from SPI flash and applied to
+	// full-frame RAW16 frames in runExposure.
 	fixDefects bool
 	defectMap  *astrocam.DefectMap
 
@@ -85,11 +85,33 @@ type PureASICamera struct {
 
 	coolerOn bool
 	setpoint float64 // CCD temperature setpoint °C
+
+	// needsReconnect is set when a readout returns ErrDeviceWedged (driver-confirmed dead device);
+	// manageHardware then tears down and re-acquires. runExposure can't tear down itself (it runs
+	// inside exposeWG, which teardown joins — self-deadlock), so it signals through this flag.
+	needsReconnect atomic.Bool
+
+	// Video (free-run) mode — toggled by the Alpaca Action "videomode" (constant-exposure guiding).
+	// When on, drainVideo runs the sensor free-run (cam.StartVideo) and continuously reads every
+	// frame into vidFrame (the latest), bumping vidSeq; StartExposure then waits for a frame newer
+	// than the call instead of arming a single shot (~2× the rate). The continuous drain is
+	// mandatory: it keeps the FX3 from backing up (the wedge). All under mu unless noted; the drain
+	// goroutine's lifetime is owned by vidCancel/vidWG.
+	videoOn            bool
+	vidCancel          context.CancelFunc
+	vidWG              sync.WaitGroup
+	vidFrame           []byte // latest free-run frame (raw little-endian)
+	vidW, vidH, vidBpp int
+	vidSeq             uint64  // bumped each drained frame; StartExposure waits for seq > its snapshot
+	vidExp             float64 // exposure (s) the stream runs at; a change restarts it
+	// Geometry the stream was armed at — a change in exposure, ROI, or binning restarts it so the
+	// free-run stream always reflects the client's current settings (gain is live, no restart).
+	vidStartX, vidStartY, vidNumX, vidNumY, vidBin int
 }
 
 // NewPureASICamera creates the driver for a camera selected by serial (preferred, stable) or,
 // if serial is "", by enumeration index. The UniqueID is known up front from the serial, so
-// the device registers with a stable identity even before the camera is plugged in.
+// the device registers with a stable identity before the camera is plugged in.
 func NewPureASICamera(index int, serial string) *PureASICamera {
 	c := &PureASICamera{index: index, wantSerial: strings.ToLower(serial)}
 	c.openDev = c.openReal
@@ -108,9 +130,9 @@ func NewPureASICamera(index int, serial string) *PureASICamera {
 	return c
 }
 
-// SetFixDefects enables factory hot-pixel correction (mirrors gosnap -fixdefects): the
-// per-unit defect map read once from SPI flash, neighbour-averaged into full-frame RAW16
-// frames. Off by default; set by the fleet from the "fixdefects" device-spec field.
+// SetFixDefects enables factory hot-pixel correction: the per-unit defect map read once from
+// SPI flash, neighbour-averaged into full-frame RAW16 frames. Off by default; set by the fleet
+// from the "fixdefects" device-spec field.
 func (c *PureASICamera) SetFixDefects(on bool) { c.fixDefects = on }
 
 // --- Hardware lifecycle ---
@@ -128,12 +150,12 @@ func (c *PureASICamera) Close(ctx context.Context) error {
 	return nil
 }
 
-// teardown aborts any in-flight exposure and waits for the readout goroutine to exit
-// before closing the camera, so no control transfer outlives the freed USB handle (the
-// use-after-free that crashed mid-readout on an unplug/reconnect). It must be called
-// WITHOUT holding c.mu: runExposure takes c.mu as it finishes, so joining it under the
-// lock would deadlock. cam.Close is idempotent, so this is safe to call more than once.
+// teardown aborts any in-flight exposure and waits for the readout goroutine to exit before
+// closing the camera, so no control transfer outlives the freed USB handle. Must be called
+// without holding c.mu: runExposure takes c.mu as it finishes, so joining it under the lock
+// would deadlock. cam.Close is idempotent, so this is safe to call more than once.
 func (c *PureASICamera) teardown() {
+	c.stopVideo() // stop the free-run drain + stream first, so no ReadFrame outlives the handle
 	if c.hwPresent.Load() {
 		_ = c.AbortExposure() // signal the in-flight readout to unwind (StopExposure)
 	}
@@ -178,8 +200,17 @@ func (c *PureASICamera) manageHardware(ctx context.Context) {
 			}
 			continue
 		}
-		// Liveness via the aliveFn seam — by default Enumerate (reads the OS USB registry,
-		// never touches the open camera; non-perturbing). Tests override it.
+		// ErrDeviceWedged from a readout (driver-confirmed dead device): drop and re-acquire. A wedge
+		// isn't a physical absence, so the aliveFn probe below won't catch it; teardown joins the
+		// in-flight readout, then the loop re-opens by serial and re-Inits.
+		if c.needsReconnect.CompareAndSwap(true, false) {
+			log.Printf("asicam-alpaca: camera %s readout wedged — disconnect + re-acquire", c.ID)
+			c.teardown()
+			misses = 0
+			continue
+		}
+		// Liveness via the aliveFn seam — by default Enumerate (reads the OS USB registry, never
+		// touches the open camera; non-perturbing). Tests override it.
 		if c.aliveFn() {
 			misses = 0
 			sleepCtx(ctx, 2*time.Second)
@@ -316,9 +347,9 @@ func (c *PureASICamera) SensorType() alpacadev.SensorType {
 	return alpacadev.SensorMonochrome
 }
 
-// --- Binning: symmetric, factors advertised from the sensor's Bins (hardware capability).
-// SetBinX drives astrocam.SetBinning; a factor the sensor lists but whose readout geometry
-// isn't decoded yet fails later at SetROI (StartExposure) with InvalidValue, not here. ---
+// --- Binning: symmetric, factors advertised from the sensor's Bins. SetBinX drives
+// astrocam.SetBinning; a listed factor whose readout geometry isn't decoded yet fails later at
+// SetROI (StartExposure) with InvalidValue, not here. ---
 
 func (c *PureASICamera) BinX() int { return c.cam.Binning() }
 func (c *PureASICamera) BinY() int { return c.cam.Binning() }
@@ -395,16 +426,213 @@ func (c *PureASICamera) ExposureResolution() float64 { return 1e-6 } // 1 µs
 func (c *PureASICamera) CanAbortExposure() bool      { return true }
 func (c *PureASICamera) CanStopExposure() bool       { return true }
 
+// --- Video (free-run) mode: the Alpaca Action "videomode" toggles it ---
+
+// SupportedActions advertises the device-specific Actions. "videomode" (params on|off) switches
+// the camera between single-shot and continuous free-run streaming.
+func (c *PureASICamera) SupportedActions() []string { return []string{"videomode"} }
+
+// Action handles the device-specific commands. videomode=on starts the internal free-run stream
+// (StartExposure then serves the latest streamed frame, ~2× the rate); videomode=off returns to
+// single-shot. Frames still flow over the standard ImageArray path; only the acquisition engine
+// changes.
+func (c *PureASICamera) Action(name, params string) (string, error) {
+	if !strings.EqualFold(name, "videomode") {
+		return c.BaseCamera.Action(name, params)
+	}
+	if !c.hwPresent.Load() {
+		return "", alpacadev.ErrNotConnected
+	}
+	switch strings.ToLower(strings.TrimSpace(params)) {
+	case "on", "true", "1", "start":
+		c.mu.Lock()
+		dur := c.lastDuration
+		c.mu.Unlock()
+		if dur <= 0 {
+			dur = 0.1 // default exposure if the client never set one
+		}
+		if err := c.startVideo(dur); err != nil {
+			return "", err
+		}
+		return "ok", nil
+	case "off", "false", "0", "stop":
+		c.stopVideo()
+		return "ok", nil
+	default:
+		return "", fmt.Errorf("%w: videomode wants on|off", alpacadev.ErrInvalidValue)
+	}
+}
+
+// startVideo arms the sensor for free-run at the given exposure and launches the drain goroutine.
+// Idempotent if already running at the same exposure. Holds exposeMu so it can't race a
+// StartExposure/AbortExposure lifecycle, and quiesces any in-flight single-shot first.
+func (c *PureASICamera) startVideo(dur float64) error {
+	c.exposeMu.Lock()
+	defer c.exposeMu.Unlock()
+	c.mu.Lock()
+	already := c.videoOn && c.vidExp == dur
+	c.mu.Unlock()
+	if already {
+		return nil
+	}
+	c.stopVideoLocked() // stop a prior stream (e.g. exposure change) before re-arming
+	c.mu.Lock()
+	if err := c.cam.SetROI(c.startX, c.startY, c.numX, c.numY); err != nil {
+		c.mu.Unlock()
+		return fmt.Errorf("%w: %v", alpacadev.ErrInvalidValue, err)
+	}
+	if err := c.cam.SetExposure(time.Duration(dur * float64(time.Second))); err != nil {
+		c.mu.Unlock()
+		return err
+	}
+	if err := c.cam.StartVideo(true); err != nil {
+		c.mu.Unlock()
+		return fmt.Errorf("start video: %w", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	c.vidCancel = cancel
+	c.videoOn = true
+	c.vidExp = dur
+	c.vidSeq = 0
+	c.vidStartX, c.vidStartY, c.vidNumX, c.vidNumY = c.startX, c.startY, c.numX, c.numY
+	c.vidBin = c.cam.Binning() // snapshot the armed geometry for change detection
+	c.mu.Unlock()
+	c.vidWG.Add(1)
+	go c.drainVideo(ctx, dur)
+	log.Printf("asicam-alpaca: camera %s video mode ON (exp %.3fs)", c.ID, dur)
+	return nil
+}
+
+// stopVideo stops the free-run drain and halts the stream. Safe when not running.
+func (c *PureASICamera) stopVideo() {
+	c.exposeMu.Lock()
+	defer c.exposeMu.Unlock()
+	c.stopVideoLocked()
+}
+
+// stopVideoLocked is the body of stopVideo; the caller must hold exposeMu.
+func (c *PureASICamera) stopVideoLocked() {
+	c.mu.Lock()
+	if !c.videoOn {
+		c.mu.Unlock()
+		return
+	}
+	cancel := c.vidCancel
+	c.videoOn = false
+	c.vidCancel = nil
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	c.vidWG.Wait()           // join the drain before touching the device again
+	_ = c.cam.StopExposure() // halt the sensor stream
+	log.Printf("asicam-alpaca: camera %s video mode OFF", c.ID)
+}
+
+// drainVideo runs for the lifetime of video mode: it reads every free-run frame back-to-back (no
+// re-arm) into vidFrame, bumping vidSeq, so the sensor never backs up the FX3 and StartExposure
+// always has a fresh frame to hand out. A device-wedge ends the drain and signals a reset.
+func (c *PureASICamera) drainVideo(ctx context.Context, dur float64) {
+	defer c.vidWG.Done()
+	w, h := c.numX, c.numY
+	bpp := c.cam.OutputDepth()
+	buf := make([]byte, c.cam.FrameBytes())
+	for ctx.Err() == nil {
+		n, err := c.cam.ReadFrame(buf, false)
+		if err != nil {
+			if errors.Is(err, astrocam.ErrDeviceWedged) {
+				c.needsReconnect.Store(true) // manageHardware re-acquires
+				return
+			}
+			continue // transient short/stall — the next read recovers
+		}
+		if n < len(buf) {
+			continue
+		}
+		c.mu.Lock()
+		if cap(c.vidFrame) < n {
+			c.vidFrame = make([]byte, n)
+		}
+		c.vidFrame = c.vidFrame[:n]
+		copy(c.vidFrame, buf[:n])
+		c.vidW, c.vidH, c.vidBpp = w, h, bpp
+		c.vidSeq++
+		c.mu.Unlock()
+	}
+}
+
+// waitVideoFrame is the video-mode replacement for runExposure: it waits for the drain to deliver
+// a frame newer than `want` (one captured after its StartExposure), publishes it, and completes
+// the op. Bounded so a stalled stream fails the op instead of hanging forever.
+func (c *PureASICamera) waitVideoFrame(want uint64, dur float64) {
+	defer c.exposeWG.Done()
+	deadline := time.Now().Add(2*time.Duration(dur*float64(time.Second)) + readoutGrace)
+	for {
+		c.mu.Lock()
+		seq, on := c.vidSeq, c.videoOn
+		if on && seq >= want {
+			n := len(c.vidFrame)
+			if cap(c.frame) < n {
+				c.frame = make([]byte, n)
+			}
+			c.frame = c.frame[:n]
+			copy(c.frame, c.vidFrame)
+			c.frameW, c.frameH, c.frameBpp = c.vidW, c.vidH, c.vidBpp
+			c.mu.Unlock()
+			c.exposeOp.Complete()
+			return
+		}
+		c.mu.Unlock()
+		if !on {
+			c.exposeOp.Fail(fmt.Errorf("video mode stopped before a frame arrived"))
+			return
+		}
+		if time.Now().After(deadline) {
+			c.exposeOp.Fail(fmt.Errorf("video stream delivered no frame within %s", time.Since(deadline)))
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+}
+
 func (c *PureASICamera) StartExposure(duration float64, light bool) error {
 	if duration < 0 {
 		return alpacadev.ErrInvalidValue
 	}
+	// Video mode: wait for the next free-running frame (one captured after this call) instead of
+	// arming a single shot. A changed exposure restarts the stream at the new rate.
+	curBin := c.cam.Binning()
+	c.mu.Lock()
+	vid := c.videoOn
+	// Restart the stream if exposure, ROI, or binning changed since it was armed (gain stays live).
+	changed := duration != c.vidExp ||
+		c.startX != c.vidStartX || c.startY != c.vidStartY ||
+		c.numX != c.vidNumX || c.numY != c.vidNumY || curBin != c.vidBin
+	c.mu.Unlock()
+	if vid {
+		if changed {
+			if err := c.startVideo(duration); err != nil {
+				return err
+			}
+		}
+		c.mu.Lock()
+		want := c.vidSeq + 1
+		c.lastDuration = duration
+		c.lastStart = time.Now().UTC()
+		c.haveLast = true
+		c.frame = nil
+		c.mu.Unlock()
+		c.exposeMu.Lock()
+		c.exposeOp.Begin()
+		c.exposeWG.Add(1)
+		go c.waitVideoFrame(want, duration)
+		c.exposeMu.Unlock()
+		return nil
+	}
 	c.mu.Lock()
 	// Apply the ROI window now that all four of StartX/StartY/NumX/NumY are known. asicam
 	// validates the composite window against the sensor bounds; an out-of-range window is a
-	// client value error (ASCOM InvalidValue), not a driver fault. Surface it instead of
-	// silently exposing the previous geometry — otherwise FrameBytes would disagree with
-	// what the client thinks it requested.
+	// client value error (ASCOM InvalidValue), not a driver fault.
 	if err := c.cam.SetROI(c.startX, c.startY, c.numX, c.numY); err != nil {
 		c.mu.Unlock()
 		return fmt.Errorf("%w: %v", alpacadev.ErrInvalidValue, err)
@@ -427,21 +655,20 @@ func (c *PureASICamera) StartExposure(duration float64, light bool) error {
 	return nil
 }
 
-// readoutGrace bounds how long past the (host-timed) integration the frame readout may run
-// before the watchdog treats it as hung. A real USB readout of a full frame is sub-second, so
-// this only trips on a genuine stall — notably the USB2 174's worker, which can block forever on
-// a stalled bulk read. Generous on purpose: false-tripping a slow-but-valid read is worse than a
-// late recovery, so the deadline (2×exposure + this) sits well above any legitimate readout.
+// readoutGrace bounds how long past the (host-timed) integration the frame readout may run before
+// the watchdog treats it as hung. A real USB readout of a full frame is sub-second, so this only
+// trips on a genuine stall (notably the USB2 174's worker, which can block forever on a stalled
+// bulk read). The deadline is 2×exposure + this.
 const readoutGrace = 20 * time.Second
 
-// runExposure arms then reads one frame. astrocam.GetDataAfterExp blocks for the whole
-// host-timed integration + readout, so this whole call lives in its own goroutine and never
-// holds the adapter mu across it (other handlers — temperature, cooler power — keep working).
+// runExposure arms then reads one frame. astrocam.GetDataAfterExp blocks for the whole host-timed
+// integration + readout, so this whole call lives in its own goroutine and never holds the adapter
+// mu across it (other handlers — temperature, cooler power — keep working).
 //
 // A watchdog bounds the readout: if it overruns the deadline, StopExposure unblocks the in-flight
-// bulk read so GetDataAfterExp returns and the op fails. Without it, a stalled read (seen on the
-// USB2 174) pins exposeOp at OpBusy forever — CameraState=Exposing, Busy()=true — so every later
-// StartExposure is rejected with InvalidOperation (1035) until the camera is manually aborted.
+// bulk read so GetDataAfterExp returns and the op fails. Without it, a stalled read pins exposeOp
+// at OpBusy forever (CameraState=Exposing, Busy()=true), rejecting every later StartExposure with
+// InvalidOperation (1035) until the camera is manually aborted.
 func (c *PureASICamera) runExposure(light bool) {
 	defer c.exposeWG.Done()
 	c.mu.Lock()
@@ -484,6 +711,9 @@ func (c *PureASICamera) runExposure(light bool) {
 		return
 	}
 	if err != nil {
+		if errors.Is(err, astrocam.ErrDeviceWedged) {
+			c.needsReconnect.Store(true) // driver-confirmed dead — manageHardware re-acquires
+		}
 		c.exposeOp.Fail(fmt.Errorf("readout: %w", err))
 		return
 	}
@@ -499,9 +729,9 @@ func (c *PureASICamera) runExposure(light bool) {
 }
 
 // applyDefects applies the factory hot-pixel map to a full-frame RAW16 frame in place,
-// neighbour-averaging each hot/dead pixel — copied from gosnap -fixdefects (cmd/gosnap).
-// Full-frame RAW16 only (the map is full-sensor), so ROI / RAW8 / binned frames are left
-// raw. The map is read from SPI flash once and cached. Gated by SetFixDefects.
+// neighbour-averaging each hot/dead pixel. Full-frame RAW16 only (the map is full-sensor), so
+// ROI / RAW8 / binned frames are left raw. The map is read from SPI flash once and cached. Gated
+// by SetFixDefects.
 func (c *PureASICamera) applyDefects(frame []byte, w, h, sx, sy, bpp int) {
 	info := c.cam.Info()
 	if bpp != 2 || sx != 0 || sy != 0 || w != info.MaxWidth || h != info.MaxHeight {
@@ -534,9 +764,16 @@ func (c *PureASICamera) applyDefects(frame []byte, w, h, sx, sy, bpp int) {
 func (c *PureASICamera) AbortExposure() error {
 	c.exposeMu.Lock()
 	defer c.exposeMu.Unlock()
-	_ = c.cam.StopExposure() // unblock the in-flight bulk read so runExposure returns
-	c.exposeWG.Wait()        // join it: no late readout can publish after this
-	c.exposeOp.Reset()       // clear the terminal state the joined readout left
+	c.mu.Lock()
+	vid := c.videoOn
+	c.mu.Unlock()
+	if !vid {
+		_ = c.cam.StopExposure() // unblock the in-flight bulk read so runExposure returns
+	}
+	// In video mode the in-flight op is a waitVideoFrame, not a USB read; it completes on the next
+	// streamed frame, so the join below returns without halting the stream.
+	c.exposeWG.Wait()  // join it: no late readout can publish after this
+	c.exposeOp.Reset() // clear the terminal state the joined readout left
 	return nil
 }
 
@@ -597,15 +834,13 @@ func (c *PureASICamera) LastExposureStartTime() (string, error) {
 // ImageFrame returns the last readout: raw little-endian pixels, transmitted as UInt16 (RAW16)
 // or byte (RAW8), presented to clients as Int32 (ASCOM's convention for unsigned camera data).
 //
-// ORIENTATION: Pixels is the sensor's RASTER order (row-major: for y, for x) passed straight
-// through, with Width/Height in the metadata — IDENTICAL to the SDK-based asiccd reference
-// driver, so the two behave the same in any client. NOTE: ASCOM ImageArray[NumX][NumY] is
-// column-major (x outer), so a raster buffer labelled [Width][Height] is the transpose of the
-// strict ASCOM order. Whether a transpose is needed for correct NINA orientation is UNVERIFIED
-// (no NINA + camera here) and is a SHARED convention question — if it is, the fix belongs in the
-// framework's EncodeImageBytes for every driver, not an asicam-only divergence from asiccd. The
-// SDK's Flip control defaults to None (GetCtrllCaps: max 3 = None/Horiz/Vert/Both), and asicam
-// applies no software flip — matching that default.
+// Orientation: Pixels is the sensor's raster order (row-major) passed straight through, with
+// Width/Height in the metadata — identical to the SDK-based asiccd driver. ASCOM
+// ImageArray[NumX][NumY] is column-major, so a raster buffer labelled [Width][Height] is the
+// transpose of the strict ASCOM order; whether a transpose is needed for correct client
+// orientation is unverified and is a shared convention question for the framework's
+// EncodeImageBytes, not an asicam-only divergence. The SDK's Flip control defaults to None
+// (max 3 = None/Horiz/Vert/Both), and asicam applies no software flip — matching that default.
 func (c *PureASICamera) ImageFrame() (alpacadev.ImageFrame, error) {
 	if c.exposeOp.State() != alpacadev.OpDone {
 		return alpacadev.ImageFrame{}, alpacadev.ErrValueNotSet
@@ -659,9 +894,17 @@ func (c *PureASICamera) CanGetCoolerPower() bool    { return c.cam.Cooled() }
 func (c *PureASICamera) CanSetCCDTemperature() bool { return c.cam.Cooled() }
 
 func (c *PureASICamera) CCDTemperature() (float64, error) {
+	// A non-cooled body (e.g. the ASI174MM Mini guide cam) has no temperature sensor and must
+	// not touch USB: the 0xB3 control read would, if polled during a frame readout, land mid-bulk
+	// and wedge the USB2 path. Gate on the cooler capability (same predicate as
+	// CanGetCoolerPower/CanSetCCDTemperature) so an uncooled camera answers NotImplemented with
+	// zero wire traffic.
+	if !c.cam.Cooled() {
+		return 0, alpacadev.ErrNotImplemented
+	}
 	t, err := c.cam.Temperature()
 	if err != nil {
-		return 0, alpacadev.ErrNotImplemented // non-cooled body has no temperature sensor
+		return 0, alpacadev.ErrNotImplemented // cooled body but the read failed
 	}
 	return t, nil
 }
@@ -680,7 +923,7 @@ func (c *PureASICamera) SetCoolerOn(on bool) error {
 
 	if on {
 		cfg := astrocam.DefaultCoolerConfig()
-		cfg.RampRate = 6 // gentle controlled cooldown by default (°C/min)
+		cfg.RampRate = 6 // controlled cooldown rate (°C/min)
 		return cam.EnableCooling(nil, setp, cfg)
 	}
 	cam.DisableCooling()

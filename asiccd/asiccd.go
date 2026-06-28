@@ -15,11 +15,10 @@ import (
 )
 
 // ASICamera adapts a goasi camera to the alpacadev.Camera + Hardware interfaces.
-// It is the device-specific code: it knows about goasi/ZWO; the library does not.
 //
-// All goasi (ASI SDK) access is serialized by mu — the SDK is not safe for
-// concurrent per-camera calls, and Alpaca HTTP handlers run concurrently. mu is
-// never held across a sleep (the exposure poll locks per-call only).
+// All goasi (ASI SDK) access is serialized by mu — the SDK is not safe for concurrent per-camera
+// calls, and Alpaca HTTP handlers run concurrently. mu is never held across a sleep (the exposure
+// poll locks per-call only).
 type ASICamera struct {
 	alpacadev.BaseCamera
 
@@ -52,10 +51,9 @@ type ASICamera struct {
 	coolerOn bool
 }
 
-// NewASICamera creates the driver for a camera selected by serial (preferred,
-// stable) or, if serial is "", by enumeration index. The UniqueID is known up
-// front from the serial, so the device is registered with a stable identity
-// even before the camera is plugged in.
+// NewASICamera creates the driver for a camera selected by serial (preferred, stable) or, if
+// serial is "", by enumeration index. The UniqueID is known up front from the serial, so the
+// device registers with a stable identity before the camera is plugged in.
 func NewASICamera(index int, serial string) *ASICamera {
 	c := &ASICamera{index: index, wantSerial: strings.ToLower(serial)}
 	c.Version = "0.1.0"
@@ -73,11 +71,10 @@ func NewASICamera(index int, serial string) *ASICamera {
 
 // --- Hardware lifecycle (persistent owner) ---
 
-// Open starts the hardware-management goroutine and returns immediately, so the
-// Alpaca server comes up with or without a camera attached. The goroutine
-// acquires the target camera when it appears (matching the serial), monitors it,
-// and re-acquires after an unplug — never exiting the process (systemd is only a
-// backstop). This satisfies "start the service before plugging in the camera".
+// Open starts the hardware-management goroutine and returns immediately, so the Alpaca server
+// comes up with or without a camera attached. The goroutine acquires the target camera when it
+// appears (matching the serial), monitors it, and re-acquires after an unplug, never exiting the
+// process.
 func (c *ASICamera) Open(ctx context.Context) error {
 	go alpacadev.Supervise(ctx, c.ID, func() { c.manageHardware(ctx) })
 	return nil
@@ -95,31 +92,26 @@ func (c *ASICamera) Close(ctx context.Context) error {
 	return nil
 }
 
-// Connected reports hardware presence. In this driver the Alpaca logical
-// connection IS the hardware state: the device is "connected" exactly when the
-// camera is attached and its SDK handle is open. Read lock-free so it never
+// Connected reports hardware presence: the Alpaca logical connection IS the hardware state, true
+// exactly when the camera is attached and its SDK handle is open. Read lock-free so it never
 // blocks behind a long readout holding mu.
 func (c *ASICamera) Connected() bool { return c.hwPresent.Load() }
 
-// Disconnect is a logical no-op: the driver owns the hardware for the life of the
-// process (the TEC cooler must not be reset by a client's disconnect). Connection
-// state follows the hardware, not client sessions.
+// Disconnect is a logical no-op: the driver owns the hardware for the life of the process (a
+// client disconnect must not reset the TEC cooler).
 func (c *ASICamera) Disconnect(ctx context.Context) error { return nil }
 
-// Busy reports a transitory state in which mutating writes must be rejected. The
-// server consults this on every write. It reads the driver-side exposure Op, so
-// it is free and current (no SDK/USB call) and never contends with mu.
+// Busy reports a transitory state in which mutating writes must be rejected. Reads the driver-side
+// exposure Op (no SDK/USB call), so it never contends with mu.
 func (c *ASICamera) Busy() bool { return c.exposeOp.State() == alpacadev.OpBusy }
 
-// manageHardware acquires, monitors, and re-acquires the camera for the life of
-// the process. When no camera is present it polls for one; when present it
-// pings the SDK and, on removal, closes the handle and drops the client session
-// (so the library's gating returns NotConnected) then resumes acquiring.
+// manageHardware acquires, monitors, and re-acquires the camera for the life of the process. When
+// no camera is present it polls for one; when present it pings the SDK and, on removal, closes the
+// handle (so the library's gating returns NotConnected) then resumes acquiring.
 func (c *ASICamera) manageHardware(ctx context.Context) {
-	// A real unplug must be seen several times in a row before we tear down. A
-	// spurious teardown re-opens the camera, which resets the TEC cooler power to
-	// 0 — the SDK then ramps it back over ~10 min — so a transient USB hiccup must
-	// never trigger one. ~3 consecutive misses ≈ 6 s before we give up.
+	// A real unplug must be seen several times in a row before we tear down: a spurious teardown
+	// re-opens the camera, which resets the TEC cooler power to 0 (the SDK then ramps it back over
+	// ~10 min), so a transient USB hiccup must not trigger one. ~3 misses ≈ 6 s.
 	const maxMisses = 3
 	misses := 0
 
@@ -136,13 +128,12 @@ func (c *ASICamera) manageHardware(ctx context.Context) {
 			continue
 		}
 
-		// Liveness probe. ASIGetControlValue(ASI_TEMPERATURE) is unusable here: the
-		// SDK has a background thread that caches temperature, so it keeps returning
-		// success after the camera is physically gone. ASIGetExpStatus instead does
-		// a live USB read (it's the exposure-poll call), so its error code reports
-		// ASI_ERROR_CAMERA_REMOVED. We deliberately do NOT re-enumerate the bus here
-		// — that could perturb the open, cooling camera. During an exposure this
-		// returns ASI_EXP_WORKING with rc==0, so it is not mistaken for a miss.
+		// Liveness probe. ASIGetControlValue(ASI_TEMPERATURE) is unusable here: the SDK caches
+		// temperature on a background thread, so it keeps returning success after the camera is
+		// gone. ASIGetExpStatus does a live USB read (the exposure-poll call), so its error code
+		// reports ASI_ERROR_CAMERA_REMOVED. Do not re-enumerate the bus here — that could perturb
+		// the open, cooling camera. During an exposure this returns ASI_EXP_WORKING with rc==0, so
+		// it is not mistaken for a miss.
 		c.mu.Lock()
 		_, rc := c.cam.ASIGetExpStatusRC()
 		c.mu.Unlock()
@@ -165,9 +156,8 @@ func (c *ASICamera) manageHardware(ctx context.Context) {
 	}
 }
 
-// tryAcquire scans connected cameras for the target (by serial, else the
-// configured index), opens+initializes it, and configures defaults. Returns
-// true once the camera is open and ready.
+// tryAcquire scans connected cameras for the target (by serial, else the configured index),
+// opens+initializes it, and configures defaults. Returns true once the camera is open and ready.
 func (c *ASICamera) tryAcquire() bool {
 	n := goasi.ASIGetNumOfConnectedCameras()
 	for i := 0; i < n; i++ {
@@ -217,10 +207,9 @@ func (c *ASICamera) configureOpened(cam *goasi.GoAsiCamera, serialHex string) {
 	c.hwPresent.Store(true)
 }
 
-// Connect is the client's presence handshake: it succeeds iff the hardware is
-// attached (Connected ≡ hwPresent), and lets the driver advertise the device and
-// start before the camera is plugged in. It does not open hardware — the driver
-// already owns it — so it is a check, not a state change.
+// Connect is the client's presence handshake: it succeeds iff the hardware is attached
+// (Connected ≡ hwPresent). It does not open hardware — the driver already owns it — so it is a
+// check, not a state change.
 func (c *ASICamera) Connect(ctx context.Context) error {
 	if !c.hwPresent.Load() {
 		return alpacadev.ErrNotConnected
@@ -496,10 +485,9 @@ func (c *ASICamera) LastExposureStartTime() (string, error) {
 	return c.lastStart.Format("2006-01-02T15:04:05"), nil
 }
 
-// ImageFrame returns the last readout as ImageBytes-ready data. RAW16 is
-// transmitted as unsigned 16-bit, presented to clients as Int32. (Orientation:
-// the SDK buffer is row-major; verify [x,y] ordering against a client — spec
-// §6.4 / open item #2.)
+// ImageFrame returns the last readout as ImageBytes-ready data. RAW16 is transmitted as unsigned
+// 16-bit, presented to clients as Int32. Orientation: the SDK buffer is row-major; [x,y] ordering
+// unverified against a client.
 func (c *ASICamera) ImageFrame() (alpacadev.ImageFrame, error) {
 	if c.exposeOp.State() != alpacadev.OpDone {
 		return alpacadev.ImageFrame{}, alpacadev.ErrValueNotSet

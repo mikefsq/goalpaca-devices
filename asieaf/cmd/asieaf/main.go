@@ -15,8 +15,8 @@ import (
 	"strings"
 	"syscall"
 
-	alpacadev "github.com/mikefsq/goalpaca/server"
 	driver "github.com/mikefsq/asieaf-alpaca"
+	alpacadev "github.com/mikefsq/goalpaca/server"
 	"github.com/mikefsq/goasi/eaf"
 )
 
@@ -32,9 +32,8 @@ func main() {
 	ipv6 := flag.Bool("ipv6", false, "also answer IPv6 multicast discovery (direct mode)")
 	flag.Parse()
 
-	// Do NOT require a focuser at startup: the service may be started before the
-	// device is plugged in. The driver brings the Alpaca endpoint up and acquires
-	// the focuser by index whenever it appears.
+	// No focuser is required at startup: the driver brings the Alpaca endpoint up
+	// and acquires the focuser by index whenever it appears.
 	if devs, err := eaf.Enumerate(); err == nil && len(devs) > 0 {
 		log.Printf("asieaf: %d EAF focuser(s) currently connected", len(devs))
 	} else {

@@ -16,8 +16,7 @@ import (
 var _ alpacadev.Focuser = (*OasisFocuser)(nil)
 
 // debugMoves enables verbose move/settle tracing on the console. Off by default; set
-// OASISFOC_DEBUG=1 (or true/yes/on) to diagnose how long the device keeps reporting
-// "moving" after a MoveTo versus how a client (e.g. NINA) polls IsMoving.
+// OASISFOC_DEBUG=1 (or true/yes/on) to enable.
 var debugMoves = func() bool {
 	switch strings.ToLower(os.Getenv("OASISFOC_DEBUG")) {
 	case "1", "true", "yes", "on":
@@ -27,12 +26,9 @@ var debugMoves = func() bool {
 }()
 
 // OasisFocuser adapts an oasis-astro/oasisfoc focuser to the alpacadev.Focuser +
-// Hardware interfaces. It is the device-specific code; the oasisfoc library knows
-// nothing about Alpaca.
-//
-// The focuser has an absolute encoder (MoveTo/Position), so it presents as an ASCOM
-// absolute focuser; it also has a manual clutch, so the reported position can
-// change without a commanded move — that is fine, the encoder still tracks it.
+// Hardware interfaces. The focuser has an absolute encoder (MoveTo/Position), so it
+// presents as an ASCOM absolute focuser; it also has a manual clutch, so the reported
+// position can change without a commanded move (the encoder still tracks it).
 type OasisFocuser struct {
 	alpacadev.BaseFocuser
 
@@ -50,8 +46,7 @@ type OasisFocuser struct {
 	sawMoving  bool
 	prevMoving bool
 
-	// openDev opens the target focuser; set once at construction. Tests inject a
-	// fake-transport-backed handle.
+	// openDev opens the target focuser; set once at construction.
 	openDev func() (*oasisfoc.Oasis, error)
 }
 
@@ -67,7 +62,7 @@ func NewOasisFocuser(index int) *OasisFocuser {
 	return f
 }
 
-// Absolute focuser: MaxIncrement equals the full travel.
+// Absolute reports the focuser as absolute (MaxIncrement equals full travel).
 func (f *OasisFocuser) Absolute() bool    { return true }
 func (f *OasisFocuser) MaxStep() int      { f.mu.Lock(); defer f.mu.Unlock(); return f.maxStep }
 func (f *OasisFocuser) MaxIncrement() int { f.mu.Lock(); defer f.mu.Unlock(); return f.maxStep }
@@ -112,9 +107,8 @@ func (f *OasisFocuser) Disconnect(ctx context.Context) error { return nil }
 func (f *OasisFocuser) Busy() bool { return f.IsMoving() }
 
 func (f *OasisFocuser) manageHardware(ctx context.Context) {
-	// Release the device handle when the supervised loop ends (ctx cancelled). Without this
-	// the HID handle leaks on shutdown — on macOS/IOKit that can leave the device wedged
-	// (unenumerable) until a replug.
+	// Release the device handle when the supervised loop ends (ctx cancelled), else the
+	// HID handle leaks; on macOS/IOKit that can wedge the device until a replug.
 	defer func() {
 		f.mu.Lock()
 		if f.dev != nil {
@@ -168,8 +162,8 @@ func (f *OasisFocuser) tryAcquire() bool {
 	if maxStep > 0 {
 		f.maxStep = int(maxStep)
 	}
-	// Surface the live identity (model / firmware / hardware / serial) decoded from the
-	// device in the ASCOM Description, and the firmware in DriverInfo.
+	// Surface the device identity (model/firmware/hardware/serial) in ASCOM Description,
+	// firmware in DriverInfo.
 	f.Desc = fmt.Sprintf("Astroasis %s — FW %s, HW %s, S/N %s (max %d steps, manual clutch)",
 		model, dev.FirmwareVersion(), dev.HardwareVersion(), serial, f.maxStep)
 	f.Info = fmt.Sprintf("oasisfoc Alpaca driver over pure-Go oasis-astro/oasisfoc; device FW %s build %s",
@@ -190,12 +184,8 @@ func (f *OasisFocuser) openByIndex() (*oasisfoc.Oasis, error) {
 
 // --- Focuser members ---
 //
-// StepSize and TempComp are intentionally left at the BaseFocuser defaults (ASCOM
-// PropertyNotImplemented). They are optical-train properties, not focuser-intrinsic ones:
-// StepSize (microns/step) depends on the drawtube/reduction and telescope it drives, and
-// temperature compensation needs the telescope's thermal-expansion coefficient — both are
-// host/setup values the device cannot report. Reporting a fabricated value would be wrong;
-// NotImplemented is the correct ASCOM answer.
+// StepSize and TempComp are left at the BaseFocuser defaults (ASCOM
+// PropertyNotImplemented): they are optical-train values the device cannot report.
 
 func (f *OasisFocuser) IsMoving() bool {
 	f.mu.Lock()
@@ -211,17 +201,15 @@ func (f *OasisFocuser) IsMoving() bool {
 	return moving
 }
 
-// traceMovingLocked logs the device "moving" flag while a commanded move is in flight
-// (and catches manual-clutch moves), so the console shows the per-poll moving/position
-// and the wall-clock the device keeps reporting "moving" after the MoveTo — i.e. how
-// long a client must poll before IsMoving clears, and the gap before its next request
-// (visible in the HTTP access log). Stays quiet between moves. Caller holds mu.
+// traceMovingLocked logs the device "moving" flag and position per poll while a
+// commanded move is in flight (also catches manual-clutch moves). Quiet between moves.
+// Caller holds mu.
 func (f *OasisFocuser) traceMovingLocked(moving bool) {
 	if !debugMoves {
 		return
 	}
 	if !moving && !f.expectMove && !f.prevMoving {
-		return // idle: no spam between moves
+		return // idle
 	}
 	pos, _ := f.dev.Position()
 	elapsed := ""
@@ -233,7 +221,7 @@ func (f *OasisFocuser) traceMovingLocked(moving bool) {
 		f.sawMoving = true
 		log.Printf("oasisfoc: %s ismoving=true  pos=%d target=%d%s", f.ID, pos, f.moveTarget, elapsed)
 	case f.expectMove && !f.sawMoving && !f.moveStart.IsZero() && time.Since(f.moveStart) < 2*time.Second:
-		// commanded move not started yet (firmware arming) — keep watching
+		// commanded move not started yet (firmware arming)
 		log.Printf("oasisfoc: %s ismoving=false pos=%d target=%d%s (awaiting motion)", f.ID, pos, f.moveTarget, elapsed)
 	default:
 		log.Printf("oasisfoc: %s ismoving=false pos=%d target=%d%s  <-- DONE (device idle)", f.ID, pos, f.moveTarget, elapsed)
@@ -263,10 +251,9 @@ func (f *OasisFocuser) Temperature() (float64, error) {
 }
 
 // Synchronous-completion tuning for SHORT moves. A move of at most syncMoveMaxSteps
-// (~0.25 s of travel at ~1000 steps/s) is finished synchronously inside Move so a client
-// that checks IsMoving immediately after sees completion on the first read, instead of
-// sleeping a full poll interval (ASCOM's default is 1 s). Larger moves stay async —
-// blocking them would risk the client's HTTP timeout and defeat Halt/progress polling.
+// completes synchronously inside Move so a client that checks IsMoving immediately after
+// sees completion on the first read. Larger moves stay async (blocking would risk the
+// client's HTTP timeout and defeat Halt/progress polling).
 const (
 	syncMoveMaxSteps = 250                   // moves this short (in steps) complete synchronously
 	syncMoveCap      = 1 * time.Second       // hard ceiling on the synchronous block (safety)
@@ -294,11 +281,8 @@ func (f *OasisFocuser) Move(position int) error {
 		return alpacadev.ErrNotConnected
 	}
 	cur, curErr := f.dev.Position()
-	// Duplicate / zero-distance move: the focuser is already at the target. Don't re-issue
-	// MoveTo (which could trigger a needless backlash-comp move) and don't run the settle
-	// block — return immediately. A client that re-sends the same target (NINA does, on
-	// separate connections) then gets an instant 200 with an exact readback, instead of
-	// paying the full ~60ms settle wait for a move that isn't happening.
+	// Duplicate / zero-distance move: already at target. Don't re-issue MoveTo (could
+	// trigger a needless backlash-comp move) and skip the settle block; return immediately.
 	if curErr == nil && position == int(cur) {
 		f.mu.Unlock()
 		if debugMoves {
@@ -321,18 +305,14 @@ func (f *OasisFocuser) Move(position int) error {
 	}
 
 	// Only short moves finish synchronously. If the current position was unreadable, stay
-	// async rather than risk a long block (and we can't bound the distance anyway).
+	// async (can't bound the distance).
 	if curErr != nil || absInt(position-int(cur)) > syncMoveMaxSteps {
 		return nil
 	}
-	// Block until motion ends. Done when the device is idle AND either it reached the
-	// target, or we already saw it moving (so it has since stopped — target reached, a
-	// concurrent /halt, or a soft-limit stop). observedMoving guards the firmware-arming
-	// window: the device asserts "moving" a few ms after MoveTo, so a bare !moving on the
-	// first poll could return before the move even starts. A /halt during the move runs
-	// concurrently (Go serves each request on its own goroutine) and takes f.mu between
-	// polls to issue StopMove — so it can't interleave a HID transaction, and the block
-	// then sees idle and releases the /move promptly instead of spinning to the cap.
+	// Block until motion ends: device idle AND either at target or already seen moving
+	// (so it has since stopped — target reached, concurrent /halt, or soft-limit stop).
+	// observedMoving guards the firmware-arming window, where the device asserts "moving"
+	// a few ms after MoveTo. A concurrent /halt takes f.mu between polls to issue StopMove.
 	start := time.Now()
 	observedMoving := false
 	for time.Since(start) < syncMoveCap {

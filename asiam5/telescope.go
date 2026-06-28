@@ -15,14 +15,14 @@ import (
 )
 
 const (
-	maxAxisRate = 6.0 // advertised MoveAxis ceiling (deg/s); snapped to a preset
+	maxAxisRate = 6.0 // MoveAxis ceiling (deg/s); snapped to a preset
 	slewTimeout = 3 * time.Minute
 	acquirePoll = 3 * time.Second
 	monitorPoll = 2 * time.Second
 )
 
-// snapshot caches the last good value of each error-free getter, returned when
-// the mount is unreachable or a live read fails.
+// snapshot caches the last good value of each getter, returned when the mount is
+// unreachable or a live read fails.
 type snapshot struct {
 	ra, dec, alt, az, lst             float64
 	pier                              alpacadev.PierSide
@@ -102,7 +102,7 @@ func (t *Telescope) manage(ctx context.Context) {
 				log.Printf("asiam5: mount %s connected", t.ID)
 				lastErr = ""
 			} else {
-				if es := err.Error(); es != lastErr { // log each new failure once, not every retry
+				if es := err.Error(); es != lastErr { // log each new failure once
 					log.Printf("asiam5: mount %s connect failed: %v (retrying)", t.ID, err)
 					lastErr = es
 				}
@@ -128,8 +128,7 @@ func (t *Telescope) manage(ctx context.Context) {
 
 func (t *Telescope) mount() *am5.Mount { t.mu.Lock(); defer t.mu.Unlock(); return t.m }
 
-// LiveMount returns the connected mount as a lx200.Mount (or ErrNotConnected), the
-// seam the LX200 bridge and INDI server consume to drive the same mount object.
+// LiveMount returns the connected mount as a lx200.Mount, or ErrNotConnected.
 func (t *Telescope) LiveMount() (lx200.Mount, error) {
 	if m := t.mount(); m != nil {
 		return m, nil
@@ -138,11 +137,9 @@ func (t *Telescope) LiveMount() (lx200.Mount, error) {
 }
 
 // --- ASCOM Command* passthrough -------------------------------------------------
-// CommandBlind/String/Bool send a raw LX200 command the typed API doesn't wrap
-// (e.g. an AM5 extended command), mapping to the core Blind/Get/Ack reply shapes.
-// lx200.Frame adds ':'…'#' framing unless raw. The server already gates these by
-// Connected()/Busy() (so they're rejected mid-slew); the nil-guard covers the
-// reconnect race.
+// CommandBlind/String/Bool send a raw LX200 command not wrapped by the typed API,
+// mapping to the Blind/Get/Ack reply shapes. lx200.Frame adds ':'…'#' framing
+// unless raw.
 
 func (t *Telescope) CommandBlind(cmd string, raw bool) error {
 	m := t.mount()

@@ -29,11 +29,10 @@ func (c counters) next(t alpacadev.DeviceType) int {
 	return n
 }
 
-// registerDevice constructs the device named by spec.Driver and registers it on
-// srv under the next free number for its ASCOM type, returning it so the caller can
-// also expose it over other front-ends (the INDI hub, the LX200 bridge). The
-// device's hardware loop is started later by srv.Run, so registration touches no
-// hardware.
+// registerDevice constructs the device named by spec.Driver and registers it on srv
+// under the next free number for its ASCOM type, returning it for the other
+// front-ends (INDI hub, LX200 bridge). Registration touches no hardware; the
+// device's hardware loop is started later by srv.Run.
 func registerDevice(srv *alpacadev.Server, spec DeviceSpec, port int, c counters) (alpacadev.Device, error) {
 	reg := func(t alpacadev.DeviceType, d alpacadev.Device) (alpacadev.Device, error) {
 		return d, srv.Register(t, c.next(t), d)
@@ -47,8 +46,8 @@ func registerDevice(srv *alpacadev.Server, spec DeviceSpec, port int, c counters
 			return nil, fmt.Errorf("tenmicron requires \"addr\" (mount host:port)")
 		}
 		d := tenmicrondrv.NewTelescope(spec.Addr)
-		// Optics are seeded (and unit-converted from config mm) by the shared holder
-		// the caller injects via UseOptics — see startup wiring in main.go.
+		// Optics are seeded (unit-converted from config mm) by the shared holder the
+		// caller injects via UseOptics.
 		d.ID = "10micron-" + spec.Addr
 		d.DevName = pick(spec.Name, "10Micron GM")
 		d.Desc = "10Micron GM-series mount (" + spec.Addr + ")"
@@ -92,7 +91,7 @@ func registerDevice(srv *alpacadev.Server, spec DeviceSpec, port int, c counters
 			d.DevName = spec.Name
 		}
 		// Wrap so the camera can also serve the INDI CCD front-end (guide camera) when
-		// "indi": true — astrocam itself needs no changes; this adapts its Alpaca surface.
+		// "indi": true.
 		return reg(alpacadev.CameraType, newAstrocamINDI(d))
 
 	// ---- Focusers ----

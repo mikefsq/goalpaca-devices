@@ -8,10 +8,8 @@ import (
 	"github.com/mikefsq/lx200/tenmicron"
 )
 
-// This file wires the ASCOM Telescope members the base wrapper left as
-// BaseTelescope defaults but the lx200/tenmicron library now supports: alt/az
-// goto + sync, guide rates, set-park, destination-side-of-pier, plus the
-// refraction and pulse-guiding state that the defaults reported incorrectly.
+// ASCOM Telescope members beyond the BaseTelescope defaults: alt/az goto + sync,
+// guide rates, set-park, destination-side-of-pier, refraction and pulse-guiding state.
 
 const arcsecPerDeg = 3600.0
 
@@ -19,9 +17,8 @@ const arcsecPerDeg = 3600.0
 // to convert ASCOM DeclinationRate (arcsec/s) to the mount's multiples-of-sidereal.
 const siderealArcsecPerSec = 15.0410681
 
-// --- Mount geometry (stated explicitly rather than inherited) ---------------
-// The driver targets 10Micron GM-series German-equatorial mounts, which report
-// apparent (Jnow) coordinates.
+// --- Mount geometry ---------------------------------------------------------
+// 10Micron GM-series German-equatorial mounts report apparent (Jnow) coordinates.
 
 func (t *Telescope) AlignmentMode() alpacadev.AlignmentMode {
 	return alpacadev.AlignGermanPolar
@@ -44,11 +41,9 @@ func (t *Telescope) CanSetDeclinationRate() bool    { return true }
 func (t *Telescope) CanSetPierSide() bool { return true }
 
 // SetSideOfPier forces the mount to the requested pier side. 10Micron has no
-// "set exact side" primitive (and its :MSfs side numbering is spec-ambiguous), so
-// this reads the current pointing side (:pS#) and issues a meridian flip (:FLIP#)
-// only when a change is needed — :FLIP# re-points the same coordinates from the
-// opposite side, which is the ASCOM SetSideOfPier semantics. It errors (rather than
-// guessing a flip) when the current side can't be determined.
+// "set exact side" primitive, so this reads the current pointing side (:pS#) and
+// issues a meridian flip (:FLIP#) only when a change is needed — :FLIP# re-points the
+// same coordinates from the opposite side. Errors when the current side is unknown.
 func (t *Telescope) SetSideOfPier(side alpacadev.PierSide) error {
 	if side != alpacadev.PierEast && side != alpacadev.PierWest {
 		return alpacadev.ErrInvalidValue
@@ -63,20 +58,19 @@ func (t *Telescope) SetSideOfPier(side alpacadev.PierSide) error {
 	}
 	switch alpacadev.PierSide(cur) {
 	case side:
-		return nil // already on the requested side
+		return nil // already on requested side
 	case alpacadev.PierUnknown:
 		return alpacadev.NewError(alpacadev.ErrNumUnspecified, "cannot determine current pier side")
 	default:
-		return m.Flip() // flip to the opposite (= requested) side
+		return m.Flip() // flip to requested side
 	}
 }
 
 // --- Custom tracking-rate offsets -------------------------------------------
-// 10Micron has no read-back for these, so the last-set value is cached (the ASCOM
-// convention for rate offsets). ASCOM RightAscensionRate is "seconds of RA per
-// sidereal second" — and the mount's :RR rate is "multiples of sidereal added to
-// sidereal" — so the two are 1:1. ASCOM DeclinationRate is arcsec/SI-second, so it
-// is divided by the sidereal rate to get the mount's multiples-of-sidereal.
+// No mount read-back, so the last-set value is cached. ASCOM RightAscensionRate
+// (seconds of RA per sidereal second) maps 1:1 to the mount's :RR rate (multiples of
+// sidereal). ASCOM DeclinationRate (arcsec/SI-second) is divided by the sidereal rate
+// to get the mount's multiples-of-sidereal.
 
 func (t *Telescope) RightAscensionRate() float64 { return t.getF(&t.raRate) }
 func (t *Telescope) DeclinationRate() float64    { return t.getF(&t.decRate) }
@@ -98,11 +92,9 @@ func (t *Telescope) SetDeclinationRate(arcsecPerSec float64) error {
 	if m == nil {
 		return alpacadev.ErrNotConnected
 	}
-	// The mount's :RD declination offset only drives the axis while dual-axis tracking is
-	// on, so a non-zero Dec rate implies it — enable it first, else the rate silently
-	// no-ops. We do NOT auto-disable on zero: dual-axis tracking is also wanted for
-	// refraction following, and disabling is equatorial-only. Toggle it explicitly via the
-	// dualaxistracking Action.
+	// The mount's :RD declination offset only drives the axis while dual-axis tracking
+	// is on, so a non-zero Dec rate enables it first. Not auto-disabled on zero (dual-axis
+	// tracking is also used for refraction following); toggle via the dualaxistracking Action.
 	if arcsecPerSec != 0 {
 		if err := m.SetDualAxisTracking(true); err != nil {
 			return err
@@ -116,8 +108,8 @@ func (t *Telescope) SetDeclinationRate(arcsecPerSec float64) error {
 }
 
 // --- Optics (instrument profile, set via flags) -----------------------------
-// The mount cannot report optics; these are configured at startup so ASCOM client
-// profiles (NINA, SGP, …) and downstream software can read consistent values.
+// The mount cannot report optics; these are configured at startup so ASCOM clients
+// read consistent values.
 
 func (t *Telescope) ApertureDiameter() float64 { ap, _, _, _, _ := t.opticsStore().Optics(); return ap }
 func (t *Telescope) ApertureArea() float64     { _, area, _, _, _ := t.opticsStore().Optics(); return area }
@@ -176,8 +168,7 @@ func validAltAz(az, alt float64) bool {
 func (t *Telescope) GuideRateRightAscension() float64 { return t.guideRate() }
 func (t *Telescope) GuideRateDeclination() float64    { return t.guideRate() }
 
-// guideRate is snapshot-served — the poller's slow set refreshes it and setGuideRate
-// updates it on a write; no mount I/O per GET.
+// guideRate is snapshot-served (poller slow set + setGuideRate); no mount I/O per GET.
 func (t *Telescope) guideRate() float64 { return t.getF(&t.snap.guideRate) }
 
 func (t *Telescope) SetGuideRateRightAscension(degPerSec float64) error {
@@ -197,8 +188,7 @@ func (t *Telescope) setGuideRate(degPerSec float64) error {
 		return alpacadev.ErrNotConnected
 	}
 	// One physical guide rate; setting either axis sets both. Clamp to the mount's
-	// supported band [0.1×, 1.0×] sidereal (the lib clamps the wire to the same bounds) so
-	// the value we store and report back matches what the mount actually accepted.
+	// supported band [0.1×, 1.0×] sidereal so the stored/reported value matches the wire.
 	arcsec := degPerSec * arcsecPerDeg
 	if arcsec > tenmicron.GuideRateMaxArcsec {
 		arcsec = tenmicron.GuideRateMaxArcsec

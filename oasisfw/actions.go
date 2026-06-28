@@ -15,15 +15,15 @@ type (
 	oasisConfig = oasisfw.Config
 )
 
-// The Oasis filter wheel exposes more than the ASCOM IFilterWheel interface (Names /
-// FocusOffsets / Position) has slots for: identity, temperature, the config block
-// (speed/autorun/bluetooth/turbo), calibrate, per-slot names/offsets/colors, and the
-// friendly/bluetooth names. Those are surfaced via the ASCOM Action seam.
+// The Oasis filter wheel exposes more than ASCOM IFilterWheel (Names/FocusOffsets/
+// Position): identity, temperature, the config block (speed/autorun/bluetooth/turbo),
+// calibrate, per-slot names/offsets/colors, and friendly/bluetooth names, surfaced via
+// the Action seam.
 //
 // Convention: action names are lowercase. Getters ignore params and return a string
-// ("true"/"false" for booleans). Setters take the value in params — booleans accept
+// ("true"/"false" for booleans). Setters take the value in params (booleans accept
 // 1/0/true/false/on/off, ints a decimal number, names the raw string; per-slot setters
-// take "slot:value" (e.g. setslotname=1:Ha, setcolor=0:00ff00). Setters return "ok".
+// take "slot:value", e.g. setslotname=1:Ha, setcolor=0:00ff00) and return "ok".
 var wheelActions = []string{
 	// identity / telemetry (read)
 	"serial", "model", "hardwareversion", "firmwareversion", "firmwarebuilddate",

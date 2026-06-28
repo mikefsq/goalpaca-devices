@@ -17,8 +17,8 @@ import (
 	"strings"
 	"syscall"
 
-	alpacadev "github.com/mikefsq/goalpaca/server"
 	driver "github.com/mikefsq/asiccd-alpaca"
+	alpacadev "github.com/mikefsq/goalpaca/server"
 	goasi "github.com/mikefsq/goasi/ccd"
 )
 
@@ -34,9 +34,8 @@ func main() {
 	ipv6 := flag.Bool("ipv6", false, "also answer IPv6 multicast discovery (direct mode)")
 	flag.Parse()
 
-	// Do NOT require a camera at startup: the service may be started before the
-	// camera is plugged in. The driver brings the Alpaca endpoint up and acquires
-	// the camera (by serial) whenever it appears.
+	// Do not require a camera at startup: the service may start before the camera is plugged in.
+	// The driver brings the Alpaca endpoint up and acquires the camera (by serial) when it appears.
 	if n := goasi.ASIGetNumOfConnectedCameras(); n > 0 {
 		log.Printf("asiccd: %d ASI camera(s) currently connected", n)
 	} else {

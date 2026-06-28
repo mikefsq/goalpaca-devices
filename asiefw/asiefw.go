@@ -16,12 +16,10 @@ import (
 var _ alpacadev.FilterWheel = (*ASIFilterWheel)(nil)
 
 // ASIFilterWheel adapts a goasi/efw filter wheel to the alpacadev.FilterWheel +
-// Hardware interfaces. It is the device-specific code: it knows about goasi/ZWO;
-// the library does not.
+// Hardware interfaces.
 //
-// The EFW SDK is not safe for concurrent per-device calls and Alpaca HTTP
-// handlers run concurrently, so all efw access is serialized by mu. mu is never
-// held across a sleep.
+// The EFW SDK is not safe for concurrent per-device calls; all efw access is
+// serialized by mu. mu is never held across a sleep.
 type ASIFilterWheel struct {
 	alpacadev.BaseFilterWheel
 
@@ -42,10 +40,9 @@ type ASIFilterWheel struct {
 	openDev func() (*efw.EFW, error)
 }
 
-// NewASIFilterWheel creates the driver for a wheel selected by serial (preferred,
-// stable) or, if serial is "", by enumeration index. The UniqueID is known up
-// front from the serial, so the device is registered with a stable identity even
-// before the wheel is plugged in.
+// NewASIFilterWheel creates the driver for a wheel selected by serial, or by
+// enumeration index if serial is "". With a serial the device has a stable
+// identity before the wheel is plugged in.
 func NewASIFilterWheel(index int, serial string, unidirectional bool) *ASIFilterWheel {
 	w := &ASIFilterWheel{index: index, wantSerial: strings.ToLower(serial), unidirectional: unidirectional}
 	w.Version = "0.1.0"
@@ -82,9 +79,7 @@ func (w *ASIFilterWheel) Close(ctx context.Context) error {
 	return nil
 }
 
-// Connect is the client's presence handshake: it succeeds iff the wheel is
-// attached (Connected ≡ hwPresent). It does not open hardware — the driver
-// already owns it.
+// Connect succeeds iff the wheel is attached. It does not open hardware.
 func (w *ASIFilterWheel) Connect(ctx context.Context) error {
 	if !w.Connected() {
 		return alpacadev.ErrNotConnected
@@ -92,26 +87,23 @@ func (w *ASIFilterWheel) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Connected reports hardware presence: the device is "connected" exactly when the
-// wheel is attached and its handle is open.
+// Connected reports true when the wheel is attached and its handle is open.
 func (w *ASIFilterWheel) Connected() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.dev != nil
 }
 
-// Disconnect is a logical no-op: the driver owns the hardware for the life of the
-// process; connection state follows the hardware, not client sessions.
+// Disconnect is a no-op: connection state follows the hardware, not client sessions.
 func (w *ASIFilterWheel) Disconnect(ctx context.Context) error { return nil }
 
-// Busy reports a transitory state in which mutating writes are rejected — here,
-// while the wheel is moving. The EFW SDK reports position -1 while turning.
-// On-demand read (only reached when Connected, so -1 means moving).
+// Busy rejects mutating writes while the wheel is moving. The EFW SDK reports
+// position -1 while turning.
 func (w *ASIFilterWheel) Busy() bool { return w.Position() < 0 }
 
 // manageHardware acquires, monitors, and re-acquires the wheel for the life of
-// the process. When none is present it polls; when present it pings the SDK and,
-// on removal, closes the handle, drops the client session, and resumes acquiring.
+// the process: polls when absent, pings the SDK when present, closes the handle
+// on removal.
 func (w *ASIFilterWheel) manageHardware(ctx context.Context) {
 	for ctx.Err() == nil {
 		w.mu.Lock()
@@ -135,7 +127,7 @@ func (w *ASIFilterWheel) manageHardware(ctx context.Context) {
 			log.Printf("asiefw: filter wheel %s lost (%v); re-acquiring", w.ID, err)
 			w.mu.Lock()
 			w.dev.Close()
-			w.dev = nil // Connected() follows this; gate returns NotConnected
+			w.dev = nil
 			w.mu.Unlock()
 			continue
 		}
@@ -143,9 +135,8 @@ func (w *ASIFilterWheel) manageHardware(ctx context.Context) {
 	}
 }
 
-// tryAcquire opens the target wheel — by factory serial (preferred, stable) or,
-// if no serial was configured, by enumeration index — and caches its slot layout.
-// Returns true once the wheel is open and ready.
+// tryAcquire opens the target wheel (by serial, else by index) and caches its
+// slot layout. Returns true once the wheel is open and ready.
 func (w *ASIFilterWheel) tryAcquire() bool {
 	dev, err := w.openDev()
 	if err != nil {
@@ -155,8 +146,8 @@ func (w *ASIFilterWheel) tryAcquire() bool {
 	return true
 }
 
-// openConfigured opens the target wheel by factory serial (preferred, stable) or,
-// if no serial was configured, by enumeration index. It is the default openDev.
+// openConfigured opens the target wheel by serial, else by enumeration index. It
+// is the default openDev.
 func (w *ASIFilterWheel) openConfigured() (*efw.EFW, error) {
 	if w.wantSerial != "" {
 		return efw.OpenBySerial(w.wantSerial)
@@ -164,8 +155,8 @@ func (w *ASIFilterWheel) openConfigured() (*efw.EFW, error) {
 	return w.openByIndex()
 }
 
-// openByIndex opens the wheel at the configured enumeration index (fallback when
-// no serial is pinned). Index order is not stable across replug — prefer serial.
+// openByIndex opens the wheel at the configured enumeration index. Index order is
+// not stable across replug.
 func (w *ASIFilterWheel) openByIndex() (*efw.EFW, error) {
 	devs, err := efw.Enumerate()
 	if err != nil {
@@ -178,8 +169,8 @@ func (w *ASIFilterWheel) openByIndex() (*efw.EFW, error) {
 }
 
 // configureOpened caches a freshly opened wheel's slot layout and publishes it as
-// the live handle. The slot count can be 0 immediately after connection while the
-// wheel detects it, so it is read until known (bounded).
+// the live handle. The slot count can be 0 right after connection while the wheel
+// detects it, so it is polled until known (bounded).
 func (w *ASIFilterWheel) configureOpened(dev *efw.EFW) {
 	dev.SetUnidirectional(w.unidirectional) // host-side; re-applied each acquire
 	slots := 0
@@ -210,7 +201,7 @@ func (w *ASIFilterWheel) configureOpened(dev *efw.EFW) {
 	}
 	w.Desc = fmt.Sprintf("ZWO %s (%d slots)", model, slots)
 	if w.wantSerial == "" && serial != "" {
-		w.ID = "EFW-" + serial // adopt the real serial when not pinned by flag
+		w.ID = "EFW-" + serial // adopt real serial when not pinned by flag
 	}
 }
 

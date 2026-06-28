@@ -1,7 +1,6 @@
-// Command astrofleet runs the enabled goalpaca_devices in one process. Which
-// devices are enabled is declared in a JSON config file (see fleet.example.json);
-// each enabled device is its own ASCOM Alpaca server on its own port, and acquires
-// its hardware whenever it appears, so the fleet can be started on an empty bus.
+// Command astrofleet runs the enabled goalpaca_devices declared in a JSON config
+// (see fleet.example.json) in one process. Each enabled device is its own ASCOM
+// Alpaca server on its own port and acquires its hardware whenever it appears.
 //
 // Discovery is answered once for the whole fleet: the per-device servers keep
 // discovery off, and a single responder on UDP 32227 advertises every device port.
@@ -17,7 +16,7 @@ import (
 	"strings"
 	"syscall"
 
-	_ "github.com/mikefsq/astrocam/sensors" // registers the PID -> sensor profile table for the astrocam driver
+	_ "github.com/mikefsq/astrocam/sensors" // registers the PID -> sensor profile table
 	alpacadev "github.com/mikefsq/goalpaca/server"
 	indiccd "github.com/mikefsq/goindi/ccd"
 	indimount "github.com/mikefsq/goindi/mount"
@@ -26,21 +25,20 @@ import (
 	"github.com/mikefsq/lx200/bridge"
 )
 
-// liveMounter is implemented by the mount drivers (their LiveMount returns the
-// connected lx200.Mount). It is the seam the LX200 bridge and INDI server consume.
+// liveMounter is implemented by mount drivers; LiveMount returns the connected
+// lx200.Mount that the LX200 bridge and INDI server consume.
 type liveMounter interface {
 	LiveMount() (lx200.Mount, error)
 }
 
-// liveCamera is implemented by camera drivers that can drive the INDI CCD device
-// (their LiveCamera returns the frame source). The seam the INDI hub consumes.
+// liveCamera is implemented by camera drivers that drive the INDI CCD device;
+// LiveCamera returns the frame source.
 type liveCamera interface {
 	LiveCamera() (indiccd.Camera, error)
 }
 
 // opticsConfigurable is implemented by mount drivers that accept a shared optics
-// holder (so the INDI front-end reports what an Alpaca setoptics Action sets). Any
-// driver exposing UseOptics(alpacadev.OpticsStore) is picked up automatically.
+// holder, so the INDI front-end reports what an Alpaca setoptics Action sets.
 type opticsConfigurable interface {
 	UseOptics(alpacadev.OpticsStore)
 }
@@ -68,8 +66,8 @@ func main() {
 		logger = log.New(os.Stderr, "alpaca ", log.LstdFlags|log.Lmsgprefix)
 	}
 
-	// Resolve "listen" into concrete bind addresses (one per interface address, both
-	// stacks) and the interfaces they live on. Empty means bind every interface.
+	// Resolve "listen" into concrete bind addresses and the interfaces they live on.
+	// Empty means bind every interface.
 	listenAddrs, listenIfaces, err := resolveListen(cfg.Listen)
 	if err != nil {
 		log.Fatalf("astrofleet: %v", err)
@@ -95,19 +93,15 @@ func main() {
 			ManufacturerVersion: "0.1.0",
 			Logger:              logger,
 		})
-		// Each device gets its OWN per-port Alpaca server, so its ASCOM device number must
-		// be assigned per-server (each starting at 0) — not across the whole fleet. A shared
-		// counter made the 2nd camera "camera/1" on its own port, so a client (PHD2) pointed
-		// at that port and asking for camera/0 got 400. A fresh per-server counter makes every
-		// camera "camera/0" on its port, and still numbers correctly if a server ever hosts
-		// several devices of one type.
+		// Each device gets its own per-port Alpaca server, so ASCOM device numbers are
+		// assigned per-server (a fresh counter starting at 0), not across the fleet.
 		dev, err := registerDevice(srv, spec, spec.Port, counters{})
 		if err != nil {
 			log.Fatalf("astrofleet: device %q: %v", spec.Driver, err)
 		}
 		b := built{spec: spec, dev: dev}
 		// Inject a shared optics holder so the INDI front-end's TELESCOPE_INFO reports
-		// whatever an Alpaca setoptics Action sets — one source of truth, both fronts.
+		// whatever an Alpaca setoptics Action sets.
 		if oc, ok := dev.(opticsConfigurable); ok {
 			b.optics = newOpticsHolder(spec.Aperture, spec.ApertureArea, spec.FocalLength,
 				spec.GuiderAperture, spec.GuiderFocalLength)
@@ -154,10 +148,9 @@ func main() {
 }
 
 // startINDI hosts a single in-process INDI server on one port (default 7624) with
-// every INDI-capable device (currently mounts), multiplexed by device name. Each
-// device drives the same mount object the Alpaca server does — it is a sibling
-// front-end, not a layer over it. INDI has no discovery, so the device names (which
-// clients select by) must be unique; a collision is a startup error.
+// every INDI-capable device, multiplexed by device name. Each device drives the same
+// object the Alpaca server does. INDI has no discovery, so device names must be
+// unique; a collision is a startup error.
 func startINDI(ctx context.Context, cfg *Config, devices []built, listenAddrs []string) {
 	if !cfg.Indi.Enable {
 		return
@@ -208,9 +201,9 @@ func startINDI(ctx context.Context, cfg *Config, devices []built, listenAddrs []
 }
 
 // startBridges serves a Meade-LX200 TCP server (Stellarium/SkySafari) per mount.
-// Each mount needs its own port (the LX200 protocol can't multiplex), so when the
-// fleet-level "lx200" block is enabled every mount gets one assigned from BasePort
-// upward; a mount can pin its own with "lx200Port", which also enables it on its own.
+// LX200 can't multiplex, so each mount needs its own port: when the fleet-level
+// "lx200" block is enabled every mount gets one from BasePort upward; a mount can pin
+// its own with "lx200Port", which also enables it on its own.
 func startBridges(ctx context.Context, cfg *Config, devices []built, listenAddrs []string) {
 	next := cfg.LX200.basePort()
 	for _, b := range devices {
@@ -233,8 +226,7 @@ func startBridges(ctx context.Context, cfg *Config, devices []built, listenAddrs
 		if cfg.LX200.ReadOnlySite {
 			opts = append(opts, bridge.WithReadOnlySite())
 		}
-		// LX200 can't multiplex, but it is stateless over LiveMount, so bind one
-		// server per listen address (matching the Alpaca/INDI bind set).
+		// Stateless over LiveMount, so bind one server per listen address.
 		for _, addr := range listenAddrsFor(port, listenAddrs) {
 			srv := bridge.New(addr, lm.LiveMount, opts...)
 			a, driver := addr, b.spec.Driver
@@ -252,7 +244,7 @@ func isLiveMounter(d alpacadev.Device) bool { _, ok := d.(liveMounter); return o
 func isLiveCamera(d alpacadev.Device) bool  { _, ok := d.(liveCamera); return ok }
 
 // indiName is the INDI device id clients select by: the configured name, or a
-// stable fallback derived from the driver and its binding identity.
+// fallback derived from the driver and its binding identity.
 func indiName(spec DeviceSpec) string {
 	if spec.Name != "" {
 		return spec.Name

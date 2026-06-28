@@ -11,8 +11,8 @@ import (
 	"strings"
 	"syscall"
 
-	driver "github.com/mikefsq/astrocam-alpaca"
 	"github.com/mikefsq/astrocam"
+	driver "github.com/mikefsq/astrocam-alpaca"
 	_ "github.com/mikefsq/astrocam/sensors" // registers the PID -> sensor profile table (required by astrocam.Open)
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
@@ -29,10 +29,9 @@ func main() {
 	ipv6 := flag.Bool("ipv6", false, "also answer IPv6 multicast discovery (direct mode)")
 	flag.Parse()
 
-	// Build the device list. Each entry becomes one Alpaca camera device (number 0,1,…),
-	// with its own hardware-management goroutine binding its own camera. Serials give a
-	// stable, start-before-plug binding; with none, auto-enumerate the attached cameras
-	// and bind each by enumeration index.
+	// Build the device list. Each entry becomes one Alpaca camera device (number 0,1,…), with its
+	// own hardware-management goroutine binding its own camera. Serials give a stable,
+	// start-before-plug binding; with none, auto-enumerate and bind each by enumeration index.
 	var cams []*driver.PureASICamera
 	if s := strings.TrimSpace(*serial); s != "" {
 		for i, sn := range strings.Split(s, ",") {

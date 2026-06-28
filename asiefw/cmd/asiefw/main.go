@@ -16,8 +16,8 @@ import (
 	"strings"
 	"syscall"
 
-	alpacadev "github.com/mikefsq/goalpaca/server"
 	driver "github.com/mikefsq/asiefw-alpaca"
+	alpacadev "github.com/mikefsq/goalpaca/server"
 	"github.com/mikefsq/goasi/efw"
 )
 
@@ -35,9 +35,8 @@ func main() {
 	ipv6 := flag.Bool("ipv6", false, "also answer IPv6 multicast discovery (direct mode)")
 	flag.Parse()
 
-	// Do NOT require a wheel at startup: the service may be started before the
-	// device is plugged in. The driver brings the Alpaca endpoint up and acquires
-	// the wheel (by serial) whenever it appears.
+	// No wheel is required at startup: the driver brings the Alpaca endpoint up and
+	// acquires the wheel (by serial) whenever it appears.
 	if devs, err := efw.Enumerate(); err == nil && len(devs) > 0 {
 		log.Printf("asiefw: %d EFW filter wheel(s) currently connected", len(devs))
 	} else {

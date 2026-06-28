@@ -16,15 +16,15 @@ type (
 	oasisExt    = oasisfoc.ExtConfig
 )
 
-// The Oasis focuser exposes far more than the ASCOM IFocuserV3 interface has slots for
-// (backlash, reverse, beeps, speed, heating, stall, USB power, names, identity, relative
-// moves, sync/zero). Those are surfaced through the ASCOM Action seam: SupportedActions
-// lists the names; Action(name, params) dispatches to the pure-Go oasisfoc library.
+// The Oasis focuser exposes more than ASCOM IFocuserV3 has slots for (backlash, reverse,
+// beeps, speed, heating, stall, USB power, names, identity, relative moves, sync/zero),
+// surfaced via the Action seam: SupportedActions lists names, Action(name, params)
+// dispatches to the oasisfoc library.
 //
-// Convention: action names are lowercase. Getters ignore params and return the value as a
-// string ("true"/"false" for booleans). Setters take the value in params — booleans accept
-// 1/0/true/false/on/off, ints accept a decimal number, names accept the raw string — and
-// return "ok". Unknown names return ActionNotImplemented.
+// Convention: action names are lowercase. Getters ignore params and return a string
+// ("true"/"false" for booleans). Setters take the value in params (booleans accept
+// 1/0/true/false/on/off, ints a decimal number, names the raw string) and return "ok".
+// Unknown names return ActionNotImplemented.
 var oasisActions = []string{
 	// identity / telemetry (read)
 	"serial", "model", "hardwareversion", "firmwareversion", "firmwarebuilddate",
@@ -47,8 +47,8 @@ var oasisActions = []string{
 
 func (f *OasisFocuser) SupportedActions() []string { return oasisActions }
 
-// Action dispatches a device-specific command to the oasisfoc library. It serializes on
-// the driver mutex (like every other member) so it is consistent with the move/poll path.
+// Action dispatches a device-specific command to the oasisfoc library, serialized on the
+// driver mutex.
 func (f *OasisFocuser) Action(name, params string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

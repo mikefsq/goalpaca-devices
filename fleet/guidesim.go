@@ -12,11 +12,9 @@ import (
 )
 
 // simSky couples the sim mount and sim camera into a closed guiding loop: a star
-// slowly drifts (simulating tracking error), the mount's guide pulses move it back,
-// and the camera renders it where it currently is — so PHD2 can select a star,
-// calibrate, and guide against the simulator with no hardware. It is package-level
-// because the sim mount and sim camera are separate fleet devices that must share
-// one "sky".
+// drifts (simulating tracking error), the mount's guide pulses move it back, and the
+// camera renders it at its current position. Package-level because the sim mount and
+// sim camera are separate fleet devices that must share one "sky".
 var simSky = newGuideSim()
 
 type guideSim struct {
@@ -48,8 +46,7 @@ func (g *guideSim) position() (float64, float64) {
 	return g.x, g.y
 }
 
-// pulse moves the star a calibrated amount in the guide direction (the mount
-// correcting the drift). PHD2 learns this pulse→movement mapping during calibration.
+// pulse moves the star a calibrated amount in the guide direction (pixPerMs * ms).
 func (g *guideSim) pulse(d lx200.Direction, ms int) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -68,8 +65,8 @@ func (g *guideSim) pulse(d lx200.Direction, ms int) {
 }
 
 // starCamSource is a ccd.Camera frame source that renders a Gaussian star (coupled to
-// simSky) in place of the sim camera's gradient. It reuses the sim.Camera only for
-// exposure timing and geometry.
+// simSky) in place of the sim camera's gradient, reusing sim.Camera for exposure
+// timing and geometry.
 type starCamSource struct {
 	c *sim.Camera
 }

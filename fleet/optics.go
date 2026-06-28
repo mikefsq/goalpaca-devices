@@ -6,19 +6,19 @@ import (
 )
 
 // opticsHolder is the shared source of truth for one mount's optical train. The
-// fleet injects the SAME holder into the Alpaca telescope (UseOptics) and the INDI
+// fleet injects the same holder into the Alpaca telescope (UseOptics) and the INDI
 // mount device (WithOptics), so a setoptics Action over Alpaca is reported by INDI's
-// TELESCOPE_INFO — one value, two front-ends, no divergence. It satisfies
-// tenmicron-alpaca's OpticsStore (metres) and goindi/mount's Optics (mm) structurally.
+// TELESCOPE_INFO. It satisfies tenmicron-alpaca's OpticsStore (metres) and
+// goindi/mount's Optics (mm) structurally.
 type opticsHolder struct {
 	mu                     sync.Mutex
 	ap, area, fl, gap, gfl float64 // metres / m²
 }
 
-// newOpticsHolder seeds from config. Lengths are config millimetres → stored as
-// metres (ASCOM's unit for ApertureDiameter/FocalLength; INDI's mm comes back via
-// OpticsMM). Area is m² (config), defaulted from the aperture. The guide scope
-// defaults to the main scope (the OAG case).
+// newOpticsHolder seeds from config. Lengths are config millimetres stored as metres
+// (ASCOM's unit for ApertureDiameter/FocalLength; INDI's mm comes back via OpticsMM).
+// Area is m² (config), defaulted from the aperture. The guide scope defaults to the
+// main scope (the OAG case).
 func newOpticsHolder(apertureMM, apertureAreaM2, focalLengthMM, guiderApertureMM, guiderFocalLengthMM float64) *opticsHolder {
 	ap := apertureMM / 1000
 	fl := focalLengthMM / 1000

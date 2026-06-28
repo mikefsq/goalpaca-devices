@@ -8,14 +8,10 @@ import (
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
-// This file exposes the device-specific ASCOM Actions another driver (e.g. an
-// environment/GPS feeder) calls over the standard stateless Alpaca port to push
-// observing-site data into the mount. Site latitude/longitude/elevation and UTC
-// date are already standard ASCOM Telescope members (sitelatitude, sitelongitude,
-// siteelevation, utcdate) — a caller can PUT those directly. Refraction pressure
-// and temperature are NOT standard Telescope members (they belong to the mount's
-// refraction model), so they are exposed here as Actions. The setenvironment
-// Action is a one-call convenience that applies any subset of all six fields.
+// Device-specific ASCOM Actions for pushing observing-site data into the mount. Site
+// latitude/longitude/elevation and UTC date are standard Telescope members; refraction
+// pressure and temperature are not (they belong to the mount's refraction model), so
+// they are exposed as Actions. setenvironment applies any subset of all six fields.
 
 func (t *Telescope) SupportedActions() []string {
 	return []string{"setenvironment", "setrefractionpressure", "setrefractiontemperature", "setoptics", "dualaxistracking"}
@@ -55,10 +51,9 @@ func (t *Telescope) Action(name, params string) (string, error) {
 }
 
 // actionDualAxisTracking reads or sets dual-axis tracking (:Gdat#/:SdatN#) — the mount
-// driving BOTH axes to follow the refraction/pointing model. There is no standard ASCOM
-// Telescope member for it, so it is exposed as an Action. params: empty or "?" reads and
-// returns "true"/"false"; "true"/"false" (also 1/0, on/off) sets it. Disabling is
-// equatorial-only — an AltAz mount rejects it (error surfaced to the caller).
+// driving both axes to follow the refraction/pointing model. params: empty or "?" reads
+// and returns "true"/"false"; "true"/"false" (also 1/0, on/off) sets it. Disabling is
+// equatorial-only — an AltAz mount rejects it.
 func (t *Telescope) actionDualAxisTracking(params string) (string, error) {
 	m := t.mount()
 	if m == nil {
@@ -91,12 +86,10 @@ type environment struct {
 	Time         *string  `json:"time,omitempty"` // RFC3339 (e.g. 2026-06-02T15:04:05Z)
 }
 
-// actionSetEnvironment applies the present fields of the JSON payload to the mount:
-// refraction pressure/temperature (mount refraction model) and, reusing the
-// standard ASCOM setters, site latitude/longitude/elevation and UTC date. Returns
-// a JSON object listing which fields were applied. Updating the refraction datums
-// does not by itself enable refraction — set DoesRefraction (the standard member)
-// for that.
+// actionSetEnvironment applies the present payload fields to the mount: refraction
+// pressure/temperature and (via the standard setters) site latitude/longitude/elevation
+// and UTC date. Returns a JSON object listing applied fields. Updating the refraction
+// datums does not enable refraction — set DoesRefraction for that.
 func (t *Telescope) actionSetEnvironment(params string) (string, error) {
 	var env environment
 	if err := json.Unmarshal([]byte(params), &env); err != nil {

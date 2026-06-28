@@ -20,20 +20,16 @@ const (
 	slewTimeout = 3 * time.Minute
 	acquirePoll = 3 * time.Second
 	monitorPoll = 1 * time.Second        // snapshot refresh cadence when idle/tracking
-	slewPoll    = 250 * time.Millisecond // faster refresh while slewing (responsive progress)
+	slewPoll    = 250 * time.Millisecond // refresh while slewing
 	fullPoll    = 5 * time.Second        // cadence for the slow-changing set (home/guide/refraction)
 
-	// mountCacheTTL is the mount's :Ginfo# cache lifetime while this driver polls it.
-	// Longer than monitorPoll so the LX200 bridge and INDI server (which read the same
-	// mount live) ride the poller's cache between cycles instead of refetching; the
-	// poller force-refreshes each cycle (pollOnce → Refresh), so its own reads stay live.
+	// mountCacheTTL is the mount's :Ginfo# cache lifetime. Longer than monitorPoll so
+	// the LX200 bridge and INDI server ride the poller's cache between cycles.
 	mountCacheTTL = 2 * time.Second
 )
 
 // snapshot is the cached mount state every getter is served from. The background
-// poller (pollOnce, driven by manage) refreshes it; a property GET is then a cheap
-// locked read with no mount I/O — so a client never pays a round-trip per property or
-// queues on the single mount link. This mirrors how a native ASCOM mount driver works.
+// poller (pollOnce) refreshes it; a property GET is a locked read with no mount I/O.
 type snapshot struct {
 	ra, dec, alt, az                  float64
 	guideRate                         float64 // deg/s (one rate, both axes)
@@ -43,8 +39,7 @@ type snapshot struct {
 }
 
 // Telescope is the 10Micron Alpaca Telescope device. It owns the mount for the
-// life of the process; Connected ≡ mount reachable; Busy() gates writes while
-// slewing.
+// process lifetime; Connected ≡ mount reachable; Busy() gates writes while slewing.
 type Telescope struct {
 	alpacadev.BaseTelescope
 
@@ -60,7 +55,7 @@ type Telescope struct {
 	trackingRate             alpacadev.DriveRate
 	slewSettleSec            int
 	pulseUntil               time.Time // PulseGuide completion deadline (IsPulseGuiding)
-	canHome                  bool      // homing supported (model-derived at connect; see primeStatics)
+	canHome                  bool      // homing supported (model-derived at connect)
 
 	// Optics — instrument profile (the mount can't report it). Backed by an
 	// OpticsStore so the fleet can inject a holder shared with the INDI front-end.
@@ -69,8 +64,7 @@ type Telescope struct {
 
 // NewTelescope builds the driver for the 10Micron mount at addr (host:port).
 func NewTelescope(addr string) *Telescope {
-	// canHome defaults true (most 10Micron mounts home); primeStatics narrows it from
-	// the model on connect. A pre-connect read still reports the optimistic default.
+	// canHome defaults true; primeStatics narrows it from the model on connect.
 	t := &Telescope{addr: addr, trackingRate: alpacadev.DriveSidereal, optics: &localOptics{}, canHome: true}
 	t.IfaceVer = alpacadev.InterfaceVersionTelescope
 	return t
@@ -104,10 +98,9 @@ func (t *Telescope) Connected() bool                      { t.mu.Lock(); defer t
 func (t *Telescope) Disconnect(ctx context.Context) error { return nil }
 func (t *Telescope) Busy() bool                           { return t.Slewing() }
 
-// manage acquires, monitors and re-acquires the mount for the process lifetime. The
-// monitor cycle IS the status poll: each tick refreshes the snapshot (pollOnce) that
-// every getter is served from, so there is no separate health check and no
-// per-property mount I/O. The cadence tightens while slewing for responsive progress.
+// manage acquires, monitors and re-acquires the mount for the process lifetime. Each
+// tick refreshes the snapshot (pollOnce), which doubles as the liveness check; the
+// cadence tightens while slewing.
 func (t *Telescope) manage(ctx context.Context) {
 	var lastErr string
 	var lastFull time.Time // when the slow-changing set was last refreshed
@@ -118,14 +111,14 @@ func (t *Telescope) manage(ctx context.Context) {
 		if !present {
 			m, err := tenmicron.Connect(t.addr)
 			if err == nil {
-				m.SetStatusTTL(mountCacheTTL)                 // poller is the sole :Ginfo# refresher; other front-ends ride its cache
-				if perr := t.pollOnce(m, true); perr != nil { // prime the snapshot before clients see Connected
+				m.SetStatusTTL(mountCacheTTL)
+				if perr := t.pollOnce(m, true); perr != nil { // prime snapshot before clients see Connected
 					m.Close()
 					err = perr
 				}
 			}
 			if err == nil {
-				t.primeStatics(m) // stored site coords + model (CanFindHome); best-effort
+				t.primeStatics(m) // site coords + model (CanFindHome); best-effort
 				t.mu.Lock()
 				t.m = m
 				t.mu.Unlock()
@@ -145,7 +138,7 @@ func (t *Telescope) manage(ctx context.Context) {
 		m := t.m
 		t.mu.Unlock()
 		full := time.Since(lastFull) >= fullPoll
-		if err := t.pollOnce(m, full); err != nil { // the poll is also the liveness check
+		if err := t.pollOnce(m, full); err != nil { // poll doubles as liveness check
 			log.Printf("tenmicron: mount %s lost (%v); reconnecting", t.ID, err)
 			t.mu.Lock()
 			m.Close()
@@ -165,17 +158,13 @@ func (t *Telescope) manage(ctx context.Context) {
 	}
 }
 
-// pollOnce refreshes the snapshot from the mount — the background read every getter is
-// served from. It does ONE forced :Ginfo# (m.Refresh) for the whole volatile set; that
-// read also re-arms the mount's status cache, so the LX200 bridge and INDI server —
-// which read the same mount live — ride this poller's value (with a cache TTL longer
-// than the poll interval, set on connect) instead of each issuing their own round-trip
-// on the single mount link. A :Ginfo# failure means the link is down and is returned so
-// manage reconnects. When full, it also refreshes the slow-changing set
-// (home/guide-rate/refraction) — separate round-trips done only every fullPoll;
-// transient errors on those keep the last good value.
+// pollOnce refreshes the snapshot from the mount. One forced :Ginfo# (m.Refresh) reads
+// the whole volatile set and re-arms the shared status cache; a failure means the link
+// is down and is returned so manage reconnects. When full, it also refreshes the
+// slow-changing set (home/guide-rate/refraction) via separate round-trips; transient
+// errors there keep the last good value.
 func (t *Telescope) pollOnce(m *tenmicron.Mount, full bool) error {
-	st, err := m.Refresh() // forced :Ginfo#; re-arms the shared cache for the other front-ends
+	st, err := m.Refresh() // forced :Ginfo#; re-arms the shared cache
 	if err != nil {
 		return err
 	}
@@ -205,11 +194,9 @@ func (t *Telescope) pollOnce(m *tenmicron.Mount, full bool) error {
 	return nil
 }
 
-// primeStatics reads the fixed/slow mount facts once on connect: the stored site
-// coordinates (so SiteLatitude/Longitude/Elevation — and the local SiderealTime —
-// report the mount's real values instead of 0 until a client pushes them) and the
-// model (so CanFindHome reflects whether this mount actually homes). Best-effort: a
-// failed read leaves the existing value.
+// primeStatics reads fixed/slow mount facts once on connect: the stored site
+// coordinates (SiteLatitude/Longitude/Elevation and local SiderealTime) and the model
+// (CanFindHome). Best-effort: a failed read leaves the existing value.
 func (t *Telescope) primeStatics(m *tenmicron.Mount) {
 	if lat, err := m.SiteLatitude(); err == nil {
 		t.mu.Lock()
@@ -234,19 +221,15 @@ func (t *Telescope) primeStatics(m *tenmicron.Mount) {
 }
 
 // isHomingModel reports whether a 10Micron model supports a homing search (:hF#). The
-// GM1000 family has no home sensor — FindHome is a no-op and the native driver reports
-// CanFindHome=false — so report false for it; the larger homing-capable mounts
-// (GM3000/GM4000/AZ…) keep the default true. Narrow (only the confirmed no-home family)
-// so the capability is never stripped from a mount that has it.
+// GM1000 family has no home sensor (FindHome is a no-op); larger mounts
+// (GM3000/GM4000/AZ…) home.
 func isHomingModel(product string) bool { return !strings.Contains(product, "GM1000") }
 
 func (t *Telescope) mount() *tenmicron.Mount { t.mu.Lock(); defer t.mu.Unlock(); return t.m }
 
-// LiveMount returns the mount that is connected right now as a lx200.Mount, or
-// ErrNotConnected. It is the seam an independent front-end (the LX200 bridge for
-// Stellarium/SkySafari) consumes so it drives the same mount object this driver
-// does — the single source of truth — rather than talking to this wrapper. The
-// bridge calls it per operation, so a reconnect here is picked up transparently.
+// LiveMount returns the currently-connected mount as a lx200.Mount (or
+// ErrNotConnected), the seam the LX200 bridge (Stellarium/SkySafari) consumes to drive
+// the same mount object. Called per operation, so a reconnect is picked up transparently.
 func (t *Telescope) LiveMount() (lx200.Mount, error) {
 	if m := t.mount(); m != nil {
 		return m, nil
@@ -255,11 +238,10 @@ func (t *Telescope) LiveMount() (lx200.Mount, error) {
 }
 
 // --- ASCOM Command* passthrough -------------------------------------------------
-// CommandBlind/String/Bool send a raw LX200 command the typed API doesn't wrap
-// (e.g. a 10Micron extended command), mapping to the core Blind/Get/Ack reply
-// shapes. lx200.Frame adds ':'…'#' framing unless raw. The server already gates
-// these by Connected()/Busy() (so they're rejected mid-slew); the nil-guard covers
-// the reconnect race.
+// CommandBlind/String/Bool send a raw LX200 command the typed API doesn't wrap,
+// mapping to the Blind/Get/Ack reply shapes. lx200.Frame adds ':'…'#' framing unless
+// raw. The server gates these by Connected()/Busy(); the nil-guard covers the
+// reconnect race.
 
 func (t *Telescope) CommandBlind(cmd string, raw bool) error {
 	m := t.mount()
@@ -279,10 +261,8 @@ func (t *Telescope) CommandString(cmd string, raw bool) (string, error) {
 		return "", err
 	}
 	if raw {
-		// ASCOM raw=true means "return the device's exact reply". lx200 Get strips the
-		// '#' terminator (handy for typed reads), but a raw passthrough must be verbatim:
-		// 10Micron replies are '#'-terminated and the NINA TenMicron plugin's ANTLR
-		// parsers require the trailing '#' (and the unmodified comma/colon/'*' payload).
+		// raw=true returns the device's exact reply; lx200 Get strips the '#'
+		// terminator, but 10Micron replies are '#'-terminated and clients require it.
 		s += "#"
 	}
 	return s, nil
@@ -298,8 +278,8 @@ func (t *Telescope) CommandBool(cmd string, raw bool) (bool, error) {
 
 // --- Capabilities (10Micron: German-equatorial; park + pulse-guide + move-axis +
 // find-home) ---------------------------------------------------------------------
-// Note: :hF#/:h?# home commands work only on mounts with homing sensors
-// (GM4000QCI / AZ2000QCI); on a GM1000HPS FindHome is a no-op.
+// :hF#/:h?# home commands work only on mounts with homing sensors (GM4000QCI /
+// AZ2000QCI); on a GM1000HPS FindHome is a no-op.
 
 func (t *Telescope) CanSlew() bool        { return true }
 func (t *Telescope) CanSlewAsync() bool   { return true }
@@ -315,9 +295,8 @@ func (t *Telescope) CanMoveAxis(axis alpacadev.TelescopeAxis) bool {
 
 // --- Position / status getters ----------------------------------------------
 
-// These return the last value the background poller read into the snapshot — no
-// synchronous mount I/O per call (see snapshot / pollOnce). Freshness is bounded by
-// the poll cadence (slewPoll while slewing, else monitorPoll).
+// These return the last poller value from the snapshot — no synchronous mount I/O.
+// Freshness is bounded by the poll cadence (slewPoll while slewing, else monitorPoll).
 func (t *Telescope) RightAscension() float64 { return t.getF(&t.snap.ra) }
 func (t *Telescope) Declination() float64    { return t.getF(&t.snap.dec) }
 func (t *Telescope) Altitude() float64       { return t.getF(&t.snap.alt) }
@@ -328,10 +307,8 @@ func (t *Telescope) AtPark() bool            { return t.getB(&t.snap.atPark) }
 func (t *Telescope) AtHome() bool            { return t.getB(&t.snap.atHome) }
 
 // SiderealTime is computed locally (mean LST from the system UTC clock + site
-// longitude) rather than the mount's :GS# round-trip — it takes a frequent un-batched
-// call (NINA polls it constantly) off the mount link entirely. The value tracks the
-// mount's apparent LST to ~1 arcsec (~0.07 s), negligible for display and flip timing,
-// and relies only on the box clock, which the driver already trusts for UTCDate.
+// longitude) rather than the mount's :GS# round-trip, keeping a frequently-polled call
+// off the mount link. Tracks the mount's apparent LST to ~1 arcsec.
 func (t *Telescope) SiderealTime() float64 {
 	t.mu.Lock()
 	lon := t.siteLon
@@ -555,9 +532,8 @@ func (t *Telescope) SlewToCoordinatesAsync(ra, dec float64) error {
 	if m == nil {
 		return alpacadev.ErrNotConnected
 	}
-	// Hold the mount's OpLock across the whole set-target-then-slew sequence so it
-	// cannot interleave with the LX200 bridge's, which would leave the device's
-	// single target register holding one client's RA with another's Dec.
+	// Hold OpLock across set-target-then-slew so it can't interleave with the LX200
+	// bridge and leave the single target register holding one client's RA, another's Dec.
 	defer m.OpLock()()
 	if err := t.SetTargetRightAscension(ra); err != nil {
 		return err
@@ -647,8 +623,8 @@ func (t *Telescope) PulseGuide(dir alpacadev.GuideDirection, ms int) error {
 	if err := m.PulseGuide(d, ms); err != nil {
 		return err
 	}
-	// :Mg…# returns immediately; the mount guides autonomously for ms, so record
-	// the window for IsPulseGuiding.
+	// :Mg…# returns immediately; the mount guides autonomously for ms. Record the
+	// window for IsPulseGuiding.
 	t.mu.Lock()
 	t.pulseUntil = time.Now().Add(time.Duration(ms) * time.Millisecond)
 	t.mu.Unlock()

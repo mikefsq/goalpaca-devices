@@ -15,13 +15,11 @@ import (
 var _ alpacadev.Focuser = (*ASIFocuser)(nil)
 
 // ASIFocuser adapts a goasi/eaf focuser to the alpacadev.Focuser + Hardware
-// interfaces. It is the device-specific code: it knows about goasi/ZWO; the
-// library does not.
+// interfaces.
 //
-// The pure-Go eaf driver serializes per device internally, but the open handle
-// (f.dev) is shared with the hardware-management goroutine, so mu guards the
-// handle pointer + cached props. mu is held across eaf calls (matching asiefw);
-// it is never held across the manager's own sleeps.
+// The eaf handle (f.dev) is shared with the hardware-management goroutine, so mu
+// guards the handle pointer and cached props. mu is held across eaf calls; it is
+// never held across the manager's own sleeps.
 type ASIFocuser struct {
 	alpacadev.BaseFocuser
 
@@ -30,7 +28,7 @@ type ASIFocuser struct {
 	mu  sync.Mutex
 	dev *eaf.EAF // open handle; nil when no focuser is attached
 
-	maxStep int // cached at acquire (device-reported; EAF is geared, no clutch)
+	maxStep int // device-reported, cached at acquire
 
 	// openDev opens the target focuser; set once at construction. Defaults to
 	// openByIndex; tests inject a fake-backed handle.
@@ -43,8 +41,7 @@ func (f *ASIFocuser) MaxStep() int      { return f.maxStep }
 func (f *ASIFocuser) MaxIncrement() int { return f.maxStep }
 
 // NewASIFocuser creates the driver for the focuser at the given enumeration index.
-// (Serial binding awaits an eaf.SerialNumber decode; for now selection is by index,
-// so the serial arg is accepted for CLI compatibility but only labels the device.)
+// Selection is by index; the serial arg only labels the device.
 func NewASIFocuser(index int, serial string) *ASIFocuser {
 	f := &ASIFocuser{index: index}
 	f.Version = "0.2.0"
@@ -80,9 +77,7 @@ func (f *ASIFocuser) Close(ctx context.Context) error {
 	return nil
 }
 
-// Connect is the client's presence handshake: it succeeds iff the focuser is
-// attached (Connected ≡ handle open). It does not open hardware — the driver
-// already owns it.
+// Connect succeeds iff the focuser is attached. It does not open hardware.
 func (f *ASIFocuser) Connect(ctx context.Context) error {
 	if !f.Connected() {
 		return alpacadev.ErrNotConnected
@@ -90,15 +85,14 @@ func (f *ASIFocuser) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Connected reports hardware presence: connected exactly when the handle is open.
+// Connected reports true when the handle is open.
 func (f *ASIFocuser) Connected() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.dev != nil
 }
 
-// Disconnect is a logical no-op: the driver owns the hardware for the life of the
-// process; connection state follows the hardware, not client sessions.
+// Disconnect is a no-op: connection state follows the hardware, not client sessions.
 func (f *ASIFocuser) Disconnect(ctx context.Context) error { return nil }
 
 // Busy rejects mutating writes while the focuser is moving.
@@ -130,7 +124,7 @@ func (f *ASIFocuser) manageHardware(ctx context.Context) {
 		if err != nil {
 			log.Printf("asieaf: focuser %s lost (%v); re-acquiring", f.ID, err)
 			f.dev.Close()
-			f.dev = nil // Connected() follows this; gate returns NotConnected
+			f.dev = nil
 		}
 		f.mu.Unlock()
 		sleepCtx(ctx, 2*time.Second)
@@ -195,9 +189,8 @@ func (f *ASIFocuser) Position() (int, error) {
 	return f.dev.Position()
 }
 
-// Temperature is intentionally not overridden: the EAF reports a raw thermistor
-// value whose °C conversion (lookup table) is not yet decoded, so BaseFocuser's
-// default (ErrNotImplemented) applies rather than reporting wrong units.
+// Temperature is not overridden: the EAF's raw thermistor value has no decoded °C
+// conversion, so BaseFocuser's default (ErrNotImplemented) applies.
 
 // Move drives the absolute focuser to the given step. Returns once the move is
 // initiated; clients poll IsMoving for completion.

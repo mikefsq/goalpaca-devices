@@ -11,8 +11,8 @@ import (
 	"strings"
 	"syscall"
 
-	alpacadev "github.com/mikefsq/goalpaca/server"
 	driver "github.com/mikefsq/asiam5-alpaca"
+	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
 func main() {

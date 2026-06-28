@@ -66,10 +66,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Optional second front-end: an LX200 TCP server (Stellarium/SkySafari) over
-	// the SAME mount the Alpaca driver serves. It is a sibling consumer of the
-	// mount, not a layer over this driver — it drives tel.LiveMount() directly, and
-	// the mount's OpLock keeps the two front-ends from corrupting its target register.
+	// Optional LX200 TCP server (Stellarium/SkySafari) over the same mount. A sibling
+	// consumer driving tel.LiveMount() directly; the mount's OpLock keeps the two
+	// front-ends from corrupting its target register.
 	if *lx200Port != 0 {
 		b := bridge.New(fmt.Sprintf(":%d", *lx200Port), tel.LiveMount,
 			bridge.WithMountType('G'), // 10Micron is a German equatorial

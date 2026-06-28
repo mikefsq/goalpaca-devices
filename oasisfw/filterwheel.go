@@ -82,9 +82,8 @@ func (w *OasisWheel) Disconnect(ctx context.Context) error { return nil }
 func (w *OasisWheel) Busy() bool { return w.Position() < 0 }
 
 func (w *OasisWheel) manageHardware(ctx context.Context) {
-	// Release the device handle when the supervised loop ends (ctx cancelled). Without this
-	// the HID handle leaks on shutdown — on macOS/IOKit that can leave the device wedged
-	// (unenumerable) until a replug.
+	// Release the device handle when the supervised loop ends (ctx cancelled), else the
+	// HID handle leaks; on macOS/IOKit that can wedge the device until a replug.
 	defer func() {
 		w.mu.Lock()
 		if w.dev != nil {

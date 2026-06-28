@@ -17,8 +17,8 @@ import (
 	"strings"
 	"syscall"
 
-	alpacadev "github.com/mikefsq/goalpaca/server"
 	driver "github.com/mikefsq/asicaa-alpaca"
+	alpacadev "github.com/mikefsq/goalpaca/server"
 	"github.com/mikefsq/goasi/caa"
 )
 
@@ -34,9 +34,8 @@ func main() {
 	ipv6 := flag.Bool("ipv6", false, "also answer IPv6 multicast discovery (direct mode)")
 	flag.Parse()
 
-	// Do NOT require a rotator at startup: the service may be started before the
-	// device is plugged in. The driver brings the Alpaca endpoint up and acquires
-	// the rotator (by serial) whenever it appears.
+	// No rotator is required at startup: the driver brings the Alpaca endpoint up
+	// and acquires the rotator (by serial) whenever it appears.
 	if n := caa.GetNum(); n > 0 {
 		log.Printf("asicaa: %d CAA rotator(s) currently connected", n)
 	} else {

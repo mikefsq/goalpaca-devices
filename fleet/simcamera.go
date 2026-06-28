@@ -7,9 +7,8 @@ import (
 )
 
 // simCamera is the Alpaca camera simulator (goalpaca/sim) with a LiveCamera seam, so
-// the SAME simulated camera is exposed over Alpaca AND drives the fleet's INDI CCD
-// device — letting PHD2 connect a guide camera over INDI with no hardware. It reuses
-// the generic ccdSource adapter (the sim camera satisfies alpacaCamera).
+// the same simulated camera is exposed over Alpaca and drives the fleet's INDI CCD
+// device — a no-hardware guide camera over INDI.
 type simCamera struct {
 	*sim.Camera
 	src ccd.Camera
@@ -21,15 +20,13 @@ func newSimCamera(name string) *simCamera {
 		c.DevName = name
 	}
 	// Render a drifting star coupled to the sim mount (closed guide loop), not the
-	// sim's gradient — so PHD2 can actually calibrate and guide against the sim.
+	// sim's gradient.
 	return &simCamera{Camera: c, src: &starCamSource{c: c}}
 }
 
-// ImageFrame overrides the embedded sim camera's gradient on the ALPACA path with the
-// same drifting star the INDI front-end shows (coupled to simSky). The star is placed
-// at its full-frame position and cropped to the current ROI, so PHD2 can find,
-// calibrate, and guide on it whether it reads full frames or subframes over Alpaca.
-// Without this override the Alpaca camera serves sim.Camera's plain gradient.
+// ImageFrame overrides the embedded sim camera's gradient on the Alpaca path with the
+// same drifting star the INDI front-end shows (coupled to simSky), placed at its
+// full-frame position and cropped to the current ROI.
 func (s *simCamera) ImageFrame() (alpacadev.ImageFrame, error) {
 	f, err := s.Camera.ImageFrame() // honors ROI; gives geometry, element types, readiness
 	if err != nil {

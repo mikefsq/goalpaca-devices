@@ -30,9 +30,9 @@ func main() {
 
 	srv := alpacadev.New(alpacadev.Config{AlpacaPort: *port, Discovery: discovery(*dmode, *dsrv, *ipv6), ServerName: "focuslynx", Manufacturer: "mikefsq"})
 
-	// Each nickname becomes one Alpaca focuser device (number 0,1,…); its hub/channel
-	// is resolved over the protocol at connect time. With no nicknames, fall back to a
-	// single enumeration-index-bound device.
+	// Each nickname becomes one Alpaca focuser device (0,1,…); its hub/channel is
+	// resolved over the protocol at connect time. No nicknames: fall back to a single
+	// enumeration-index-bound device.
 	if nl := strings.TrimSpace(*nickname); nl != "" {
 		for i, nk := range strings.Split(nl, ",") {
 			if nk = strings.TrimSpace(nk); nk == "" {

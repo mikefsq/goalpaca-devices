@@ -6,19 +6,18 @@ import (
 	"strconv"
 )
 
-// resolveListen expands the config "listen" entries into the concrete host
-// addresses every TCP front-end binds to, plus the set of interface indexes those
-// addresses live on (used to scope discovery to where the fleet actually listens).
+// resolveListen expands the config "listen" entries into the concrete host addresses
+// every TCP front-end binds to, plus the set of interface indexes those addresses
+// live on (used to scope discovery to where the fleet listens).
 //
 // Each entry is either an interface name or an IP literal:
-//   - An interface name (e.g. "en0", or "eth0"/"lo" on Linux) expands to ALL of that
-//     interface's addresses — IPv4, IPv6 global, and IPv6 link-local (kept with its
-//     %zone) — so naming an interface serves both IP stacks on it.
-//   - An IP literal binds exactly that one address. Note a bare IPv4 literal serves
-//     IPv4 only; name the interface instead to also serve its IPv6.
+//   - An interface name (e.g. "en0", "eth0", "lo") expands to all of that interface's
+//     addresses — IPv4, IPv6 global, and IPv6 link-local (kept with its %zone).
+//   - An IP literal binds exactly that one address. A bare IPv4 literal serves IPv4
+//     only; name the interface instead to also serve its IPv6.
 //
-// An empty list returns (nil, nil): callers then bind the wildcard ":port" (every
-// interface, both stacks) as before.
+// An empty list returns (nil, nil): callers bind the wildcard ":port" (every
+// interface, both stacks).
 func resolveListen(entries []string) ([]string, map[int]bool, error) {
 	if len(entries) == 0 {
 		return nil, nil, nil

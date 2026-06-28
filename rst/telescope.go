@@ -133,7 +133,7 @@ func (t *Telescope) manage(ctx context.Context) {
 func (t *Telescope) mount() *rst.Mount { t.mu.Lock(); defer t.mu.Unlock(); return t.m }
 
 // LiveMount returns the connected mount as a lx200.Mount (or ErrNotConnected), the
-// seam the LX200 bridge and INDI server consume to drive the same mount object.
+// seam the LX200 bridge and INDI server drive the same mount object through.
 func (t *Telescope) LiveMount() (lx200.Mount, error) {
 	if m := t.mount(); m != nil {
 		return m, nil
@@ -142,10 +142,9 @@ func (t *Telescope) LiveMount() (lx200.Mount, error) {
 }
 
 // --- ASCOM Command* passthrough -------------------------------------------------
-// CommandBlind/String/Bool send a raw LX200 command the typed API doesn't wrap
-// (e.g. an RST extended command), mapping to the core Blind/Get/Ack reply shapes.
-// lx200.Frame adds ':'…'#' framing unless raw. The server already gates these by
-// Connected()/Busy() (so they're rejected mid-slew); the nil-guard covers the
+// CommandBlind/String/Bool send a raw LX200 command the typed API doesn't wrap,
+// mapping to the Blind/Get/Ack reply shapes. lx200.Frame adds ':'…'#' framing unless
+// raw. The server gates these by Connected()/Busy(); the nil-guard covers the
 // reconnect race.
 
 func (t *Telescope) CommandBlind(cmd string, raw bool) error {

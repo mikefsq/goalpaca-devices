@@ -35,8 +35,8 @@ type OptecFocuser struct {
 }
 
 // NewOptecFocuser creates the driver bound to a hub by enumeration index and a fixed
-// channel (1 or 2). The binding follows plug order — prefer NewOptecFocuserByNickname
-// for a stable identity.
+// channel (1 or 2). Binding follows plug order; prefer NewOptecFocuserByNickname for a
+// stable identity.
 func NewOptecFocuser(index, ch int) *OptecFocuser {
 	f := &OptecFocuser{index: index, ch: ch}
 	f.Version = "0.1.0"
@@ -48,10 +48,10 @@ func NewOptecFocuser(index, ch int) *OptecFocuser {
 	return f
 }
 
-// NewOptecFocuserByNickname binds the Alpaca device (number devNum, used only for the
-// stable ID) to the focuser whose protocol nickname is nick. The nickname is read over
-// the serial link, so the binding is plug-order- and platform-independent (no OS
-// USB-descriptor access), and it resolves which hub/channel to drive at connect time.
+// NewOptecFocuserByNickname binds the Alpaca device (devNum used only for the stable
+// ID) to the focuser whose protocol nickname is nick. The nickname is read over the
+// serial link, so the binding is plug-order- and platform-independent and resolves
+// which hub/channel to drive at connect time.
 func NewOptecFocuserByNickname(devNum int, nick string) *OptecFocuser {
 	f := &OptecFocuser{index: devNum, ch: 1, nickname: nick}
 	f.Version = "0.1.0"
