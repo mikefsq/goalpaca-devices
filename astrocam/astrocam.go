@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -64,6 +65,11 @@ type PureASICamera struct {
 	lastDuration float64
 	lastStart    time.Time
 	haveLast     bool
+
+	// fpsPercent is the FPS-percent / bandwidth-overload throttle (40..100; 0 = driver default 100)
+	// the readout HMAX/line-time math derates by. Set via the Alpaca Action "fpspercent"; re-applied
+	// on reconnect. Lower values slow the readout (larger HMAX) to fit a constrained USB link.
+	fpsPercent int
 
 	pulsing bool
 
@@ -292,6 +298,12 @@ func (c *PureASICamera) openReal() (*astrocam.Camera, astrocam.DeviceInfo, error
 // configureOpened applies capture defaults and publishes the handle.
 func (c *PureASICamera) configureOpened(cam *astrocam.Camera, d astrocam.DeviceInfo, serialHex string) {
 	info := cam.Info()
+	c.mu.Lock()
+	fpsPct := c.fpsPercent
+	c.mu.Unlock()
+	if fpsPct != 0 {
+		cam.SetFPSPercent(fpsPct) // re-apply the throttle set before this (re)connect
+	}
 	_ = cam.SetROI(0, 0, info.MaxWidth, info.MaxHeight) // full frame
 	_ = cam.SetGain(0)
 	_ = cam.SetExposure(time.Second)
@@ -429,17 +441,26 @@ func (c *PureASICamera) CanStopExposure() bool       { return true }
 // --- Video (free-run) mode: the Alpaca Action "videomode" toggles it ---
 
 // SupportedActions advertises the device-specific Actions. "videomode" (params on|off) switches
-// the camera between single-shot and continuous free-run streaming.
-func (c *PureASICamera) SupportedActions() []string { return []string{"videomode"} }
+// the camera between single-shot and continuous free-run streaming; "fpspercent" (params 40..100,
+// or empty to query) sets the readout bandwidth-overload throttle.
+func (c *PureASICamera) SupportedActions() []string { return []string{"videomode", "fpspercent"} }
 
 // Action handles the device-specific commands. videomode=on starts the internal free-run stream
 // (StartExposure then serves the latest streamed frame, ~2× the rate); videomode=off returns to
 // single-shot. Frames still flow over the standard ImageArray path; only the acquisition engine
-// changes.
+// changes. fpspercent sets the FPS-percent / bandwidth-overload throttle (see actionFPSPercent).
 func (c *PureASICamera) Action(name, params string) (string, error) {
-	if !strings.EqualFold(name, "videomode") {
+	switch {
+	case strings.EqualFold(name, "videomode"):
+		return c.actionVideoMode(params)
+	case strings.EqualFold(name, "fpspercent"):
+		return c.actionFPSPercent(params)
+	default:
 		return c.BaseCamera.Action(name, params)
 	}
+}
+
+func (c *PureASICamera) actionVideoMode(params string) (string, error) {
 	if !c.hwPresent.Load() {
 		return "", alpacadev.ErrNotConnected
 	}
@@ -461,6 +482,46 @@ func (c *PureASICamera) Action(name, params string) (string, error) {
 	default:
 		return "", fmt.Errorf("%w: videomode wants on|off", alpacadev.ErrInvalidValue)
 	}
+}
+
+// actionFPSPercent gets/sets the FPS-percent (bandwidth-overload) throttle the readout HMAX/
+// line-time math derates by. Empty params returns the current value; an integer 40..100 sets it.
+// The throttle takes effect on the next SetROI/SetExposure, so a running video stream is re-armed
+// to apply it immediately; single-shot picks it up on the next StartExposure. The value is stored
+// and re-applied after a reconnect.
+func (c *PureASICamera) actionFPSPercent(params string) (string, error) {
+	if !c.hwPresent.Load() {
+		return "", alpacadev.ErrNotConnected
+	}
+	params = strings.TrimSpace(params)
+	if params == "" { // query
+		c.mu.Lock()
+		pct := c.fpsPercent
+		c.mu.Unlock()
+		if pct == 0 {
+			pct = 100
+		}
+		return strconv.Itoa(pct), nil
+	}
+	pct, err := strconv.Atoi(params)
+	if err != nil {
+		return "", fmt.Errorf("%w: fpspercent wants an integer 40..100", alpacadev.ErrInvalidValue)
+	}
+	if pct < 40 || pct > 100 {
+		return "", fmt.Errorf("%w: fpspercent %d out of range 40..100", alpacadev.ErrInvalidValue, pct)
+	}
+	c.mu.Lock()
+	c.fpsPercent = pct
+	c.cam.SetFPSPercent(pct)
+	videoOn, vidExp := c.videoOn, c.vidExp
+	c.mu.Unlock()
+	if videoOn { // re-arm so the running stream re-runs SetROI/SetExposure with the new throttle
+		c.stopVideo()
+		if err := c.startVideo(vidExp); err != nil {
+			return "", err
+		}
+	}
+	return strconv.Itoa(pct), nil
 }
 
 // startVideo arms the sensor for free-run at the given exposure and launches the drain goroutine.

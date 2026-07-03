@@ -293,6 +293,50 @@ func TestAlpacaGuiding290(t *testing.T) {
 	}
 }
 
+// TestAlpacaFPSPercent exercises the "fpspercent" Action: advertised, query defaults to 100, a
+// valid value round-trips, and out-of-range / non-numeric inputs are rejected.
+func TestAlpacaFPSPercent(t *testing.T) {
+	sd := &stubDev{pid: pid290, present: true, serial: astrocam.Serial{0x1d, 0x21, 0x04, 0x06, 0x22, 0x09, 0x09, 0x01}}
+	base, _ := newStubStack(t, sd)
+	waitConnected(t, base, true)
+
+	acts, ok := value(t, base, "supportedactions").([]any)
+	if !ok {
+		t.Fatalf("supportedactions not a list: %T", value(t, base, "supportedactions"))
+	}
+	has := false
+	for _, a := range acts {
+		if s, _ := a.(string); strings.EqualFold(s, "fpspercent") {
+			has = true
+		}
+	}
+	if !has {
+		t.Fatalf("supportedactions %v missing fpspercent", acts)
+	}
+
+	// Query before any set: driver default 100.
+	if r := put(t, base, "action", "Action=fpspercent&Parameters="); r.ErrorNumber != 0 || r.Value != "100" {
+		t.Fatalf("query fpspercent = %v (err %d), want \"100\"", r.Value, r.ErrorNumber)
+	}
+	// Set a valid value; it echoes back and the query reflects it.
+	if r := put(t, base, "action", "Action=fpspercent&Parameters=50"); r.ErrorNumber != 0 || r.Value != "50" {
+		t.Fatalf("set fpspercent=50 = %v (err %d), want \"50\"", r.Value, r.ErrorNumber)
+	}
+	if r := put(t, base, "action", "Action=fpspercent&Parameters="); r.Value != "50" {
+		t.Fatalf("query after set = %v, want \"50\"", r.Value)
+	}
+	// Out of range and non-numeric are rejected (value unchanged).
+	if r := put(t, base, "action", "Action=fpspercent&Parameters=200"); r.ErrorNumber == 0 {
+		t.Errorf("fpspercent=200 should error, got %v", r.Value)
+	}
+	if r := put(t, base, "action", "Action=fpspercent&Parameters=abc"); r.ErrorNumber == 0 {
+		t.Errorf("fpspercent=abc should error, got %v", r.Value)
+	}
+	if r := put(t, base, "action", "Action=fpspercent&Parameters="); r.Value != "50" {
+		t.Errorf("query after rejected sets = %v, want \"50\" (unchanged)", r.Value)
+	}
+}
+
 // TestAlpacaCapture exercises the async exposure data plane end-to-end: StartExposure →
 // ImageReady → ImageBytes, against the stub (which serves a synthetic frame).
 func TestAlpacaCapture(t *testing.T) {
