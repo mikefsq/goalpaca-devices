@@ -1,5 +1,6 @@
-// Command rst is a standalone ASCOM Alpaca Telescope driver for Rainbow Astro
-// RST harmonic mounts (RST-135/300), built directly on the lx200/rst library.
+// Package driver is the ASCOM Alpaca Telescope device for Rainbow Astro RST
+// harmonic mounts (RST-135/300), over the lx200/rst protocol library
+// (USB-serial). It is served standalone by cmd/rst and hosted by astrofleet.
 package driver
 
 import (

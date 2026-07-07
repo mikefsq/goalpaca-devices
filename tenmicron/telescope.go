@@ -1,5 +1,6 @@
-// Command tenmicron is a standalone ASCOM Alpaca Telescope driver for 10Micron
-// GM-series mounts, built directly on the lx200/tenmicron protocol library.
+// Package driver is the ASCOM Alpaca Telescope device for 10Micron GM-series
+// mounts, over the lx200/tenmicron protocol library (TCP). It is served
+// standalone by cmd/tenmicron and hosted by the astrofleet aggregator.
 package driver
 
 import (

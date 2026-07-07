@@ -8,7 +8,16 @@ process serves one mount as Alpaca device 0 on its own port.
 ## Build
 
 ```sh
-go build .          # pure Go, no SDK
+go build .          # Go, no SDK
+```
+
+### Linux permissions
+
+The RST's FTDI USB-serial adapter (`/dev/ttyUSB*`) is in the `dialout` group. Add the
+service user to it:
+
+```sh
+sudo usermod -aG dialout "$USER"    # then re-login
 ```
 
 ## Run

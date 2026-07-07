@@ -197,7 +197,7 @@ Cross-compile for a Raspberry Pi CM5 (no C toolchain needed):
 CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o astrofleet .
 ```
 
-USB/HID drivers on Linux need usbfs/hidraw access. The pure-Go ASI camera driver
+USB/HID drivers on Linux need usbfs/hidraw access. The Go ASI camera driver
 talks to the camera over usbfs (`/dev/bus/usb/*`) and binds by **factory serial** —
 which ASI cameras expose *not* as a USB descriptor (so `lsusb`/`dmesg` never show it)
 but in flash, read via a vendor control transfer once the device is opened. So serial

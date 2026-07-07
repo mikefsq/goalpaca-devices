@@ -1,3 +1,6 @@
+// Package driver is the ASCOM Alpaca Focuser device for the Astroasis Oasis
+// focuser, over the Go oasis-astro/oasisfoc library (USB-HID). It is served
+// standalone by cmd/oasisfoc and hosted by the astrofleet aggregator.
 package driver
 
 import (
@@ -54,7 +57,7 @@ type OasisFocuser struct {
 func NewOasisFocuser(index int) *OasisFocuser {
 	f := &OasisFocuser{index: index}
 	f.Version = "0.1.0"
-	f.Info = "oasisfoc — Astroasis Oasis focuser Alpaca driver over pure-Go oasis-astro/oasisfoc"
+	f.Info = "oasisfoc — Astroasis Oasis focuser Alpaca driver over Go oasis-astro/oasisfoc"
 	f.IfaceVer = alpacadev.InterfaceVersionFocuser
 	f.ID = fmt.Sprintf("Oasis-foc%d", index)
 	f.DevName = fmt.Sprintf("Oasis Focuser %d", index)
@@ -166,7 +169,7 @@ func (f *OasisFocuser) tryAcquire() bool {
 	// firmware in DriverInfo.
 	f.Desc = fmt.Sprintf("Astroasis %s — FW %s, HW %s, S/N %s (max %d steps, manual clutch)",
 		model, dev.FirmwareVersion(), dev.HardwareVersion(), serial, f.maxStep)
-	f.Info = fmt.Sprintf("oasisfoc Alpaca driver over pure-Go oasis-astro/oasisfoc; device FW %s build %s",
+	f.Info = fmt.Sprintf("oasisfoc Alpaca driver over Go oasis-astro/oasisfoc; device FW %s build %s",
 		dev.FirmwareVersion(), dev.FirmwareBuildDate())
 	return true
 }

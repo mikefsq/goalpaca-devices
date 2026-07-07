@@ -1,3 +1,6 @@
+// Package driver is the ASCOM Alpaca Focuser device for the ZWO EAF, over
+// goasi/eaf (cgo, the ZWO EAF SDK). It is served standalone by cmd/asieaf and
+// hosted by the astrofleet aggregator.
 package driver
 
 import (
@@ -45,7 +48,7 @@ func (f *ASIFocuser) MaxIncrement() int { return f.maxStep }
 func NewASIFocuser(index int, serial string) *ASIFocuser {
 	f := &ASIFocuser{index: index}
 	f.Version = "0.2.0"
-	f.Info = "asieaf — ZWO EAF Alpaca driver over pure-Go goasi/eaf"
+	f.Info = "asieaf — ZWO EAF Alpaca driver over Go goasi/eaf"
 	f.IfaceVer = alpacadev.InterfaceVersionFocuser
 	f.ID = fmt.Sprintf("EAF-foc%d", index)
 	f.DevName = fmt.Sprintf("ASI EAF %d", index)

@@ -8,7 +8,17 @@ process serves one mount as Alpaca device 0 on its own port.
 ## Build
 
 ```sh
-go build .          # pure Go, no SDK
+go build .          # Go, no SDK
+```
+
+### Linux permissions
+
+When binding by `-serial`, the mount's USB-serial adapter (`/dev/ttyUSB*` or
+`/dev/ttyACM*`) is in the `dialout` group. Add the service user to it (the WiFi/TCP
+`-addr` path needs no special permissions):
+
+```sh
+sudo usermod -aG dialout "$USER"    # then re-login
 ```
 
 ## Run

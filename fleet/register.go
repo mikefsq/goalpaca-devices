@@ -204,7 +204,7 @@ func registerDevice(srv *alpacadev.Server, spec DeviceSpec, port int, c counters
 	// ---- ZWO SDK devices (cgo + vendor library) ----
 	case "asiccd", "asicaa":
 		return nil, fmt.Errorf("%q needs the ZWO SDK (cgo) and is not built into the vendor-free fleet; "+
-			"run its standalone cmd, or use the pure-Go asicam driver for ZWO cameras", spec.Driver)
+			"run its standalone cmd, or use the Go asicam driver for ZWO cameras", spec.Driver)
 
 	default:
 		return nil, fmt.Errorf("unknown driver %q", spec.Driver)

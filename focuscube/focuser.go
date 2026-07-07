@@ -1,3 +1,6 @@
+// Package driver is the ASCOM Alpaca Focuser device for Pegasus Astro FocusCube-
+// family focusers, over the Go pegasus-astro/focuscube library (FTDI
+// USB-serial). It is served standalone by cmd/focuscube and hosted by astrofleet.
 package driver
 
 import (
@@ -36,7 +39,7 @@ type PegasusFocuser struct {
 func NewPegasusFocuser(index, maxStep int) *PegasusFocuser {
 	f := &PegasusFocuser{index: index, maxStep: maxStep}
 	f.Version = "0.1.0"
-	f.Info = "focuscube — Pegasus Astro FocusCube Alpaca driver over pure-Go pegasus-astro/focuscube"
+	f.Info = "focuscube — Pegasus Astro FocusCube Alpaca driver over Go pegasus-astro/focuscube"
 	f.IfaceVer = alpacadev.InterfaceVersionFocuser
 	f.ID = fmt.Sprintf("FocusCube-foc%d", index)
 	f.DevName = fmt.Sprintf("Pegasus FocusCube %d", index)
@@ -51,7 +54,7 @@ func NewPegasusFocuser(index, maxStep int) *PegasusFocuser {
 func NewPegasusFocuserBySerial(devNum int, serial string, maxStep int) *PegasusFocuser {
 	f := &PegasusFocuser{index: devNum, serial: serial, maxStep: maxStep}
 	f.Version = "0.1.0"
-	f.Info = "focuscube — Pegasus Astro FocusCube Alpaca driver over pure-Go pegasus-astro/focuscube"
+	f.Info = "focuscube — Pegasus Astro FocusCube Alpaca driver over Go pegasus-astro/focuscube"
 	f.IfaceVer = alpacadev.InterfaceVersionFocuser
 	f.ID = "FocusCube-" + serial
 	f.DevName = "Pegasus FocusCube " + serial

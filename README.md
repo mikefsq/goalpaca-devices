@@ -5,14 +5,14 @@ piece of astronomy hardware over the Alpaca (REST/JSON + UDP discovery) protocol
 built on the [goalpaca](https://github.com/mikefsq/goalpaca) server library.
 
 Every driver is its **own Go module and binary**: one process serves one device as
-Alpaca device 0 on its own port. Most of these drivers are **pure Go with no vendor SDK** —
+Alpaca device 0 on its own port. Most of these drivers are **Go with no vendor SDK** —
 the device protocols were implemented directly (USB-HID, USB-serial, or the
 reverse-engineered ZWO/PlayerOne camera wire protocol). Only the `goasi`-based ZWO
 drivers are cgo and need the proprietary ZWO ASI SDK.
 
 ## Telescopes
 
-LX200-family mounts, built on [`lx200`](https://github.com/mikefsq/lx200). Pure Go, no SDK.
+LX200-family mounts, built on [`lx200`](https://github.com/mikefsq/lx200). Go, no SDK.
 
 | Dir | Mount | Connect | Port |
 |---|---|---|---|
@@ -25,28 +25,27 @@ LX200-family mounts, built on [`lx200`](https://github.com/mikefsq/lx200). Pure 
 
 | Dir | Camera | Backend | Port |
 |---|---|---|---|
-| `astrocam` | ZWO ASI / PlayerOne | **pure Go** over [`astrocam`](https://github.com/mikefsq/astrocam) — no SDK | 11111 |
+| `astrocam` | ZWO ASI / PlayerOne | **Go** over [`astrocam`](https://github.com/mikefsq/astrocam) — no SDK | 11111 |
 | `asiccd` | ZWO ASI | cgo, ZWO **ASICamera2** SDK (via `goasi`) | 11111 |
 
-`astrocam` and `asiccd` are two routes to a ZWO camera (pure-Go vs the official SDK);
+`astrocam` and `asiccd` are two routes to a ZWO camera (Go vs the official SDK);
 run one or the other (they share the default port).
 
 ## Focusers
 
 | Dir | Focuser | Backend | Port |
 |---|---|---|---|
-| `oasisfoc` | Astroasis Oasis | **pure Go**, USB-HID ([`oasis-astro`](https://github.com/mikefsq/oasis-astro)) | 11120 |
-| `focuscube` | Pegasus FocusCube / DMFC | **pure Go**, USB-serial ([`pegasus-astro`](https://github.com/mikefsq/pegasus-astro)) | 11121 |
-| `focuslynx` | Optec FocusLynx / ThirdLynx | **pure Go**, USB-serial ([`optec-astro`](https://github.com/mikefsq/optec-astro)) | 11122 |
+| `oasisfoc` | Astroasis Oasis | **Go**, USB-HID ([`oasis-astro`](https://github.com/mikefsq/oasis-astro)) | 11120 |
+| `focuscube` | Pegasus FocusCube / DMFC | **Go**, USB-serial ([`pegasus-astro`](https://github.com/mikefsq/pegasus-astro)) | 11121 |
+| `focuslynx` | Optec FocusLynx / ThirdLynx | **Go**, USB-serial ([`optec`](https://github.com/mikefsq/optec)) | 11122 |
 | `asieaf` | ZWO EAF | cgo, ZWO **EAF** SDK (via `goasi`) | 11112 |
 
 ## Filter wheels
 
 | Dir | Wheel | Backend | Port |
 |---|---|---|---|
-| `oasisfw` | Astroasis Oasis | **pure Go**, USB-HID ([`oasis-astro`](https://github.com/mikefsq/oasis-astro)) | 11123 |
-| `poaefw` | PlayerOne EFW | **pure Go**, USB-HID | 11124 |
-| `asiefw` | ZWO EFW | cgo, ZWO **EFW** SDK (via `goasi`) | 11113 |
+| `oasisfw` | Astroasis Oasis | **Go**, USB-HID ([`oasis-astro`](https://github.com/mikefsq/oasis-astro)) | 11123 |
+| `asiefw` | ZWO EFW | **Go**, USB-HID ([`goasi/efw`](https://github.com/mikefsq/goasi)) — no SDK | 11113 |
 
 ## Rotators
 
@@ -84,7 +83,7 @@ See [`fleet/README.md`](fleet/README.md) for the full config reference.
 From this directory the `Makefile` builds into `./bin`:
 
 ```sh
-make                # every pure-Go driver + astrofleet
+make                # every Go driver + astrofleet
 make tenmicron      # one driver
 make astrofleet     # just the aggregator
 make sdk            # the cgo ZWO-SDK drivers (asiccd, asieaf, asiefw, asicaa) — needs the ZWO lib
@@ -92,8 +91,8 @@ make sim            # run all simulated Alpaca devices (no hardware)
 ```
 
 Or build any module in place: `cd tenmicron && go build .`, then e.g.
-`./tenmicron -addr 10.0.1.51:3492`. The pure-Go drivers (telescopes, `astrocam`,
-`oasisfoc`/`oasisfw`/`poaefw`, `focuslynx`, `focuscube`) need **no vendor SDK**; on
+`./tenmicron -addr 10.0.1.51:3492`. The Go drivers (telescopes, `astrocam`,
+`oasisfoc`/`oasisfw`, `focuslynx`, `focuscube`) need **no vendor SDK**; on
 Linux and Windows they build with `CGO_ENABLED=0` (the USB-HID and `astrocam` USB
 backends use cgo only on macOS). The `goasi`-based ZWO drivers (`asiccd`, `asieaf`,
 `asiefw`, `asicaa`) are cgo and require the ZWO ASI SDK runtime — see each driver's
@@ -106,8 +105,8 @@ See each driver's `README.md` for its flags and behavior.
 - [`goalpaca`](https://github.com/mikefsq/goalpaca) — the Alpaca server framework (all drivers)
 - [`lx200`](https://github.com/mikefsq/lx200) — mount protocol libraries (telescopes)
 - [`goasi`](https://github.com/mikefsq/goasi) — ZWO SDK bindings (cgo ASI drivers)
-- Pure-Go device libraries: [`astrocam`](https://github.com/mikefsq/astrocam) (ZWO/PlayerOne camera),
-  [`oasis-astro`](https://github.com/mikefsq/oasis-astro), [`optec-astro`](https://github.com/mikefsq/optec-astro),
+- Go device libraries: [`astrocam`](https://github.com/mikefsq/astrocam) (ZWO/PlayerOne camera),
+  [`oasis-astro`](https://github.com/mikefsq/oasis-astro), [`optec`](https://github.com/mikefsq/optec),
   [`pegasus-astro`](https://github.com/mikefsq/pegasus-astro)
 
 ## License

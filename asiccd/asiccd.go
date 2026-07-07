@@ -1,3 +1,6 @@
+// Package driver is the ASCOM Alpaca Camera device for ZWO ASI cameras, over
+// goasi/ccd (cgo, the ZWO ASICamera2 SDK). It is served standalone by cmd/asiccd;
+// see the Go astrocam driver for the same cameras without the SDK.
 package driver
 
 import (

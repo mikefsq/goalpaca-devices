@@ -1,13 +1,13 @@
 # asiefw
 
 A standalone ASCOM **Alpaca FilterWheel** server for the ZWO EFW, built on
-[`goalpaca`](https://github.com/mikefsq/goalpaca) and the pure-Go
+[`goalpaca`](https://github.com/mikefsq/goalpaca) and the Go
 [`goasi/efw`](https://github.com/mikefsq/goasi) driver — **no ZWO SDK runtime
 dependency**. One process serves one wheel as Alpaca device 0 on its own port.
 
 ## Build
 
-Pure Go on Linux/Windows; macOS uses IOKit (cgo, on by default). Cross-compiles
+Go on Linux/Windows; macOS uses IOKit (cgo, on by default). Cross-compiles
 from any host to a static binary.
 
 ```sh

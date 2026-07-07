@@ -1,3 +1,6 @@
+// Package driver is the ASCOM Alpaca FilterWheel device for the Astroasis Oasis
+// filter wheel, over the Go oasis-astro/oasisfw library (USB-HID). It is
+// served standalone by cmd/oasisfw and hosted by the astrofleet aggregator.
 package driver
 
 import (
@@ -35,7 +38,7 @@ type OasisWheel struct {
 func NewOasisWheel(index int) *OasisWheel {
 	w := &OasisWheel{index: index}
 	w.Version = "0.1.0"
-	w.Info = "oasisfw — Astroasis Oasis filter wheel Alpaca driver over pure-Go oasis-astro/oasisfw"
+	w.Info = "oasisfw — Astroasis Oasis filter wheel Alpaca driver over Go oasis-astro/oasisfw"
 	w.IfaceVer = alpacadev.InterfaceVersionFilterWheel
 	w.ID = fmt.Sprintf("Oasis-fw%d", index)
 	w.DevName = fmt.Sprintf("Oasis Filter Wheel %d", index)
@@ -172,7 +175,7 @@ func (w *OasisWheel) configureOpened(dev *oasisfw.Oasis) {
 	w.offsets = offsets
 	w.Desc = fmt.Sprintf("Astroasis %s — FW %s, HW %s, S/N %s (%d slots)",
 		model, dev.FirmwareVersion(), dev.HardwareVersion(), serial, slots)
-	w.Info = fmt.Sprintf("oasisfw Alpaca driver over pure-Go oasis-astro/oasisfw; device FW %s build %s",
+	w.Info = fmt.Sprintf("oasisfw Alpaca driver over Go oasis-astro/oasisfw; device FW %s build %s",
 		dev.FirmwareVersion(), dev.FirmwareBuildDate())
 }
 

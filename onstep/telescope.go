@@ -1,5 +1,6 @@
-// Command onstep is a standalone ASCOM Alpaca Telescope driver for OnStep /
-// OnStepX controllers, built directly on the lx200/onstep library.
+// Package driver is the ASCOM Alpaca Telescope device for OnStep / OnStepX
+// controllers, over the lx200/onstep protocol library (USB-serial or WiFi/TCP).
+// It is served standalone by cmd/onstep and hosted by the astrofleet aggregator.
 package driver
 
 import (

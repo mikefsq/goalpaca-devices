@@ -1,3 +1,6 @@
+// Package driver is the ASCOM Alpaca Focuser device for one channel of an Optec
+// FocusLynx / ThirdLynx hub, over the Go optec/focuslynx library
+// (USB-serial). It is served standalone by cmd/focuslynx and hosted by astrofleet.
 package driver
 
 import (
@@ -14,7 +17,7 @@ import (
 
 var _ alpacadev.Focuser = (*OptecFocuser)(nil)
 
-// OptecFocuser adapts one channel of an optec-astro/focuslynx hub to the
+// OptecFocuser adapts one channel of an optec/focuslynx hub to the
 // alpacadev.Focuser + Hardware interfaces. FocusLynx is a two-channel hub (F1/F2);
 // ThirdLynx is single-channel (F1). One Alpaca device = one channel; run a second
 // instance with -channel 2 for a FocusLynx's second port.
@@ -40,7 +43,7 @@ type OptecFocuser struct {
 func NewOptecFocuser(index, ch int) *OptecFocuser {
 	f := &OptecFocuser{index: index, ch: ch}
 	f.Version = "0.1.0"
-	f.Info = "focuslynx — Optec FocusLynx / ThirdLynx Alpaca driver over pure-Go optec-astro/focuslynx"
+	f.Info = "focuslynx — Optec FocusLynx / ThirdLynx Alpaca driver over Go optec/focuslynx"
 	f.IfaceVer = alpacadev.InterfaceVersionFocuser
 	f.ID = fmt.Sprintf("FocusLynx-foc%d-ch%d", index, ch)
 	f.DevName = fmt.Sprintf("Optec FocusLynx F%d", ch)
@@ -55,7 +58,7 @@ func NewOptecFocuser(index, ch int) *OptecFocuser {
 func NewOptecFocuserByNickname(devNum int, nick string) *OptecFocuser {
 	f := &OptecFocuser{index: devNum, ch: 1, nickname: nick}
 	f.Version = "0.1.0"
-	f.Info = "focuslynx — Optec FocusLynx / ThirdLynx Alpaca driver over pure-Go optec-astro/focuslynx"
+	f.Info = "focuslynx — Optec FocusLynx / ThirdLynx Alpaca driver over Go optec/focuslynx"
 	f.IfaceVer = alpacadev.InterfaceVersionFocuser
 	f.ID = "FocusLynx-" + nick
 	f.DevName = "Optec FocusLynx " + nick

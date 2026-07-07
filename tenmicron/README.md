@@ -8,7 +8,7 @@ process serves one mount as Alpaca device 0 on its own port.
 ## Build
 
 ```sh
-go build .          # pure Go, no SDK
+go build .          # Go, no SDK
 ```
 
 ## Run

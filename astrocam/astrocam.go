@@ -1,3 +1,7 @@
+// Package driver is the ASCOM Alpaca Camera device for ZWO ASI and PlayerOne
+// cameras, over the Go astrocam library (the USB wire protocol implemented
+// directly — no ZWO SDK). It is served standalone by cmd/astrocam and hosted by
+// the astrofleet aggregator.
 package driver
 
 import (
@@ -28,7 +32,7 @@ var camDebug = func() bool {
 
 func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 
-// PureASICamera adapts the pure-Go astrocam.Camera to the alpacadev.Camera + Hardware
+// PureASICamera adapts the Go astrocam.Camera to the alpacadev.Camera + Hardware
 // interfaces (cgo-SDK-free USB control transfers over IOKit/usbfs/WinUSB).
 //
 // astrocam.Camera is internally concurrency-safe, so several Alpaca HTTP handlers can hit
@@ -125,7 +129,7 @@ func NewPureASICamera(index int, serial string) *PureASICamera {
 	c.openDev = c.openReal
 	c.aliveFn = c.stillPresent
 	c.Version = "0.1.0"
-	c.Info = "asicam-alpaca — ZWO ASI Alpaca driver over the pure-Go asicam (no ZWO SDK)"
+	c.Info = "asicam-alpaca — ZWO ASI Alpaca driver over the Go asicam (no ZWO SDK)"
 	c.IfaceVer = alpacadev.InterfaceVersionCamera
 	c.setpoint = 0
 	if c.wantSerial != "" {
@@ -324,7 +328,7 @@ func (c *PureASICamera) configureOpened(cam *astrocam.Camera, d astrocam.DeviceI
 	c.offsetMin, c.offsetMax, _, c.offsetOK = cam.OffsetRange()
 	c.expMinSec, c.expMaxSec = emin.Seconds(), emax.Seconds()
 	c.DevName = cam.Name()
-	c.Desc = fmt.Sprintf("ZWO %s (%dx%d, %.2fµm) [pure-Go asicam]", cam.Name(), info.MaxWidth, info.MaxHeight, info.PixelUm)
+	c.Desc = fmt.Sprintf("ZWO %s (%dx%d, %.2fµm) [Go asicam]", cam.Name(), info.MaxWidth, info.MaxHeight, info.PixelUm)
 	if c.wantSerial == "" && strings.Trim(serialHex, "0") != "" {
 		c.ID = "ASI-" + serialHex
 	}
