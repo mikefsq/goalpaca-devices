@@ -544,6 +544,47 @@ func (t *Telescope) PulseGuide(dir alpacadev.GuideDirection, ms int) error {
 	return m.PulseGuide(d, ms)
 }
 
+// Guide rate — ASCOM exposes it per-axis in deg/s; the RST has a single ×sidereal
+// rate shared by both axes (:CU0#/:Cu0=), so both properties read/write the one mount
+// value. The `guiderate` Action is the same setting in ×sidereal units (its native
+// form). siderealDegPerSec matches the vendor driver's guide-rate math (15"/s).
+const siderealDegPerSec = 15.0 / 3600.0
+
+func (t *Telescope) CanSetGuideRates() bool { return true }
+
+func (t *Telescope) GuideRateRightAscension() float64 { return t.guideRateDegPerSec() }
+func (t *Telescope) GuideRateDeclination() float64    { return t.guideRateDegPerSec() }
+
+func (t *Telescope) SetGuideRateRightAscension(degPerSec float64) error {
+	return t.setGuideRateDegPerSec(degPerSec)
+}
+func (t *Telescope) SetGuideRateDeclination(degPerSec float64) error {
+	return t.setGuideRateDegPerSec(degPerSec)
+}
+
+func (t *Telescope) guideRateDegPerSec() float64 {
+	m := t.mount()
+	if m == nil {
+		return 0
+	}
+	x, err := m.GuideRate() // ×sidereal
+	if err != nil {
+		return 0
+	}
+	return x * siderealDegPerSec
+}
+
+func (t *Telescope) setGuideRateDegPerSec(degPerSec float64) error {
+	if degPerSec < 0 {
+		return alpacadev.ErrInvalidValue
+	}
+	m := t.mount()
+	if m == nil {
+		return alpacadev.ErrNotConnected
+	}
+	return m.SetGuideRate(degPerSec / siderealDegPerSec)
+}
+
 func (t *Telescope) AxisRates(axis alpacadev.TelescopeAxis) []alpacadev.AxisRate {
 	if axis != alpacadev.AxisPrimary && axis != alpacadev.AxisSecondary {
 		return []alpacadev.AxisRate{}
@@ -584,6 +625,11 @@ func (t *Telescope) waitSlew() error {
 			return alpacadev.ErrNotConnected
 		}
 		if sl, err := m.Slewing(); err == nil && !sl {
+			// A movement-limit / error abort clears Slewing but leaves a fault; surface
+			// it so a blocked slew fails loudly instead of looking like it arrived.
+			if f := m.Fault(); f != "" {
+				return alpacadev.NewError(alpacadev.ErrNumUnspecified, "slew aborted at "+f)
+			}
 			return nil
 		}
 		if time.Now().After(deadline) {

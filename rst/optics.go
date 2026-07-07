@@ -3,7 +3,6 @@ package driver
 import (
 	"encoding/json"
 	"math"
-	"strings"
 	"sync"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
@@ -60,18 +59,8 @@ func (t *Telescope) SetOptics(diameterMeters, areaSqMeters, focalLengthMeters fl
 	t.opticsStore().SetOptics(diameterMeters, areaSqMeters, focalLengthMeters, diameterMeters, focalLengthMeters)
 }
 
-// SupportedActions / Action expose the setoptics Action (overriding the
-// BaseTelescope "no actions" default).
-func (t *Telescope) SupportedActions() []string { return []string{"setoptics"} }
-
-func (t *Telescope) Action(name, params string) (string, error) {
-	switch strings.ToLower(name) {
-	case "setoptics":
-		return t.actionSetOptics(params)
-	default:
-		return "", alpacadev.NewError(alpacadev.ErrNumNotImplemented, "unknown action "+name)
-	}
-}
+// setoptics is registered as an Action in actions.go (with the rest of the RST
+// custom actions); actionSetOptics is its handler.
 
 // opticsParams is the setoptics payload. Lengths are millimetres (focal_length,
 // aperture, guider_*); aperture_area is m². Present fields patch the current optics,

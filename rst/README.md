@@ -34,3 +34,46 @@ sudo usermod -aG dialout "$USER"    # then re-login
 | `-discovery` | `direct` | `direct` \| `register` \| `off` |
 | `-discovery-server` | `localhost:32227` | proxy address for `register` mode |
 | `-ipv6` | false | also answer IPv6 multicast discovery |
+
+## Home & park (RST-specific)
+
+The RST's mechanical home is the **West horizon** (`FindHome`, `:Ch#`); its park is
+the **polar axis** — OTA laid along the RA axis (`Park`). Both stow with tracking
+off. A goto is refused until the mount has been homed this power-cycle (a clear
+`NotConnected`-style error). `AtHome` is position-based (currently at the captured
+home); `AtPark` is a latch (set on Park completion, cleared by `Unpark` or any
+slew). See `lx200/docs/rst-command-set.md` for the protocol details.
+
+## Alpaca Actions
+
+Device-specific commands the standard ASCOM members don't cover are exposed as
+[ASCOM Actions](https://ascom-standards.org/) (`PUT …/action`, `Action`+`Parameters`
+form fields). Convention: **empty `Parameters` reads the current value; a value sets
+it.** A few are read-only, take an index, or are operations.
+
+| Action | Parameters | Behavior |
+|---|---|---|
+| `polaraxis` | — | slew the OTA to the polar axis (async — poll `slewing`) |
+| `guiderate` | *(empty)* read · `<x>` set | guide rate in ×sidereal (also the standard `GuideRateRightAscension`/`Declination`, in °/s) |
+| `forcepierflip` | `on` / `off` | force a pre-slew meridian flip (set-only; the mount doesn't report it) |
+| `slewspeed` | `1`–`3` | read a manual slew-speed preset |
+| `sitename` | `1`–`4` | read a stored site/park name |
+| `voltage` | — | input voltage (V) |
+| `motorload` | — | motor load `dec=…,ra=…` (%) |
+| `systemstatus` | — | controller/motor health `tcs=…,dec=…,ra=…` |
+| `autoresume` | — | auto-resume enabled (bool) |
+| `localtime` | — | mount clock (hours) |
+| `date` | — | mount date (MM/DD/YY) |
+| `utcoffset` | — | hours to add to local for UTC |
+| `homefound` | — | has the mount been homed this power-cycle (bool) |
+| `fault` | — | last motion-abort token, or `none` |
+| `setoptics` | JSON | set the instrument profile (aperture/focal length, mm) |
+
+Example:
+
+```sh
+B=http://localhost:11202/api/v1/telescope/0/action
+curl -s -X PUT $B -d 'Action=guiderate&Parameters=&ClientID=1'      # read
+curl -s -X PUT $B -d 'Action=guiderate&Parameters=0.8&ClientID=1'   # set
+curl -s -X PUT $B -d 'Action=polaraxis&Parameters=&ClientID=1'      # slew to pole
+```
