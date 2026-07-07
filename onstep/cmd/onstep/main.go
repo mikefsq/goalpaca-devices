@@ -12,7 +12,7 @@ import (
 	"syscall"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
-	driver "github.com/mikefsq/onstep-alpaca"
+	driver "github.com/mikefsq/goalpaca-devices/onstep"
 )
 
 func main() {

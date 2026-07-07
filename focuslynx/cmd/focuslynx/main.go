@@ -9,7 +9,7 @@ import (
 	"strings"
 	"syscall"
 
-	driver "github.com/mikefsq/focuslynx-alpaca"
+	driver "github.com/mikefsq/goalpaca-devices/focuslynx"
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 

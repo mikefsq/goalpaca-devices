@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	tenmicrondrv "github.com/mikefsq/tenmicron-alpaca"
+	tenmicrondrv "github.com/mikefsq/goalpaca-devices/tenmicron"
 )
 
 // TestOpticsSharedAcrossFrontEnds proves the profile flow: the fleet injects ONE

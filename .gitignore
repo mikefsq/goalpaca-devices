@@ -1,6 +1,9 @@
 # macOS / editor junk
 .DS_Store
 
+go.work
+go.work.sum
+
 # ZWO ASI SDK — proprietary, not redistributed (install the libs yourself)
 ASI_API_Release/
 *.dylib
@@ -17,3 +20,4 @@ ASI_API_Release/
 /asieaf/asieaf
 /asicaa/asicaa
 /asiefw/asiefw
+/astrocam/astrocam

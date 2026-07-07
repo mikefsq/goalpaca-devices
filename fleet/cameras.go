@@ -1,7 +1,7 @@
 package main
 
 import (
-	asicamdrv "github.com/mikefsq/asicam-alpaca"
+	asicamdrv "github.com/mikefsq/goalpaca-devices/astrocam"
 	alpacadev "github.com/mikefsq/goalpaca/server"
 	"github.com/mikefsq/goindi/ccd"
 )

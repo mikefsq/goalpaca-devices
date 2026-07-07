@@ -11,7 +11,7 @@ import (
 	"strings"
 	"syscall"
 
-	driver "github.com/mikefsq/asiam5-alpaca"
+	driver "github.com/mikefsq/goalpaca-devices/asiam5"
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 

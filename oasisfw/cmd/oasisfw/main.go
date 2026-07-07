@@ -10,7 +10,7 @@ import (
 	"syscall"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
-	driver "github.com/mikefsq/oasisfw-alpaca"
+	driver "github.com/mikefsq/goalpaca-devices/oasisfw"
 )
 
 func main() {

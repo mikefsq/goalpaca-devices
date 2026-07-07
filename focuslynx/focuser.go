@@ -9,7 +9,7 @@ import (
 	"time"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
-	"github.com/mikefsq/optec-astro/focuslynx"
+	"github.com/mikefsq/optec/focuslynx"
 )
 
 var _ alpacadev.Focuser = (*OptecFocuser)(nil)

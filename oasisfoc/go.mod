@@ -1,12 +1,8 @@
-module github.com/mikefsq/oasisfoc-alpaca
+module github.com/mikefsq/goalpaca-devices/oasisfoc
 
-go 1.21
+go 1.23
 
 require (
-	github.com/mikefsq/goalpaca v0.1.0
-	github.com/mikefsq/oasis-astro v0.1.0
+	github.com/mikefsq/goalpaca v0.2.0
+	github.com/mikefsq/oasis-astro v0.0.0-20260613070221-c6e70b94291f
 )
-
-replace github.com/mikefsq/oasis-astro => ../../oasis-astro
-
-replace github.com/mikefsq/goalpaca => ../../goalpaca

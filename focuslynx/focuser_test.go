@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
-	"github.com/mikefsq/optec-astro/focuslynx"
+	"github.com/mikefsq/optec/focuslynx"
 )
 
 const txQ = "ClientID=1&ClientTransactionID=1"

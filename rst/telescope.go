@@ -39,7 +39,6 @@ type Telescope struct {
 	m    *rst.Mount // nil ⇔ not connected
 	snap snapshot
 
-	targetRA, targetDec      float64
 	siteLat, siteLon, siteEl float64
 	trackingRate             alpacadev.DriveRate
 	slewSettleSec            int
@@ -289,14 +288,10 @@ func (t *Telescope) SideOfPier() alpacadev.PierSide {
 	return t.snap.pier
 }
 
-// Driver-remembered properties (the mount does not read these back).
-func (t *Telescope) TargetRightAscension() float64 {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.targetRA
-}
-func (t *Telescope) TargetDeclination() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.targetDec }
-func (t *Telescope) SiteLatitude() float64      { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLat }
+// Driver-remembered properties (the mount does not read these back). Target
+// RA/Dec are stored by the embedded BaseTelescope (promoted TargetRightAscension/
+// TargetDeclination), which also enforces the ASCOM read-before-set rule.
+func (t *Telescope) SiteLatitude() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLat }
 func (t *Telescope) SiteLongitude() float64     { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLon }
 func (t *Telescope) SiteElevation() float64     { t.mu.Lock(); defer t.mu.Unlock(); return t.siteEl }
 func (t *Telescope) SlewSettleTime() int        { t.mu.Lock(); defer t.mu.Unlock(); return t.slewSettleSec }
@@ -364,10 +359,7 @@ func (t *Telescope) SetTargetRightAscension(ra float64) error {
 	if !ok {
 		return alpacadev.ErrInvalidValue
 	}
-	t.mu.Lock()
-	t.targetRA = ra
-	t.mu.Unlock()
-	return nil
+	return t.BaseTelescope.SetTargetRightAscension(ra)
 }
 
 func (t *Telescope) SetTargetDeclination(dec float64) error {
@@ -385,10 +377,7 @@ func (t *Telescope) SetTargetDeclination(dec float64) error {
 	if !ok {
 		return alpacadev.ErrInvalidValue
 	}
-	t.mu.Lock()
-	t.targetDec = dec
-	t.mu.Unlock()
-	return nil
+	return t.BaseTelescope.SetTargetDeclination(dec)
 }
 
 func (t *Telescope) SetSiteLatitude(deg float64) error {

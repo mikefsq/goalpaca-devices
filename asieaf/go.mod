@@ -1,12 +1,8 @@
-module github.com/mikefsq/asieaf-alpaca
+module github.com/mikefsq/goalpaca-devices/asieaf
 
-go 1.21
+go 1.23
 
 require (
-	github.com/mikefsq/goalpaca v0.1.0
+	github.com/mikefsq/goalpaca v0.2.0
 	github.com/mikefsq/goasi v0.1.0
 )
-
-replace github.com/mikefsq/goasi => ../../goasi
-
-replace github.com/mikefsq/goalpaca => ../../goalpaca

@@ -12,7 +12,7 @@ import (
 	"syscall"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
-	driver "github.com/mikefsq/rst-alpaca"
+	driver "github.com/mikefsq/goalpaca-devices/rst"
 )
 
 func main() {

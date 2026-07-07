@@ -1,12 +1,8 @@
-module github.com/mikefsq/tenmicron-alpaca
+module github.com/mikefsq/goalpaca-devices/tenmicron
 
 go 1.25.0
 
 require (
-	github.com/mikefsq/goalpaca v0.1.0
+	github.com/mikefsq/goalpaca v0.2.0
 	github.com/mikefsq/lx200 v0.1.0
 )
-
-replace github.com/mikefsq/lx200 => ../../lx200
-
-replace github.com/mikefsq/goalpaca => ../../goalpaca

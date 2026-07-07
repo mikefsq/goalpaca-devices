@@ -7,17 +7,17 @@ import (
 	alpacadev "github.com/mikefsq/goalpaca/server"
 	"github.com/mikefsq/goalpaca/sim"
 
-	am5drv "github.com/mikefsq/asiam5-alpaca"
-	asicamdrv "github.com/mikefsq/asicam-alpaca"
-	asieafdrv "github.com/mikefsq/asieaf-alpaca"
-	asiefwdrv "github.com/mikefsq/asiefw-alpaca"
-	focuscubedrv "github.com/mikefsq/focuscube-alpaca"
-	focuslynxdrv "github.com/mikefsq/focuslynx-alpaca"
-	oasisfocdrv "github.com/mikefsq/oasisfoc-alpaca"
-	oasisfwdrv "github.com/mikefsq/oasisfw-alpaca"
-	onstepdrv "github.com/mikefsq/onstep-alpaca"
-	rstdrv "github.com/mikefsq/rst-alpaca"
-	tenmicrondrv "github.com/mikefsq/tenmicron-alpaca"
+	am5drv "github.com/mikefsq/goalpaca-devices/asiam5"
+	asicamdrv "github.com/mikefsq/goalpaca-devices/astrocam"
+	asieafdrv "github.com/mikefsq/goalpaca-devices/asieaf"
+	asiefwdrv "github.com/mikefsq/goalpaca-devices/asiefw"
+	focuscubedrv "github.com/mikefsq/goalpaca-devices/focuscube"
+	focuslynxdrv "github.com/mikefsq/goalpaca-devices/focuslynx"
+	oasisfocdrv "github.com/mikefsq/goalpaca-devices/oasisfoc"
+	oasisfwdrv "github.com/mikefsq/goalpaca-devices/oasisfw"
+	onstepdrv "github.com/mikefsq/goalpaca-devices/onstep"
+	rstdrv "github.com/mikefsq/goalpaca-devices/rst"
+	tenmicrondrv "github.com/mikefsq/goalpaca-devices/tenmicron"
 )
 
 // counters assigns sequential, 0-based ASCOM device numbers within each device type.

@@ -314,9 +314,11 @@ func TestAlpacaFPSPercent(t *testing.T) {
 		t.Fatalf("supportedactions %v missing fpspercent", acts)
 	}
 
-	// Query before any set: driver default 100.
-	if r := put(t, base, "action", "Action=fpspercent&Parameters="); r.ErrorNumber != 0 || r.Value != "100" {
-		t.Fatalf("query fpspercent = %v (err %d), want \"100\"", r.Value, r.ErrorNumber)
+	// Query before any set: the live link-dependent default. The ASI290MM Mini is registered USB2
+	// (usb3=false) and the stub transport reports no SuperSpeed, so the readout defaults to 40 —
+	// the query must report that real value, not a blanket 100.
+	if r := put(t, base, "action", "Action=fpspercent&Parameters="); r.ErrorNumber != 0 || r.Value != "40" {
+		t.Fatalf("query fpspercent = %v (err %d), want \"40\"", r.Value, r.ErrorNumber)
 	}
 	// Set a valid value; it echoes back and the query reflects it.
 	if r := put(t, base, "action", "Action=fpspercent&Parameters=50"); r.ErrorNumber != 0 || r.Value != "50" {

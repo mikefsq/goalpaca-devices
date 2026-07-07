@@ -66,9 +66,11 @@ type PureASICamera struct {
 	lastStart    time.Time
 	haveLast     bool
 
-	// fpsPercent is the FPS-percent / bandwidth-overload throttle (40..100; 0 = driver default 100)
-	// the readout HMAX/line-time math derates by. Set via the Alpaca Action "fpspercent"; re-applied
-	// on reconnect. Lower values slow the readout (larger HMAX) to fit a constrained USB link.
+	// fpsPercent is the FPS-percent / bandwidth-overload throttle (40..100) the readout HMAX/line-
+	// time math derates by, as set via the Alpaca Action "fpspercent". 0 means "never set" — the
+	// camera keeps its link-dependent default (100 on USB3, 40 on USB2); the query reads the live
+	// effective value from the camera, not this field. Re-applied on reconnect when non-zero. Lower
+	// values slow the readout (larger HMAX) to fit a constrained USB link.
 	fpsPercent int
 
 	pulsing bool
@@ -485,7 +487,8 @@ func (c *PureASICamera) actionVideoMode(params string) (string, error) {
 }
 
 // actionFPSPercent gets/sets the FPS-percent (bandwidth-overload) throttle the readout HMAX/
-// line-time math derates by. Empty params returns the current value; an integer 40..100 sets it.
+// line-time math derates by. Empty params returns the live effective value (the link-dependent
+// default — 100 on USB3, 40 on USB2 — until the client sets one); an integer 40..100 sets it.
 // The throttle takes effect on the next SetROI/SetExposure, so a running video stream is re-armed
 // to apply it immediately; single-shot picks it up on the next StartExposure. The value is stored
 // and re-applied after a reconnect.
@@ -494,13 +497,10 @@ func (c *PureASICamera) actionFPSPercent(params string) (string, error) {
 		return "", alpacadev.ErrNotConnected
 	}
 	params = strings.TrimSpace(params)
-	if params == "" { // query
+	if params == "" { // query the live effective throttle (link-dependent default when never set)
 		c.mu.Lock()
-		pct := c.fpsPercent
+		pct := c.cam.FPSPercent()
 		c.mu.Unlock()
-		if pct == 0 {
-			pct = 100
-		}
 		return strconv.Itoa(pct), nil
 	}
 	pct, err := strconv.Atoi(params)
@@ -510,14 +510,21 @@ func (c *PureASICamera) actionFPSPercent(params string) (string, error) {
 	if pct < 40 || pct > 100 {
 		return "", fmt.Errorf("%w: fpspercent %d out of range 40..100", alpacadev.ErrInvalidValue, pct)
 	}
+	// Serialize the whole set against the video lifecycle so the throttle change and any re-arm are
+	// one atomic step — a concurrent videomode toggle can't interleave between the videoOn snapshot
+	// and the re-arm (the *Locked helpers run the stop/start bodies under this already-held exposeMu).
+	c.exposeMu.Lock()
+	defer c.exposeMu.Unlock()
 	c.mu.Lock()
 	c.fpsPercent = pct
 	c.cam.SetFPSPercent(pct)
 	videoOn, vidExp := c.videoOn, c.vidExp
 	c.mu.Unlock()
 	if videoOn { // re-arm so the running stream re-runs SetROI/SetExposure with the new throttle
-		c.stopVideo()
-		if err := c.startVideo(vidExp); err != nil {
+		c.stopVideoLocked()
+		if err := c.startVideoLocked(vidExp); err != nil {
+			// The device errored while re-arming (so the stream can't run regardless); the throttle
+			// is applied and persisted and will take on the next arm/reconnect. Surface the failure.
 			return "", err
 		}
 	}
@@ -530,6 +537,12 @@ func (c *PureASICamera) actionFPSPercent(params string) (string, error) {
 func (c *PureASICamera) startVideo(dur float64) error {
 	c.exposeMu.Lock()
 	defer c.exposeMu.Unlock()
+	return c.startVideoLocked(dur)
+}
+
+// startVideoLocked is the body of startVideo; the caller must hold exposeMu (e.g. actionFPSPercent,
+// which re-arms the stream under exposeMu so the throttle change and the re-arm are one atomic step).
+func (c *PureASICamera) startVideoLocked(dur float64) error {
 	c.mu.Lock()
 	already := c.videoOn && c.vidExp == dur
 	c.mu.Unlock()

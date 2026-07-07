@@ -7,7 +7,7 @@ import (
 	"time"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
-	"github.com/mikefsq/optec-astro/focuslynx"
+	"github.com/mikefsq/optec/focuslynx"
 )
 
 // errHub is a focuslynx.Transport that answers every command with a controller error
