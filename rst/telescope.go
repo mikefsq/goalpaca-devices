@@ -65,11 +65,14 @@ func (t *Telescope) dial() (*rst.Mount, error) {
 
 // --- Hardware lifecycle + connection model ----------------------------------
 
+// Open starts the supervised background loop that dials the mount and keeps it
+// connected. It touches no hardware itself.
 func (t *Telescope) Open(ctx context.Context) error {
 	go alpacadev.Supervise(ctx, t.ID, func() { t.manage(ctx) })
 	return nil
 }
 
+// Close disconnects from the mount and releases the serial port.
 func (t *Telescope) Close(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -80,6 +83,8 @@ func (t *Telescope) Close(ctx context.Context) error {
 	return nil
 }
 
+// Connect reports success once the mount is connected; the connection itself is made
+// and maintained by the background manage loop, so this only checks the state.
 func (t *Telescope) Connect(ctx context.Context) error {
 	if !t.Connected() {
 		return alpacadev.ErrNotConnected
@@ -87,9 +92,14 @@ func (t *Telescope) Connect(ctx context.Context) error {
 	return nil
 }
 
-func (t *Telescope) Connected() bool                      { t.mu.Lock(); defer t.mu.Unlock(); return t.m != nil }
+// Connected reports whether the mount link is up.
+func (t *Telescope) Connected() bool { t.mu.Lock(); defer t.mu.Unlock(); return t.m != nil }
+
+// Disconnect is a no-op: the background loop owns the connection lifecycle.
 func (t *Telescope) Disconnect(ctx context.Context) error { return nil }
-func (t *Telescope) Busy() bool                           { return t.Slewing() }
+
+// Busy reports whether a motion is in progress (the server gates mutating writes on it).
+func (t *Telescope) Busy() bool { return t.Slewing() }
 
 func (t *Telescope) manage(ctx context.Context) {
 	var lastErr string
@@ -147,6 +157,7 @@ func (t *Telescope) LiveMount() (lx200.Mount, error) {
 // raw. The server gates these by Connected()/Busy(); the nil-guard covers the
 // reconnect race.
 
+// CommandBlind sends a raw LX200 command that produces no reply.
 func (t *Telescope) CommandBlind(cmd string, raw bool) error {
 	m := t.mount()
 	if m == nil {
@@ -155,6 +166,7 @@ func (t *Telescope) CommandBlind(cmd string, raw bool) error {
 	return m.Blind(lx200.Frame(cmd, raw))
 }
 
+// CommandString sends a raw LX200 query and returns its #-terminated reply.
 func (t *Telescope) CommandString(cmd string, raw bool) (string, error) {
 	m := t.mount()
 	if m == nil {
@@ -163,6 +175,7 @@ func (t *Telescope) CommandString(cmd string, raw bool) (string, error) {
 	return m.Get(lx200.Frame(cmd, raw))
 }
 
+// CommandBool sends a raw LX200 "set" command and reports the mount's 1/0 ack.
 func (t *Telescope) CommandBool(cmd string, raw bool) (bool, error) {
 	m := t.mount()
 	if m == nil {
@@ -173,20 +186,40 @@ func (t *Telescope) CommandBool(cmd string, raw bool) (bool, error) {
 
 // --- Capabilities (RST: harmonic; park, find-home, pulse-guide, move-axis) ---
 
-func (t *Telescope) CanSlew() bool        { return true }
-func (t *Telescope) CanSlewAsync() bool   { return true }
-func (t *Telescope) CanSync() bool        { return true }
+// CanSlew reports that the mount can slew to equatorial coordinates.
+func (t *Telescope) CanSlew() bool { return true }
+
+// CanSlewAsync reports that the mount supports asynchronous slews.
+func (t *Telescope) CanSlewAsync() bool { return true }
+
+// CanSync reports that the mount can sync to coordinates.
+func (t *Telescope) CanSync() bool { return true }
+
+// CanSetTracking reports that tracking can be turned on and off.
 func (t *Telescope) CanSetTracking() bool { return true }
-func (t *Telescope) CanPark() bool        { return true }
-func (t *Telescope) CanUnpark() bool      { return true }
-func (t *Telescope) CanFindHome() bool    { return true }
-func (t *Telescope) CanPulseGuide() bool  { return true }
+
+// CanPark reports that the mount can park.
+func (t *Telescope) CanPark() bool { return true }
+
+// CanUnpark reports that the mount can unpark.
+func (t *Telescope) CanUnpark() bool { return true }
+
+// CanFindHome reports that the mount can seek its mechanical home.
+func (t *Telescope) CanFindHome() bool { return true }
+
+// CanPulseGuide reports that the mount supports pulse guiding.
+func (t *Telescope) CanPulseGuide() bool { return true }
+
+// CanMoveAxis reports that the given axis supports MoveAxis (both primary and secondary do).
 func (t *Telescope) CanMoveAxis(axis alpacadev.TelescopeAxis) bool {
 	return axis == alpacadev.AxisPrimary || axis == alpacadev.AxisSecondary
 }
 
 // --- Position / status getters ----------------------------------------------
+// Each returns the live value from the mount and caches it, falling back to the last
+// good cached value (snapshot) when the mount is unreachable or a read fails.
 
+// RightAscension returns the current right ascension in hours.
 func (t *Telescope) RightAscension() float64 {
 	if m := t.mount(); m != nil {
 		if v, err := m.RA(); err == nil {
@@ -196,6 +229,7 @@ func (t *Telescope) RightAscension() float64 {
 	return t.getF(&t.snap.ra)
 }
 
+// Declination returns the current declination in degrees.
 func (t *Telescope) Declination() float64 {
 	if m := t.mount(); m != nil {
 		if v, err := m.Dec(); err == nil {
@@ -205,6 +239,7 @@ func (t *Telescope) Declination() float64 {
 	return t.getF(&t.snap.dec)
 }
 
+// Altitude returns the current altitude above the horizon in degrees.
 func (t *Telescope) Altitude() float64 {
 	if m := t.mount(); m != nil {
 		if v, err := m.Altitude(); err == nil {
@@ -214,6 +249,7 @@ func (t *Telescope) Altitude() float64 {
 	return t.getF(&t.snap.alt)
 }
 
+// Azimuth returns the current azimuth in degrees, East of North.
 func (t *Telescope) Azimuth() float64 {
 	if m := t.mount(); m != nil {
 		if v, err := m.Azimuth(); err == nil {
@@ -223,6 +259,7 @@ func (t *Telescope) Azimuth() float64 {
 	return t.getF(&t.snap.az)
 }
 
+// SiderealTime returns the local apparent sidereal time in hours.
 func (t *Telescope) SiderealTime() float64 {
 	if m := t.mount(); m != nil {
 		if v, err := m.SiderealTime(); err == nil {
@@ -232,6 +269,7 @@ func (t *Telescope) SiderealTime() float64 {
 	return t.getF(&t.snap.lst)
 }
 
+// Slewing reports whether a goto, home, or park is in progress.
 func (t *Telescope) Slewing() bool {
 	if m := t.mount(); m != nil {
 		if v, err := m.Slewing(); err == nil {
@@ -241,6 +279,7 @@ func (t *Telescope) Slewing() bool {
 	return t.getB(&t.snap.slewing)
 }
 
+// Tracking reports whether the mount is tracking.
 func (t *Telescope) Tracking() bool {
 	if m := t.mount(); m != nil {
 		if v, err := m.Tracking(); err == nil {
@@ -250,6 +289,7 @@ func (t *Telescope) Tracking() bool {
 	return t.getB(&t.snap.tracking)
 }
 
+// AtPark reports whether the mount is parked.
 func (t *Telescope) AtPark() bool {
 	if m := t.mount(); m != nil {
 		if v, err := m.AtPark(); err == nil {
@@ -259,6 +299,7 @@ func (t *Telescope) AtPark() bool {
 	return t.getB(&t.snap.atPark)
 }
 
+// AtHome reports whether the mount is at its home position.
 func (t *Telescope) AtHome() bool {
 	if m := t.mount(); m != nil {
 		if v, err := m.AtHome(); err == nil {
@@ -268,6 +309,7 @@ func (t *Telescope) AtHome() bool {
 	return t.getB(&t.snap.atHome)
 }
 
+// IsPulseGuiding reports whether a pulse guide is in progress.
 func (t *Telescope) IsPulseGuiding() bool {
 	if m := t.mount(); m != nil {
 		return m.IsPulseGuiding()
@@ -275,6 +317,7 @@ func (t *Telescope) IsPulseGuiding() bool {
 	return false
 }
 
+// SideOfPier returns the side of pier the tube is on, derived from the axis angles.
 func (t *Telescope) SideOfPier() alpacadev.PierSide {
 	if m := t.mount(); m != nil {
 		if ps, err := m.PierSide(); err == nil {
@@ -289,29 +332,64 @@ func (t *Telescope) SideOfPier() alpacadev.PierSide {
 	return t.snap.pier
 }
 
-// Driver-remembered properties (the mount does not read these back). Target
-// RA/Dec are stored by the embedded BaseTelescope (promoted TargetRightAscension/
-// TargetDeclination), which also enforces the ASCOM read-before-set rule.
-func (t *Telescope) SiteLatitude() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLat }
-func (t *Telescope) SiteLongitude() float64     { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLon }
-func (t *Telescope) SiteElevation() float64     { t.mu.Lock(); defer t.mu.Unlock(); return t.siteEl }
-func (t *Telescope) SlewSettleTime() int        { t.mu.Lock(); defer t.mu.Unlock(); return t.slewSettleSec }
+// Site elevation, slew-settle time, and the tracking rate are driver-remembered (the
+// mount doesn't read them back); target RA/Dec live in the embedded BaseTelescope
+// (promoted TargetRightAscension/TargetDeclination), which enforces read-before-set.
 
+// SiteLatitude returns the observing latitude in degrees — the mount's own site
+// (GPS-fed on the RST, :Gt#), falling back to the last value set through this driver
+// if the mount can't be read (so a client that never wrote it still gets the real
+// location, not 0).
+func (t *Telescope) SiteLatitude() float64 {
+	if m := t.mount(); m != nil {
+		if v, err := m.SiteLatitude(); err == nil {
+			return v
+		}
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.siteLat
+}
+
+// SiteLongitude returns the observing longitude in degrees East-positive, from the
+// mount (:Gg#) with the driver-set value as fallback (see SiteLatitude).
+func (t *Telescope) SiteLongitude() float64 {
+	if m := t.mount(); m != nil {
+		if v, err := m.SiteLongitude(); err == nil {
+			return v
+		}
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.siteLon
+}
+
+// SiteElevation returns the driver-remembered site elevation in metres.
+func (t *Telescope) SiteElevation() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.siteEl }
+
+// SlewSettleTime returns the configured post-slew settle time in seconds.
+func (t *Telescope) SlewSettleTime() int { t.mu.Lock(); defer t.mu.Unlock(); return t.slewSettleSec }
+
+// TrackingRate returns the current tracking rate (sidereal/lunar/solar).
 func (t *Telescope) TrackingRate() alpacadev.DriveRate {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.trackingRate
 }
 
+// TrackingRates returns the tracking rates the RST supports.
 func (t *Telescope) TrackingRates() []alpacadev.DriveRate {
 	return []alpacadev.DriveRate{alpacadev.DriveSidereal, alpacadev.DriveLunar, alpacadev.DriveSolar}
 }
 
+// UTCDate returns the current UTC time as an ISO-8601 string (the host clock; the RST
+// has no clock-read command).
 func (t *Telescope) UTCDate() string { return time.Now().UTC().Format("2006-01-02T15:04:05.000Z") }
 
 // --- Setters ----------------------------------------------------------------
 // RST exposes no clock command, so SetUTCDate stays BaseTelescope (not implemented).
 
+// SetTracking turns tracking on or off.
 func (t *Telescope) SetTracking(on bool) error {
 	m := t.mount()
 	if m == nil {
@@ -320,6 +398,7 @@ func (t *Telescope) SetTracking(on bool) error {
 	return m.SetTracking(on)
 }
 
+// SetTrackingRate sets the tracking rate (sidereal, lunar, or solar).
 func (t *Telescope) SetTrackingRate(r alpacadev.DriveRate) error {
 	m := t.mount()
 	if m == nil {
@@ -345,6 +424,7 @@ func (t *Telescope) SetTrackingRate(r alpacadev.DriveRate) error {
 	return nil
 }
 
+// SetTargetRightAscension sets the goto/sync target right ascension in hours.
 func (t *Telescope) SetTargetRightAscension(ra float64) error {
 	if ra < 0 || ra >= 24 {
 		return alpacadev.ErrInvalidValue
@@ -363,6 +443,7 @@ func (t *Telescope) SetTargetRightAscension(ra float64) error {
 	return t.BaseTelescope.SetTargetRightAscension(ra)
 }
 
+// SetTargetDeclination sets the goto/sync target declination in degrees.
 func (t *Telescope) SetTargetDeclination(dec float64) error {
 	if dec < -90 || dec > 90 {
 		return alpacadev.ErrInvalidValue
@@ -381,6 +462,7 @@ func (t *Telescope) SetTargetDeclination(dec float64) error {
 	return t.BaseTelescope.SetTargetDeclination(dec)
 }
 
+// SetSiteLatitude sets the observing latitude in degrees, on the mount and locally.
 func (t *Telescope) SetSiteLatitude(deg float64) error {
 	if deg < -90 || deg > 90 {
 		return alpacadev.ErrInvalidValue
@@ -398,6 +480,8 @@ func (t *Telescope) SetSiteLatitude(deg float64) error {
 	return nil
 }
 
+// SetSiteLongitude sets the observing longitude in degrees East-positive, on the
+// mount and locally.
 func (t *Telescope) SetSiteLongitude(deg float64) error {
 	if deg < -180 || deg > 180 {
 		return alpacadev.ErrInvalidValue
@@ -415,6 +499,8 @@ func (t *Telescope) SetSiteLongitude(deg float64) error {
 	return nil
 }
 
+// SetSiteElevation sets the observing site elevation in metres (driver-remembered;
+// the RST has no elevation command).
 func (t *Telescope) SetSiteElevation(meters float64) error {
 	if meters < -300 || meters > 10000 {
 		return alpacadev.ErrInvalidValue
@@ -432,6 +518,7 @@ func (t *Telescope) SetSiteElevation(meters float64) error {
 	return nil
 }
 
+// SetSlewSettleTime sets the post-slew settle time in seconds.
 func (t *Telescope) SetSlewSettleTime(seconds int) error {
 	if seconds < 0 {
 		return alpacadev.ErrInvalidValue
@@ -444,6 +531,7 @@ func (t *Telescope) SetSlewSettleTime(seconds int) error {
 
 // --- Motion -----------------------------------------------------------------
 
+// AbortSlew immediately stops any slew or continuous move.
 func (t *Telescope) AbortSlew() error {
 	m := t.mount()
 	if m == nil {
@@ -452,6 +540,8 @@ func (t *Telescope) AbortSlew() error {
 	return m.Halt()
 }
 
+// SlewToCoordinatesAsync starts an asynchronous goto to the given RA/Dec, returning
+// immediately.
 func (t *Telescope) SlewToCoordinatesAsync(ra, dec float64) error {
 	if err := t.SetTargetRightAscension(ra); err != nil {
 		return err
@@ -462,6 +552,7 @@ func (t *Telescope) SlewToCoordinatesAsync(ra, dec float64) error {
 	return t.startSlew()
 }
 
+// SlewToCoordinates gotos the given RA/Dec and blocks until the slew completes.
 func (t *Telescope) SlewToCoordinates(ra, dec float64) error {
 	if err := t.SlewToCoordinatesAsync(ra, dec); err != nil {
 		return err
@@ -469,8 +560,10 @@ func (t *Telescope) SlewToCoordinates(ra, dec float64) error {
 	return t.waitSlew()
 }
 
+// SlewToTargetAsync starts an asynchronous goto to the current target coordinates.
 func (t *Telescope) SlewToTargetAsync() error { return t.startSlew() }
 
+// SlewToTarget gotos the current target coordinates and blocks until complete.
 func (t *Telescope) SlewToTarget() error {
 	if err := t.startSlew(); err != nil {
 		return err
@@ -486,6 +579,7 @@ func (t *Telescope) startSlew() error {
 	return m.SlewToTarget()
 }
 
+// SyncToCoordinates syncs the pointing model to the given RA/Dec.
 func (t *Telescope) SyncToCoordinates(ra, dec float64) error {
 	if err := t.SetTargetRightAscension(ra); err != nil {
 		return err
@@ -496,6 +590,7 @@ func (t *Telescope) SyncToCoordinates(ra, dec float64) error {
 	return t.SyncToTarget()
 }
 
+// SyncToTarget syncs the pointing model to the current target coordinates.
 func (t *Telescope) SyncToTarget() error {
 	m := t.mount()
 	if m == nil {
@@ -505,6 +600,7 @@ func (t *Telescope) SyncToTarget() error {
 	return err
 }
 
+// Park sends the mount to its park position — the polar axis — with tracking off.
 func (t *Telescope) Park() error {
 	m := t.mount()
 	if m == nil {
@@ -513,6 +609,7 @@ func (t *Telescope) Park() error {
 	return m.Park()
 }
 
+// Unpark releases the park latch and re-enables tracking.
 func (t *Telescope) Unpark() error {
 	m := t.mount()
 	if m == nil {
@@ -521,6 +618,7 @@ func (t *Telescope) Unpark() error {
 	return m.Unpark()
 }
 
+// FindHome seeks the mount's mechanical home — on the RST, the West horizon.
 func (t *Telescope) FindHome() error {
 	m := t.mount()
 	if m == nil {
@@ -529,6 +627,7 @@ func (t *Telescope) FindHome() error {
 	return m.FindHome()
 }
 
+// PulseGuide issues a timed guide pulse in the given direction for ms milliseconds.
 func (t *Telescope) PulseGuide(dir alpacadev.GuideDirection, ms int) error {
 	if ms < 0 {
 		return alpacadev.ErrInvalidValue
@@ -550,14 +649,24 @@ func (t *Telescope) PulseGuide(dir alpacadev.GuideDirection, ms int) error {
 // form). siderealDegPerSec matches the vendor driver's guide-rate math (15"/s).
 const siderealDegPerSec = 15.0 / 3600.0
 
+// CanSetGuideRates reports that the guide rate can be set.
 func (t *Telescope) CanSetGuideRates() bool { return true }
 
+// GuideRateRightAscension returns the guide rate in degrees/second.
 func (t *Telescope) GuideRateRightAscension() float64 { return t.guideRateDegPerSec() }
-func (t *Telescope) GuideRateDeclination() float64    { return t.guideRateDegPerSec() }
 
+// GuideRateDeclination returns the guide rate in degrees/second (the RST shares one
+// rate across both axes, so this equals GuideRateRightAscension).
+func (t *Telescope) GuideRateDeclination() float64 { return t.guideRateDegPerSec() }
+
+// SetGuideRateRightAscension sets the guide rate in degrees/second (one rate shared
+// by both axes).
 func (t *Telescope) SetGuideRateRightAscension(degPerSec float64) error {
 	return t.setGuideRateDegPerSec(degPerSec)
 }
+
+// SetGuideRateDeclination sets the guide rate in degrees/second (one rate shared by
+// both axes).
 func (t *Telescope) SetGuideRateDeclination(degPerSec float64) error {
 	return t.setGuideRateDegPerSec(degPerSec)
 }
@@ -585,6 +694,7 @@ func (t *Telescope) setGuideRateDegPerSec(degPerSec float64) error {
 	return m.SetGuideRate(degPerSec / siderealDegPerSec)
 }
 
+// AxisRates returns the supported MoveAxis rate range (deg/s) for the given axis.
 func (t *Telescope) AxisRates(axis alpacadev.TelescopeAxis) []alpacadev.AxisRate {
 	if axis != alpacadev.AxisPrimary && axis != alpacadev.AxisSecondary {
 		return []alpacadev.AxisRate{}
@@ -592,6 +702,7 @@ func (t *Telescope) AxisRates(axis alpacadev.TelescopeAxis) []alpacadev.AxisRate
 	return []alpacadev.AxisRate{{Minimum: 0, Maximum: maxAxisRate}}
 }
 
+// MoveAxis starts a continuous slew on the given axis at rate deg/s (rate 0 stops it).
 func (t *Telescope) MoveAxis(axis alpacadev.TelescopeAxis, rate float64) error {
 	m := t.mount()
 	if m == nil {

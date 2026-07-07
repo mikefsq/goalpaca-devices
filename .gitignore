@@ -11,13 +11,16 @@ ASI_API_Release/
 *.a
 
 # built driver binaries (`make` emits ./bin/<name>; `go build .` emits <dir>/<dir>)
-/bin/
-/tenmicron/tenmicron
-/asiam5/asiam5
-/rst/rst
-/onstep/onstep
-/asiccd/asiccd
-/asieaf/asieaf
-/asicaa/asicaa
-/asiefw/asiefw
-/astrocam/astrocam
+bin/
+tenmicron/tenmicron
+asiam5/asiam5
+rst/rst
+onstep/onstep
+asiccd/asiccd
+asieaf/asieaf
+asicaa/asicaa
+asiefw/asiefw
+astrocam/astrocam
+fleet/fleet
+asiefw/cmd/asiefw/asiefw
+rst/cmd/rst/rst

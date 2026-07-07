@@ -44,9 +44,14 @@ func (t *Telescope) UseOptics(s alpacadev.OpticsStore) {
 
 // ApertureDiameter / ApertureArea / FocalLength override the BaseTelescope zero
 // defaults, reading the optics holder (metres / m²).
+// ApertureDiameter returns the objective aperture diameter in metres.
 func (t *Telescope) ApertureDiameter() float64 { ap, _, _, _, _ := t.opticsStore().Optics(); return ap }
-func (t *Telescope) ApertureArea() float64     { _, a, _, _, _ := t.opticsStore().Optics(); return a }
-func (t *Telescope) FocalLength() float64      { _, _, fl, _, _ := t.opticsStore().Optics(); return fl }
+
+// ApertureArea returns the effective light-collecting area in square metres.
+func (t *Telescope) ApertureArea() float64 { _, a, _, _, _ := t.opticsStore().Optics(); return a }
+
+// FocalLength returns the focal length in metres.
+func (t *Telescope) FocalLength() float64 { _, _, fl, _, _ := t.opticsStore().Optics(); return fl }
 
 // SetOptics configures the instrument-profile optics (metres / m²); a zero area
 // defaults to the circular aperture area. The guide scope defaults to the main scope
