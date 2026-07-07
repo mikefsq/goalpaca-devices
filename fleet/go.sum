@@ -24,8 +24,8 @@ github.com/mikefsq/goalpaca-devices/rst v0.0.0-20260707022351-9d1863755c8e h1:Ih
 github.com/mikefsq/goalpaca-devices/rst v0.0.0-20260707022351-9d1863755c8e/go.mod h1:MfV4HLVesyQr0bUv0hC+xk8GEpVKjykwI4qHPPDQzZc=
 github.com/mikefsq/goalpaca-devices/tenmicron v0.0.0-20260707022351-9d1863755c8e h1:Z28xi20RGqJS1Z/9hCknt7C4fkJMvIdgZq+EDs71Y0c=
 github.com/mikefsq/goalpaca-devices/tenmicron v0.0.0-20260707022351-9d1863755c8e/go.mod h1:sH16lF6gxrNYwjeNNsWAqkY6uOWdUh6KiAUA6BkvwYM=
-github.com/mikefsq/goasi v0.1.1-0.20260603174043-6a254265cec6 h1:6U7z2HTBeUqm+qoG7oHir7MM2jESEAuEE1IZnSF8E7w=
-github.com/mikefsq/goasi v0.1.1-0.20260603174043-6a254265cec6/go.mod h1:jgdDPCgo05MzPh5jl/nZRgz2d1utuWBTMoEALnQMSoM=
+github.com/mikefsq/goasi v0.2.0 h1:Rhoph4nnrYLPEON/Xt56WQHBlCwwkGwlGDq6tiZ4LwM=
+github.com/mikefsq/goasi v0.2.0/go.mod h1:jgdDPCgo05MzPh5jl/nZRgz2d1utuWBTMoEALnQMSoM=
 github.com/mikefsq/goindi v0.0.0-20260623000347-2dda0b2dec05 h1:eZmdbZO/5QqoWWFQXltaIh4kHDpDF4VCSfN8b2daPPc=
 github.com/mikefsq/goindi v0.0.0-20260623000347-2dda0b2dec05/go.mod h1:VfpBywDi5mzxwT3hyE6zbAiYxB0bDowDUjMkWXhaq8E=
 github.com/mikefsq/lx200 v0.2.0 h1:kI5NT18p0g+If6jK5nChJblwXuoeTTbBfOnOAJt95dI=

@@ -22,7 +22,7 @@ require (
 )
 
 require (
-	github.com/mikefsq/goasi v0.1.1-0.20260603174043-6a254265cec6 // indirect
+	github.com/mikefsq/goasi v0.2.0 // indirect
 	github.com/mikefsq/oasis-astro v0.0.0-20260613070221-c6e70b94291f // indirect
 	github.com/mikefsq/optec v0.0.0-20260707021816-df3786ba6eb4 // indirect
 	github.com/mikefsq/pegasus-astro v0.0.0-20260610070031-afd43eb66e1d // indirect
