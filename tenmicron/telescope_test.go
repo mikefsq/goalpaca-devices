@@ -83,9 +83,11 @@ func newStack(t *testing.T, replies map[string]string) (string, *fakeTransport) 
 	// the snapshot must be primed the way manage() does on connect.
 	merged := map[string]string{
 		":Ginfo#": "0.000000,0.000000,E,0.00000,0.00000,2451545.0,1,0#", // neutral status
-		":h?#":    "0",                                                  // home not found — single status byte, no '#'
+		":GaXa#":  "0.0#",                                               // primary axis angle (deg) — not at home
+		":GaXb#":  "0.0#",                                               // secondary axis angle (deg)
 		":Ggui#":  "15.0#",                                              // guide rate (arcsec/s)
 		":GREF#":  "0",                                                  // refraction off — single status byte, no '#'
+		":GUDT#":  "2026-07-07,12:00:00#",                               // mount UTC clock (ISO, ultra precision)
 	}
 	for k, v := range replies {
 		merged[k] = v
@@ -184,14 +186,41 @@ func TestGuideRate(t *testing.T) {
 	if r := put(t, base, "guideraterightascension", "GuideRateRightAscension=0.0020833333"); r.ErrorNumber != 0 {
 		t.Errorf("set guiderate: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
 	}
-	if !f.wrote(":Rg07.5#") {
-		t.Errorf("SetGuideRate did not send :Rg07.5#; writes=%v", f.writes)
+	if !f.wrote(":Rg07.500#") {
+		t.Errorf("SetGuideRate did not send :Rg07.500#; writes=%v", f.writes)
+	}
+
+	// The library now sends the rate verbatim (its own clamp was removed), so the
+	// Alpaca layer is the sole enforcer of the mount's [0.1×, 1.0×] sidereal band and
+	// must report the clamped value it actually sent. Above 1.0× sidereal clamps down
+	// to 15.041"/s (:Rg15.041#).
+	base2, f2 := newStack(t, map[string]string{":Ggui#": "7.50#"})
+	if r := put(t, base2, "guideraterightascension", "GuideRateRightAscension=0.006"); r.ErrorNumber != 0 { // 21.6"/s
+		t.Errorf("set high guiderate: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f2.wrote(":Rg15.041#") {
+		t.Errorf("above-band guide rate did not clamp to :Rg15.041#; writes=%v", f2.writes)
+	}
+	if v, _ := get(t, base2, "guideraterightascension").Value.(float64); math.Abs(v-15.041/3600) > 1e-9 {
+		t.Errorf("clamped-high readback = %v deg/s, want %v", v, 15.041/3600)
+	}
+
+	// Below 0.1× sidereal clamps up to 1.504"/s (:Rg01.504#).
+	base3, f3 := newStack(t, map[string]string{":Ggui#": "7.50#"})
+	if r := put(t, base3, "guideraterightascension", "GuideRateRightAscension=0.0001"); r.ErrorNumber != 0 { // 0.36"/s
+		t.Errorf("set low guiderate: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f3.wrote(":Rg01.504#") {
+		t.Errorf("below-band guide rate did not clamp to :Rg01.504#; writes=%v", f3.writes)
+	}
+	if v, _ := get(t, base3, "guideraterightascension").Value.(float64); math.Abs(v-1.5041/3600) > 1e-9 {
+		t.Errorf("clamped-low readback = %v deg/s, want %v", v, 1.5041/3600)
 	}
 }
 
 func TestSlewToAltAzAsync(t *testing.T) {
 	base, f := newStack(t, map[string]string{
-		":Sa+45*30:00#": "1", ":Sz123*30:00#": "1", ":MA#": "0",
+		":Sa+45*30:00.0#": "1", ":Sz123*30:00.0#": "1", ":MA#": "0",
 	})
 	if r := put(t, base, "slewtoaltazasync", "Azimuth=123.5&Altitude=45.5"); r.ErrorNumber != 0 {
 		t.Fatalf("slewtoaltazasync: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
@@ -203,7 +232,7 @@ func TestSlewToAltAzAsync(t *testing.T) {
 
 func TestSyncToAltAz(t *testing.T) {
 	base, _ := newStack(t, map[string]string{
-		":Sa+45*30:00#": "1", ":Sz123*30:00#": "1", ":CM#": "AltAz#",
+		":Sa+45*30:00.0#": "1", ":Sz123*30:00.0#": "1", ":CM#": "AltAz#",
 	})
 	if r := put(t, base, "synctoaltaz", "Azimuth=123.5&Altitude=45.5"); r.ErrorNumber != 0 {
 		t.Errorf("synctoaltaz: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
@@ -212,7 +241,7 @@ func TestSyncToAltAz(t *testing.T) {
 
 func TestDestinationSideOfPier(t *testing.T) {
 	base, _ := newStack(t, map[string]string{
-		":Sr12:00:00#": "1", ":Sd+45*00:00#": "1", ":GTsid#": "2", // 2 => West (bare digit, no '#')
+		":Sr12:00:00.00#": "1", ":Sd+45*00:00.0#": "1", ":GTsid#": "2", // 2 => West (bare digit, no '#')
 	})
 	r := getQ(t, base, "destinationsideofpier", "RightAscension=12.0&Declination=45.0")
 	if r.ErrorNumber != 0 {
@@ -224,7 +253,7 @@ func TestDestinationSideOfPier(t *testing.T) {
 }
 
 func TestSetPark(t *testing.T) {
-	base, f := newStack(t, map[string]string{":PyX#": "0"}) // bare status byte, no '#'
+	base, f := newStack(t, map[string]string{":PyX#": "1"}) // bare status byte, no '#'; '1' = save accepted
 	if r := put(t, base, "setpark", ""); r.ErrorNumber != 0 {
 		t.Errorf("setpark: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
 	}
@@ -442,5 +471,244 @@ func TestCoreReadsThroughHTTP(t *testing.T) {
 	}
 	if v, _ := get(t, base, "sideofpier").Value.(float64); int(v) != int(alpacadev.PierWest) {
 		t.Errorf("sideofpier = %v, want West", v)
+	}
+}
+
+func TestActionReadWrite(t *testing.T) {
+	// maxslewrate: empty params reads (:GMsb#), a value writes (:Sw8#) and echoes.
+	base, f := newStack(t, map[string]string{":GMsb#": "8.0#", ":Sw8#": "1"})
+	if r := put(t, base, "action", "Action=maxslewrate&Parameters="); r.ErrorNumber != 0 || r.Value != "8.0" {
+		t.Errorf("read maxslewrate = %v (err %d), want \"8.0\"", r.Value, r.ErrorNumber)
+	}
+	if r := put(t, base, "action", "Action=maxslewrate&Parameters=8"); r.ErrorNumber != 0 || r.Value != "8" {
+		t.Fatalf("set maxslewrate = %v (err %d %s)", r.Value, r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":Sw8#") {
+		t.Errorf("maxslewrate did not send :Sw8#; writes=%v", f.writes)
+	}
+}
+
+func TestActionReadOnlyRejectsValue(t *testing.T) {
+	// minslewrate is read-only: empty reads (:GMsa#), a value is InvalidValue (0x401).
+	base, _ := newStack(t, map[string]string{":GMsa#": "0.5#"})
+	if r := put(t, base, "action", "Action=minslewrate&Parameters="); r.ErrorNumber != 0 || r.Value != "0.5" {
+		t.Errorf("read minslewrate = %v (err %d), want \"0.5\"", r.Value, r.ErrorNumber)
+	}
+	if r := put(t, base, "action", "Action=minslewrate&Parameters=3"); r.ErrorNumber != 0x401 {
+		t.Errorf("minslewrate with value: err %d, want 0x401 (read-only)", r.ErrorNumber)
+	}
+}
+
+func TestActionWriteOnlyNeedsValue(t *testing.T) {
+	// rabacklash has no mount getter: empty params is InvalidValue (0x401).
+	base, _ := newStack(t, nil)
+	if r := put(t, base, "action", "Action=rabacklash&Parameters="); r.ErrorNumber != 0x401 {
+		t.Errorf("rabacklash empty: err %d, want 0x401 (needs value)", r.ErrorNumber)
+	}
+}
+
+func TestActionMeridianSlewLimit(t *testing.T) {
+	base, f := newStack(t, map[string]string{":Glms#": "10#", ":Slms15#": "1"})
+	if r := put(t, base, "action", "Action=meridianslewlimit&Parameters="); r.ErrorNumber != 0 || r.Value != "10" {
+		t.Errorf("read meridianslewlimit = %v (err %d), want \"10\"", r.Value, r.ErrorNumber)
+	}
+	if r := put(t, base, "action", "Action=meridianslewlimit&Parameters=15"); r.ErrorNumber != 0 {
+		t.Fatalf("set meridianslewlimit: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":Slms15#") {
+		t.Errorf("did not send :Slms15#; writes=%v", f.writes)
+	}
+}
+
+func TestSupportedActionsExpanded(t *testing.T) {
+	base, _ := newStack(t, nil)
+	sa, _ := get(t, base, "supportedactions").Value.([]any)
+	got := map[string]bool{}
+	for _, a := range sa {
+		if s, ok := a.(string); ok {
+			got[s] = true
+		}
+	}
+	for _, want := range []string{
+		"maxslewrate", "meridianslewlimit", "rabacklash", "weather", "firmware",
+		"savemodel", "loadmodel", "alignmentinfo", "loadtle", "trajectoryoffset",
+		"parkinplace", "utcoffset", "gpsstatus",
+		"setrefractionpressure", // legacy alias preserved
+	} {
+		if !got[want] {
+			t.Errorf("supportedactions missing %q", want)
+		}
+	}
+}
+
+func TestSetOpticsReadOnEmpty(t *testing.T) {
+	base, _ := newStack(t, nil)
+	if r := put(t, base, "action", "Action=setoptics&Parameters="+url.QueryEscape(`{"aperture":130,"focal_length":1000}`)); r.ErrorNumber != 0 {
+		t.Fatalf("setoptics write: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	r := put(t, base, "action", "Action=setoptics&Parameters=")
+	if r.ErrorNumber != 0 {
+		t.Fatalf("setoptics read: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	var got map[string]float64
+	if err := json.Unmarshal([]byte(r.Value.(string)), &got); err != nil {
+		t.Fatalf("parse optics %q: %v", r.Value, err)
+	}
+	if got["aperture"] != 130 || got["focal_length"] != 1000 {
+		t.Errorf("read optics = %v, want aperture 130 focal_length 1000", got)
+	}
+}
+
+func TestSetEnvironmentReadOnEmpty(t *testing.T) {
+	base, _ := newStack(t, map[string]string{":GRPRS#": "1013.0#", ":GRTMP#": "15.0#"})
+	r := put(t, base, "action", "Action=setenvironment&Parameters=")
+	if r.ErrorNumber != 0 {
+		t.Fatalf("setenvironment read: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	var env map[string]any
+	if err := json.Unmarshal([]byte(r.Value.(string)), &env); err != nil {
+		t.Fatalf("parse env %q: %v", r.Value, err)
+	}
+	if env["pressure_hpa"] != 1013.0 || env["temperature_c"] != 15.0 {
+		t.Errorf("env read = %v, want pressure 1013 temp 15", env)
+	}
+	// The template must be COMPLETE: every accepted field present, so a client can edit
+	// and re-send it.
+	for _, k := range []string{"pressure_hpa", "temperature_c", "latitude", "longitude", "elevation_m", "time"} {
+		if _, ok := env[k]; !ok {
+			t.Errorf("env template missing field %q: %v", k, env)
+		}
+	}
+}
+
+func TestRefractionAliasReadsOnEmpty(t *testing.T) {
+	// The legacy setrefraction* names now read on empty (aliased to the RW actions).
+	base, f := newStack(t, map[string]string{":GRPRS#": "980.5#", ":GRTMP#": "-3.0#"})
+	if r := put(t, base, "action", "Action=setrefractionpressure&Parameters="); r.ErrorNumber != 0 || r.Value != "980.5" {
+		t.Errorf("setrefractionpressure read = %v (err %d), want \"980.5\"", r.Value, r.ErrorNumber)
+	}
+	if r := put(t, base, "action", "Action=setrefractiontemperature&Parameters="); r.ErrorNumber != 0 || r.Value != "-3.0" {
+		t.Errorf("setrefractiontemperature read = %v (err %d), want \"-3.0\"", r.Value, r.ErrorNumber)
+	}
+	if !f.wrote(":GRPRS#") {
+		t.Errorf("read did not query :GRPRS#; writes=%v", f.writes)
+	}
+}
+
+func TestParkInPlace(t *testing.T) {
+	// The Park button parks where the mount is (:PiP#), not at a saved position.
+	base, f := newStack(t, map[string]string{":PiP#": "1#"})
+	if r := put(t, base, "park", ""); r.ErrorNumber != 0 {
+		t.Fatalf("park: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":PiP#") {
+		t.Errorf("park did not send :PiP# (park-in-place); writes=%v", f.writes)
+	}
+}
+
+func TestFindHomeSlewsToRAAxis(t *testing.T) {
+	// The Home button slews to the RA-axis reference (primary 90°, secondary 0°) via a
+	// direct axis-angle slew and stops — no park.
+	base, f := newStack(t, map[string]string{
+		":SaXa+090.0000#": "1", ":SaXb+000.0000#": "1", ":MaX#": "0",
+	})
+	if r := put(t, base, "findhome", ""); r.ErrorNumber != 0 {
+		t.Fatalf("findhome: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	for _, w := range []string{":SaXa+090.0000#", ":SaXb+000.0000#", ":MaX#"} {
+		if !f.wrote(w) {
+			t.Errorf("findhome did not send %q; writes=%v", w, f.writes)
+		}
+	}
+}
+
+func TestAtHomeFromAxisAngles(t *testing.T) {
+	// AtHome is the axis-angle test: primary (RA) ≈ 90°, secondary (Dec) ≈ 0°.
+	base, _ := newStack(t, map[string]string{":GaXa#": "90.0#", ":GaXb#": "0.0#"})
+	if v := get(t, base, "athome").Value; v != true {
+		t.Errorf("athome = %v, want true at the RA-axis home position", v)
+	}
+	// Away from the reference → false.
+	base2, _ := newStack(t, map[string]string{":GaXa#": "45.0#", ":GaXb#": "10.0#"})
+	if v := get(t, base2, "athome").Value; v != false {
+		t.Errorf("athome = %v, want false away from home", v)
+	}
+}
+
+func TestUTCDateFromMount(t *testing.T) {
+	// The mount clock (:GUDT#) — set far from the host clock — must drive UTCDate,
+	// proving it reflects the mount (via the poller's skew) and not time.Now().
+	base, _ := newStack(t, map[string]string{":GUDT#": "2020-01-02,03:04:05#"})
+	r := get(t, base, "utcdate")
+	if r.ErrorNumber != 0 {
+		t.Fatalf("utcdate err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	got, err := time.Parse(time.RFC3339, r.Value.(string))
+	if err != nil {
+		t.Fatalf("parse utcdate %q: %v", r.Value, err)
+	}
+	want := time.Date(2020, 1, 2, 3, 4, 5, 0, time.UTC)
+	if d := got.Sub(want); d < -5*time.Second || d > 5*time.Second {
+		t.Errorf("utcdate = %v, want ≈ mount clock %v (skew-driven, not host clock)", got, want)
+	}
+}
+
+func TestAxisRatesFromMount(t *testing.T) {
+	tel := NewTelescope("test")
+	// Before the mount reports, AxisRates advertises the fallback ceiling.
+	if r := tel.AxisRates(alpacadev.AxisPrimary); len(r) != 1 || r[0].Maximum != defaultMaxAxisRate {
+		t.Fatalf("default AxisRates = %v, want max %v", r, defaultMaxAxisRate)
+	}
+	// primeStatics stores the mount's MaxSlewRate (:GMsb#); AxisRates then advertises it,
+	// so a client can't request a rate the mount would clamp.
+	tel.maxSlewRate = 3.0
+	for _, ax := range []alpacadev.TelescopeAxis{alpacadev.AxisPrimary, alpacadev.AxisSecondary} {
+		if r := tel.AxisRates(ax); len(r) != 1 || r[0].Minimum != 0 || r[0].Maximum != 3.0 {
+			t.Errorf("AxisRates(%v) = %v, want {0, 3.0} (mount MaxSlewRate)", ax, r)
+		}
+	}
+	if r := tel.AxisRates(alpacadev.TelescopeAxis(9)); len(r) != 0 {
+		t.Errorf("AxisRates(invalid axis) = %v, want empty", r)
+	}
+}
+
+func TestSlewSettleTime(t *testing.T) {
+	// The value must reach the mount (:Sstm, deciseconds field), not just be cached, so
+	// the mount holds "slewing" through the settle window.
+	base, f := newStack(t, map[string]string{":Sstm00005.000#": "1"})
+	if r := put(t, base, "slewsettletime", "SlewSettleTime=5"); r.ErrorNumber != 0 {
+		t.Fatalf("set slewsettletime: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":Sstm00005.000#") {
+		t.Errorf("SetSlewSettleTime did not send :Sstm00005.000#; writes=%v", f.writes)
+	}
+	if v, _ := get(t, base, "slewsettletime").Value.(float64); int(v) != 5 {
+		t.Errorf("slewsettletime readback = %v, want 5", v)
+	}
+}
+
+func TestMoveAxisExactRate(t *testing.T) {
+	// MoveAxis must command the exact rate AxisRates advertises, not a snapped preset.
+	// Uses the secondary (Dec/Alt) axis, whose move skips the primary's speed-correction
+	// handshake — both writes are blind (:RE rate then :Mn move).
+	base, f := newStack(t, nil)
+	if r := put(t, base, "moveaxis", "Axis=1&Rate=1.5"); r.ErrorNumber != 0 {
+		t.Fatalf("moveaxis: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if !f.wrote(":RE01.500000#") {
+		t.Errorf("MoveAxis did not send exact rate :RE01.500000#; writes=%v", f.writes)
+	}
+	if !f.wrote(":Mn#") {
+		t.Errorf("MoveAxis did not issue the north move :Mn#; writes=%v", f.writes)
+	}
+	// Rate 0 stops the axis rather than issuing a move.
+	base2, f2 := newStack(t, nil)
+	if r := put(t, base2, "moveaxis", "Axis=1&Rate=0"); r.ErrorNumber != 0 {
+		t.Fatalf("moveaxis stop: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	for _, w := range f2.writes {
+		if strings.HasPrefix(w, ":RE") || w == ":Mn#" || w == ":Ms#" {
+			t.Errorf("rate 0 should stop, not move; sent %q", w)
+		}
 	}
 }

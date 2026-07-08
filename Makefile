@@ -8,7 +8,7 @@
 #   make sim          run the Alpaca simulators (all device types, no hardware)
 #   make vet          go vet every module
 #   make tidy         go mod tidy every module
-#   make clean        remove ./bin
+#   make clean        remove ./bin and any per-cmd build outputs
 
 # Pure-Go drivers — build anywhere, no vendor SDK. astrocam is the RE'd ZWO camera
 # driver (module asicam-alpaca) that replaced the SDK-based asicam.
@@ -28,7 +28,7 @@ all: build sdk
 
 $(DRIVERS): | $(BIN)
 	@echo "building $@"
-	@cd $@ && CGO_ENABLED=1 go build -o ../$(BIN)/$@ .
+	@cd $@ && CGO_ENABLED=1 go build -o ../$(BIN)/$@ ./cmd/$@
 
 # astrofleet: the vendor-free aggregator — one process, config-driven, also hosts the
 # optional INDI server and LX200 bridge (see fleet/README.md).
@@ -40,7 +40,7 @@ sdk: $(SDK_DRIVERS)
 
 $(SDK_DRIVERS): | $(BIN)
 	@echo "building $@ (cgo + ZWO SDK)"
-	@cd $@ && CGO_ENABLED=1 go build -o ../$(BIN)/$@ .
+	@cd $@ && CGO_ENABLED=1 go build -o ../$(BIN)/$@ ./cmd/$@
 
 # sim: run one of every simulated Alpaca device on a single port with discovery —
 # the no-hardware testbed for client development (it is also a ConformU target).
@@ -58,3 +58,4 @@ tidy:
 
 clean:
 	@rm -rf $(BIN)
+	@rm -f $(foreach d,$(DRIVERS) $(SDK_DRIVERS),$(d)/cmd/$(d)/$(d)) fleet/astrofleet fleet/fleet

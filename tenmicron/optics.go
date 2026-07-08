@@ -60,11 +60,22 @@ type opticsParams struct {
 // ApertureDiameter/FocalLength (Alpaca) and INDI TELESCOPE_INFO report the new optical
 // train. Does not touch the mount, so it works whether or not the mount is connected.
 func (t *Telescope) actionSetOptics(params string) (string, error) {
+	s := t.opticsStore()
+	if params == "" { // read-only: return the current optics in the payload's shape
+		ap, area, fl, gap, gfl := s.Optics()
+		out, _ := json.Marshal(opticsParams{
+			Aperture:          ptr(ap * 1000), // metres → mm
+			ApertureArea:      ptr(area),
+			FocalLength:       ptr(fl * 1000),
+			GuiderAperture:    ptr(gap * 1000),
+			GuiderFocalLength: ptr(gfl * 1000),
+		})
+		return string(out), nil
+	}
 	var p opticsParams
 	if err := json.Unmarshal([]byte(params), &p); err != nil {
 		return "", alpacadev.NewError(alpacadev.ErrNumInvalidValue, "setoptics: invalid JSON: "+err.Error())
 	}
-	s := t.opticsStore()
 	ap, area, fl, gap, gfl := s.Optics()
 
 	var applied []string

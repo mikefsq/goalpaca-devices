@@ -7,7 +7,6 @@ import (
 	"context"
 	"log"
 	"math"
-	"strings"
 	"sync"
 	"time"
 
@@ -17,7 +16,7 @@ import (
 )
 
 const (
-	maxAxisRate = 6.0 // advertised MoveAxis ceiling (deg/s); snapped to a preset
+	defaultMaxAxisRate = 6.0 // fallback MoveAxis/AxisRates ceiling (deg/s) until the mount reports MaxSlewRate
 	slewTimeout = 3 * time.Minute
 	acquirePoll = 3 * time.Second
 	monitorPoll = 1 * time.Second        // snapshot refresh cadence when idle/tracking
@@ -27,6 +26,10 @@ const (
 	// mountCacheTTL is the mount's :Ginfo# cache lifetime. Longer than monitorPoll so
 	// the LX200 bridge and INDI server ride the poller's cache between cycles.
 	mountCacheTTL = 2 * time.Second
+
+	// homeAxisToleranceDeg is how close the axis angles must be to the RA-axis home
+	// reference (primary 90°, secondary 0°) for AtHome to read true.
+	homeAxisToleranceDeg = 1.0
 )
 
 // snapshot is the cached mount state every getter is served from. The background
@@ -37,6 +40,7 @@ type snapshot struct {
 	pier                              alpacadev.PierSide
 	slewing, tracking, atPark, atHome bool
 	doesRefraction                    bool
+	utcSkew                           time.Duration // mount UTC minus host UTC; drives UTCDate
 }
 
 // Telescope is the 10Micron Alpaca Telescope device. It owns the mount for the
@@ -55,7 +59,7 @@ type Telescope struct {
 	trackingRate             alpacadev.DriveRate
 	slewSettleSec            int
 	pulseUntil               time.Time // PulseGuide completion deadline (IsPulseGuiding)
-	canHome                  bool      // homing supported (model-derived at connect)
+	maxSlewRate              float64   // mount's max slew rate (deg/s), read at connect; AxisRates ceiling
 
 	// Optics — instrument profile (the mount can't report it). Backed by an
 	// OpticsStore so the fleet can inject a holder shared with the INDI front-end.
@@ -64,8 +68,7 @@ type Telescope struct {
 
 // NewTelescope builds the driver for the 10Micron mount at addr (host:port).
 func NewTelescope(addr string) *Telescope {
-	// canHome defaults true; primeStatics narrows it from the model on connect.
-	t := &Telescope{addr: addr, trackingRate: alpacadev.DriveSidereal, optics: &localOptics{}, canHome: true}
+	t := &Telescope{addr: addr, trackingRate: alpacadev.DriveSidereal, optics: &localOptics{}, maxSlewRate: defaultMaxAxisRate}
 	t.IfaceVer = alpacadev.InterfaceVersionTelescope
 	return t
 }
@@ -168,35 +171,44 @@ func (t *Telescope) pollOnce(m *tenmicron.Mount, full bool) error {
 	if err != nil {
 		return err
 	}
+	// AtHome is the axis-angle test — primary (RA/az) axis ≈ 90°, secondary (Dec/alt) ≈ 0°
+	// — read every poll so the indicator tracks the mount's actual position regardless of
+	// how it was sent home (ASCOM FindHome or the vendor :hP#). These are mechanical axis
+	// angles, not the near-pole-degenerate Az.
+	pri, priErr := m.AxisAnglePrimary()
+	sec, secErr := m.AxisAngleSecondary()
 	t.mu.Lock()
 	t.snap.ra, t.snap.dec, t.snap.alt, t.snap.az = st.RA, st.Dec, st.Alt, st.Az
 	t.snap.pier = alpacadev.PierSide(st.Pier)
 	t.snap.slewing, t.snap.tracking, t.snap.atPark = st.IsSlewing(), st.IsTracking(), st.IsParked()
+	if priErr == nil && secErr == nil {
+		t.snap.atHome = !t.snap.slewing && atHomePosition(pri, sec)
+	}
 	t.mu.Unlock()
 
 	if !full {
 		return nil
 	}
-	atHome, ahErr := m.AtHome()
 	guide, gErr := m.GuideRate() // arcsec/s
 	refr, rErr := m.RefractionCorrection()
+	mUTC, tErr := m.UTCDateTime() // mount clock; UTCDate is served as host-now + this skew
 	t.mu.Lock()
-	if ahErr == nil {
-		t.snap.atHome = atHome
-	}
 	if gErr == nil {
 		t.snap.guideRate = guide / arcsecPerDeg
 	}
 	if rErr == nil {
 		t.snap.doesRefraction = refr
 	}
+	if tErr == nil {
+		t.snap.utcSkew = time.Until(mUTC)
+	}
 	t.mu.Unlock()
 	return nil
 }
 
 // primeStatics reads fixed/slow mount facts once on connect: the stored site
-// coordinates (SiteLatitude/Longitude/Elevation and local SiderealTime) and the model
-// (CanFindHome). Best-effort: a failed read leaves the existing value.
+// coordinates (SiteLatitude/Longitude/Elevation and local SiderealTime) and the max slew
+// rate (AxisRates ceiling). Best-effort: a failed read leaves the existing value.
 func (t *Telescope) primeStatics(m *tenmicron.Mount) {
 	if lat, err := m.SiteLatitude(); err == nil {
 		t.mu.Lock()
@@ -213,17 +225,29 @@ func (t *Telescope) primeStatics(m *tenmicron.Mount) {
 		t.siteEl = el
 		t.mu.Unlock()
 	}
-	if p, err := m.Product(); err == nil {
+	if r, err := m.MaxSlewRate(); err == nil && r > 0 {
 		t.mu.Lock()
-		t.canHome = isHomingModel(p)
+		t.maxSlewRate = r
 		t.mu.Unlock()
 	}
 }
 
-// isHomingModel reports whether a 10Micron model supports a homing search (:hF#). The
-// GM1000 family has no home sensor (FindHome is a no-op); larger mounts
-// (GM3000/GM4000/AZ…) home.
-func isHomingModel(product string) bool { return !strings.Contains(product, "GM1000") }
+// atHomePosition reports whether the mount sits at the RA-axis home position that FindHome
+// targets: primary (RA/az) axis at 90°, secondary (Dec/alt) axis at 0°. 10Micron has no
+// "at home" query, so the driver derives AtHome from the axis angles polled in pollOnce.
+func atHomePosition(primaryDeg, secondaryDeg float64) bool {
+	return angleWithin(primaryDeg, 90, homeAxisToleranceDeg) && angleWithin(secondaryDeg, 0, homeAxisToleranceDeg)
+}
+
+// angleWithin reports whether a is within tol degrees of target, treating angles modulo
+// 360 so a wrapped readback (e.g. -270 vs 90) still matches.
+func angleWithin(a, target, tol float64) bool {
+	d := math.Mod(math.Abs(a-target), 360)
+	if d > 180 {
+		d = 360 - d
+	}
+	return d <= tol
+}
 
 func (t *Telescope) mount() *tenmicron.Mount { t.mu.Lock(); defer t.mu.Unlock(); return t.m }
 
@@ -278,8 +302,10 @@ func (t *Telescope) CommandBool(cmd string, raw bool) (bool, error) {
 
 // --- Capabilities (10Micron: German-equatorial; park + pulse-guide + move-axis +
 // find-home) ---------------------------------------------------------------------
-// :hF#/:h?# home commands work only on mounts with homing sensors (GM4000QCI /
-// AZ2000QCI); on a GM1000HPS FindHome is a no-op.
+// Park is park-in-place (:PiP#). Home is a direct axis-angle slew to the RA-axis
+// reference (SlewToRAAxis) that stops without parking, so it works on every model and
+// lands where AtHome tests; AtHome is synthesized from the axis angles (see
+// atHomePosition / pollOnce).
 
 func (t *Telescope) CanSlew() bool        { return true }
 func (t *Telescope) CanSlewAsync() bool   { return true }
@@ -287,7 +313,7 @@ func (t *Telescope) CanSync() bool        { return true }
 func (t *Telescope) CanSetTracking() bool { return true }
 func (t *Telescope) CanPark() bool        { return true }
 func (t *Telescope) CanUnpark() bool      { return true }
-func (t *Telescope) CanFindHome() bool    { t.mu.Lock(); defer t.mu.Unlock(); return t.canHome }
+func (t *Telescope) CanFindHome() bool    { return true }
 func (t *Telescope) CanPulseGuide() bool  { return true }
 func (t *Telescope) CanMoveAxis(axis alpacadev.TelescopeAxis) bool {
 	return axis == alpacadev.AxisPrimary || axis == alpacadev.AxisSecondary
@@ -329,12 +355,17 @@ func localSiderealTime(utc time.Time, lonDegEast float64) float64 {
 	return lst
 }
 
+// FindHome sends the OTA to the RA-axis reference — primary (RA/az) axis 90°, secondary
+// (Dec/alt) axis 0° — via a direct axis-angle slew (:SaXa/:SaXb/:MaX#) and STOPS there
+// without parking. Model-independent, so it works on every 10Micron. AtHome reads true
+// once the axis angles reach that reference (see pollOnce / atHomePosition), so it also
+// reflects a home driven by the vendor :hP#, not just this call.
 func (t *Telescope) FindHome() error {
 	m := t.mount()
 	if m == nil {
 		return alpacadev.ErrNotConnected
 	}
-	return m.FindHome()
+	return m.SlewToRAAxis()
 }
 
 func (t *Telescope) SideOfPier() alpacadev.PierSide {
@@ -361,7 +392,16 @@ func (t *Telescope) TrackingRates() []alpacadev.DriveRate {
 	return []alpacadev.DriveRate{alpacadev.DriveSidereal, alpacadev.DriveLunar, alpacadev.DriveSolar}
 }
 
-func (t *Telescope) UTCDate() string { return time.Now().UTC().Format("2006-01-02T15:04:05.000Z") }
+// UTCDate reports the mount's clock, not the host's: the poller samples the mount UTC
+// (:GUDT#) as a skew from host time (see pollOnce), and this serves host-now + skew so
+// the value stays live between polls without a mount round-trip per GET. Skew is 0 until
+// the first poll, so it degrades to the host clock rather than a zero time.
+func (t *Telescope) UTCDate() string {
+	t.mu.Lock()
+	skew := t.snap.utcSkew
+	t.mu.Unlock()
+	return time.Now().UTC().Add(skew).Format("2006-01-02T15:04:05.000Z")
+}
 
 // --- Setters ----------------------------------------------------------------
 
@@ -489,6 +529,15 @@ func (t *Telescope) SetSlewSettleTime(seconds int) error {
 	if seconds < 0 {
 		return alpacadev.ErrInvalidValue
 	}
+	m := t.mount()
+	if m == nil {
+		return alpacadev.ErrNotConnected
+	}
+	// Push it to the mount (:Sstm) so the mount holds "slewing" through the settle window
+	// and ASCOM Slewing reflects it; caching the value only served the getter.
+	if err := m.SetSlewSettleTime(time.Duration(seconds) * time.Second); err != nil {
+		return err
+	}
 	t.mu.Lock()
 	t.slewSettleSec = seconds
 	t.mu.Unlock()
@@ -504,7 +553,15 @@ func (t *Telescope) SetUTCDate(s string) error {
 	if m == nil {
 		return alpacadev.ErrNotConnected
 	}
-	return m.SetUTC(tm)
+	if err := m.SetUTC(tm); err != nil {
+		return err
+	}
+	// Re-derive the skew immediately so UTCDate reflects the new clock before the next
+	// poll (the mount now holds tm).
+	t.mu.Lock()
+	t.snap.utcSkew = time.Until(tm)
+	t.mu.Unlock()
+	return nil
 }
 
 // --- Motion -----------------------------------------------------------------
@@ -582,12 +639,15 @@ func (t *Telescope) SyncToTarget() error {
 	return err
 }
 
+// Park parks the mount at its current position (:PiP#) — stop and hold where it is,
+// rather than slewing to a defined park spot. AtPark then reads true from the mount's
+// Gstat.
 func (t *Telescope) Park() error {
 	m := t.mount()
 	if m == nil {
 		return alpacadev.ErrNotConnected
 	}
-	return m.Park()
+	return m.ParkInPlace()
 }
 
 func (t *Telescope) Unpark() error {
@@ -625,7 +685,10 @@ func (t *Telescope) AxisRates(axis alpacadev.TelescopeAxis) []alpacadev.AxisRate
 	if axis != alpacadev.AxisPrimary && axis != alpacadev.AxisSecondary {
 		return []alpacadev.AxisRate{}
 	}
-	return []alpacadev.AxisRate{{Minimum: 0, Maximum: maxAxisRate}}
+	t.mu.Lock()
+	max := t.maxSlewRate
+	t.mu.Unlock()
+	return []alpacadev.AxisRate{{Minimum: 0, Maximum: max}}
 }
 
 func (t *Telescope) MoveAxis(axis alpacadev.TelescopeAxis, rate float64) error {
@@ -640,10 +703,15 @@ func (t *Telescope) MoveAxis(axis alpacadev.TelescopeAxis, rate float64) error {
 	if rate == 0 {
 		return m.StopAxis(a)
 	}
-	if math.Abs(rate) > maxAxisRate {
+	t.mu.Lock()
+	max := t.maxSlewRate
+	t.mu.Unlock()
+	if math.Abs(rate) > max {
 		return alpacadev.ErrInvalidValue
 	}
-	return m.MoveAxis(a, rate > 0, presetForRate(math.Abs(rate)))
+	// Exact deg/s (vendor :RA#/:RE# rate move) so the motion matches the continuous rate
+	// AxisRates advertises, rather than snapping to a coarse preset.
+	return m.MoveAxisRate(a, rate > 0, math.Abs(rate))
 }
 
 // --- helpers ----------------------------------------------------------------
@@ -692,19 +760,6 @@ func axisOf(a alpacadev.TelescopeAxis) (lx200.Axis, bool) {
 		return lx200.AxisSecondary, true
 	}
 	return 0, false
-}
-
-func presetForRate(absRate float64) lx200.Rate {
-	switch {
-	case absRate <= 0.05:
-		return lx200.RateGuide
-	case absRate <= 0.5:
-		return lx200.RateCenter
-	case absRate <= 2.0:
-		return lx200.RateFind
-	default:
-		return lx200.RateMax
-	}
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) {
