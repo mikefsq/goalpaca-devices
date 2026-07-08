@@ -8,7 +8,6 @@ require (
 )
 
 require (
-	github.com/creack/goselect v0.1.2 // indirect
-	go.bug.st/serial v1.6.1 // indirect
+	go.bug.st/serial v1.7.1 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 )

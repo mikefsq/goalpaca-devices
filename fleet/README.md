@@ -47,9 +47,11 @@ in list order (the first `focuser` is `focuser/0`, the next `focuser/1`, …).
 | `asieaf` | focuser | `index` | |
 | `oasisfoc` | focuser | `index` | |
 | `focuscube` | focuser | `index` | `maxstep` (default 100000) |
-| `focuslynx` | focuser | `index` | `channel` (1 or 2) |
+| `focuslynx` | focuser | `nickname` or `index`+`channel` | `channel` (1 or 2) |
 | `asiefw` | filterwheel | `serial` or `index` | `unidirectional` |
 | `oasisfw` | filterwheel | `index` | |
+| `unihedron` | observingconditions | `serial` or `index` | Sky Quality Meter (sky brightness + temperature) |
+| `mgpbox` | observingconditions | `serial` or `index` | weather + GPS; `mountAddr`/`mountDevice` feed a tenmicron mount |
 
 All entries accept an optional `name` to override the device's display name.
 

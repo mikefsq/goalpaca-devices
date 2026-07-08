@@ -11,9 +11,9 @@ import (
 	"strings"
 	"syscall"
 
+	driver "github.com/mikefsq/goalpaca-devices/tenmicron"
 	alpacadev "github.com/mikefsq/goalpaca/server"
 	"github.com/mikefsq/lx200/bridge"
-	driver "github.com/mikefsq/goalpaca-devices/tenmicron"
 )
 
 func main() {

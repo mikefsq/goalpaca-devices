@@ -160,7 +160,7 @@ func wcfgReply() []byte { // 0x30: speed 0, autorun 1, bt 0, turbo 0
 func wverReply() []byte { // 0x02: hardware 2.4.0.0, firmware 1.7.1.0
 	r := make([]byte, 36)
 	r[0], r[1] = 0x02, 0x24
-	r[6], r[7] = 0x02, 0x04            // hardware (data[4:8])
+	r[6], r[7] = 0x02, 0x04                // hardware (data[4:8])
 	r[10], r[11], r[12] = 0x01, 0x07, 0x01 // firmware (data[8:12])
 	return r
 }
@@ -199,12 +199,16 @@ func TestOasisWheelActions(t *testing.T) {
 	names, _ := sa.Value.([]any)
 	have := map[string]bool{}
 	for _, n := range names {
-		have[n.(string)] = true
+		have[strings.ToLower(n.(string))] = true // advertised CamelCase; match case-insensitively
 	}
-	for _, x := range []string{"setturbo", "setslotname", "firmwareversion", "config", "calibrate", "setcolor"} {
+	for _, x := range []string{"turbo", "setslotname", "firmwareversion", "config", "calibrate", "setcolor"} {
 		if !have[x] {
 			t.Errorf("supportedactions missing %q", x)
 		}
+	}
+	// Config fields collapsed to single read/write actions; per-slot SetX kept (indexed).
+	if have["setturbo"] || have["setspeed"] || have["setautorun"] {
+		t.Error("config SetX actions should be collapsed into their read/write field action")
 	}
 
 	if r := waction(t, base, "firmwareversion", ""); r.Value != "1.7.1.0" {
@@ -223,15 +227,22 @@ func TestOasisWheelActions(t *testing.T) {
 		t.Errorf("config = %v, want autorun=1", r.Value)
 	}
 	for _, tc := range []struct{ name, params string }{
-		{"setturbo", "on"}, {"setspeed", "2"}, {"setautorun", "off"},
+		{"turbo", "on"}, {"speed", "2"}, {"autorun", "off"}, // dual-mode fields: value writes
 		{"setslotname", "1:Ha"}, {"setfocusoffset", "2:-150"}, {"setcolor", "0:00ff00"}, {"calibrate", ""},
 	} {
 		if r := waction(t, base, tc.name, tc.params); r.Value != "ok" {
 			t.Errorf("%s(%q) = %v (err %d %s)", tc.name, tc.params, r.Value, r.ErrorNumber, r.ErrorMessage)
 		}
 	}
-	if r := waction(t, base, "setspeed", "x"); r.ErrorNumber != 0x401 {
-		t.Errorf("setspeed(bad): err %d, want 0x401", r.ErrorNumber)
+	// Dual-mode field reads back on empty params; read-only rejects a params value.
+	if r := waction(t, base, "speed", ""); r.ErrorNumber != 0 || r.Value == "" {
+		t.Errorf("speed read = %v (err %d), want a value", r.Value, r.ErrorNumber)
+	}
+	if r := waction(t, base, "serial", "xyz"); r.ErrorNumber != 0x401 {
+		t.Errorf("serial(with params): err %d, want 0x401 (read-only)", r.ErrorNumber)
+	}
+	if r := waction(t, base, "speed", "x"); r.ErrorNumber != 0x401 {
+		t.Errorf("speed(bad): err %d, want 0x401", r.ErrorNumber)
 	}
 	if r := waction(t, base, "setslotname", "noslot"); r.ErrorNumber != 0x401 {
 		t.Errorf("setslotname(bad): err %d, want 0x401", r.ErrorNumber)
@@ -303,8 +314,8 @@ func newRealStack(t *testing.T) (base, mgmt string) {
 	w := NewOasisWheel(0) // default openDev = real openByIndex (platform transport)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() {
-		cancel()                        // stop manageHardware (its defer closes the device)
-		w.Close(context.Background())   // and close synchronously so the handle is released now
+		cancel()                      // stop manageHardware (its defer closes the device)
+		w.Close(context.Background()) // and close synchronously so the handle is released now
 	})
 	if err := w.Open(ctx); err != nil {
 		t.Fatal(err)

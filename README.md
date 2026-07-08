@@ -38,7 +38,7 @@ run one or the other (they share the default port).
 | `oasisfoc` | Astroasis Oasis | **Go**, USB-HID ([`oasis-astro`](https://github.com/mikefsq/oasis-astro)) | 11120 |
 | `focuscube` | Pegasus FocusCube / DMFC | **Go**, USB-serial ([`pegasus-astro`](https://github.com/mikefsq/pegasus-astro)) | 11121 |
 | `focuslynx` | Optec FocusLynx / ThirdLynx | **Go**, USB-serial ([`optec`](https://github.com/mikefsq/optec)) | 11122 |
-| `asieaf` | ZWO EAF | cgo, ZWO **EAF** SDK (via `goasi`) | 11112 |
+| `asieaf` | ZWO EAF | **Go**, USB-HID ([`goasi/eaf`](https://github.com/mikefsq/goasi)) — no SDK | 11112 |
 
 ## Filter wheels
 
@@ -52,6 +52,18 @@ run one or the other (they share the default port).
 | Dir | Rotator | Backend | Port |
 |---|---|---|---|
 | `asicaa` | ZWO CAA (Camera Angle Adjuster) | cgo, ZWO **CAA** SDK (via `goasi`) | 11114 |
+
+## Observing conditions
+
+Weather / sky-quality sensors, exposed as ASCOM **ObservingConditions**. Go, no SDK.
+
+| Dir | Device | Backend | Port |
+|---|---|---|---|
+| `unihedron` | Unihedron SQM (sky quality meter) | **Go**, USB-serial ([`unihedron`](https://github.com/mikefsq/unihedron)) | 11124 |
+| `mgpbox` | Astromi.ch MGPBox (GPS + weather + dew heater) | **Go**, USB-serial ([`astromi.ch`](https://github.com/mikefsq/astromi.ch)) | 11125 |
+
+The MGPBox can also feed its GPS + weather into a `tenmicron` mount (site coordinates,
+clock, and refraction pressure/temperature) via the `mountAddr` config field.
 
 ## The fleet — one process, one config
 
@@ -86,16 +98,16 @@ From this directory the `Makefile` builds into `./bin`:
 make                # every Go driver + astrofleet
 make tenmicron      # one driver
 make astrofleet     # just the aggregator
-make sdk            # the cgo ZWO-SDK drivers (asiccd, asieaf, asiefw, asicaa) — needs the ZWO lib
+make sdk            # the cgo ZWO-SDK drivers (asiccd, asicaa) — needs the ZWO lib
 make sim            # run all simulated Alpaca devices (no hardware)
 ```
 
 Or build any module in place: `cd tenmicron && go build .`, then e.g.
 `./tenmicron -addr 10.0.1.51:3492`. The Go drivers (telescopes, `astrocam`,
-`oasisfoc`/`oasisfw`, `focuslynx`, `focuscube`) need **no vendor SDK**; on
-Linux and Windows they build with `CGO_ENABLED=0` (the USB-HID and `astrocam` USB
-backends use cgo only on macOS). The `goasi`-based ZWO drivers (`asiccd`, `asieaf`,
-`asiefw`, `asicaa`) are cgo and require the ZWO ASI SDK runtime — see each driver's
+`oasisfoc`/`oasisfw`, `focuslynx`, `focuscube`, `unihedron`, `mgpbox`, `asieaf`, `asiefw`)
+need **no vendor SDK**; on Linux and Windows they build with `CGO_ENABLED=0` (the USB-HID
+and `astrocam` USB backends use cgo only on macOS). The `goasi`-**SDK** drivers (`asiccd`,
+`asicaa`) are cgo and require the ZWO ASI SDK runtime — see each driver's
 `README.md` and the `goasi` README.
 
 See each driver's `README.md` for its flags and behavior.
@@ -104,10 +116,12 @@ See each driver's `README.md` for its flags and behavior.
 
 - [`goalpaca`](https://github.com/mikefsq/goalpaca) — the Alpaca server framework (all drivers)
 - [`lx200`](https://github.com/mikefsq/lx200) — mount protocol libraries (telescopes)
-- [`goasi`](https://github.com/mikefsq/goasi) — ZWO SDK bindings (cgo ASI drivers)
+- [`goasi`](https://github.com/mikefsq/goasi) — ZWO camera/CAA SDK bindings (cgo: `asiccd`/`asicaa`) **and** pure-Go USB-HID drivers (`efw`, `eaf`)
 - Go device libraries: [`astrocam`](https://github.com/mikefsq/astrocam) (ZWO/PlayerOne camera),
   [`oasis-astro`](https://github.com/mikefsq/oasis-astro), [`optec`](https://github.com/mikefsq/optec),
-  [`pegasus-astro`](https://github.com/mikefsq/pegasus-astro)
+  [`pegasus-astro`](https://github.com/mikefsq/pegasus-astro),
+  [`unihedron`](https://github.com/mikefsq/unihedron) (SQM sky-quality meter),
+  [`astromi.ch`](https://github.com/mikefsq/astromi.ch) (MGPBox GPS/weather)
 
 ## License
 

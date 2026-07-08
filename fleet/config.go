@@ -97,7 +97,7 @@ func (d DeviceSpec) enabled() bool { return d.Enable == nil || *d.Enable }
 // Bind by a stable identity where the driver supports one (serial / TCP addr);
 // otherwise the device is selected by enumeration Index (0-based).
 type DeviceSpec struct {
-	Driver string `json:"driver"` // tenmicron|asiam5|onstep|rst|asicam|asieaf|asiefw|oasisfoc|oasisfw|focuscube|focuslynx
+	Driver string `json:"driver"` // tenmicron|asiam5|onstep|rst|asicam|asieaf|asiefw|oasisfoc|oasisfw|focuscube|focuslynx|unihedron|mgpbox
 	Name   string `json:"name,omitempty"`
 
 	// Enable toggles this device without removing its entry. Defaults to true (pointer
@@ -120,6 +120,11 @@ type DeviceSpec struct {
 	Serial   string `json:"serial,omitempty"`   // stable USB serial (asicam/asieaf/asiefw/focuscube and serial mounts)
 	Nickname string `json:"nickname,omitempty"` // stable protocol nickname (focuslynx; resolves hub+channel at connect)
 	Addr     string `json:"addr,omitempty"`     // TCP host:port (tenmicron, networked mounts)
+
+	// MountAddr feeds an mgpbox weather/GPS device's readings into a tenmicron mount's
+	// Alpaca server: host:port of that server (its telescope is MountDevice, default 0).
+	MountAddr   string `json:"mountAddr,omitempty"`
+	MountDevice int    `json:"mountDevice,omitempty"`
 
 	Channel        int  `json:"channel,omitempty"`        // focuslynx hub channel (1 or 2)
 	MaxStep        int  `json:"maxstep,omitempty"`        // focuscube travel (device doesn't report it)

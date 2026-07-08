@@ -259,6 +259,7 @@ func (t *Telescope) actions() map[string]actionFn {
 		// environment / optics / refraction datums
 		"setenvironment":   t.actionSetEnvironment,
 		"setoptics":        t.actionSetOptics,
+		"optics":           t.actionOptics, // dual-mode (read/write) optics action
 		"dualaxistracking": t.actionDualAxisTracking,
 
 		"refractionpressure": t.readWrite(

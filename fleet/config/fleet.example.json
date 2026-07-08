@@ -19,6 +19,10 @@
 
     { "driver": "focuslynx", "port": 11122, "index": 0, "channel": 1, "enable": false },
 
-    { "driver": "oasisfw", "port": 11123, "index": 0 }
+    { "driver": "oasisfw", "port": 11123, "index": 0 },
+
+    { "driver": "unihedron", "port": 11124, "name": "Sky quality" },
+
+    { "driver": "mgpbox", "port": 11125, "name": "Weather", "mountAddr": "127.0.0.1:11110" }
   ]
 }

@@ -64,6 +64,21 @@ type Telescope struct {
 	// Optics — instrument profile (the mount can't report it). Backed by an
 	// OpticsStore so the fleet can inject a holder shared with the INDI front-end.
 	optics alpacadev.OpticsStore
+
+	// envMu guards lastEnv: the environment values last applied to the mount, so
+	// setenvironment can diff a repeated feed (e.g. from an MGPBox) and only write
+	// changed fields — sparing the mount, and its surveyed site, needless churn.
+	envMu   sync.Mutex
+	lastEnv envApplied
+}
+
+// envApplied records the environment values last pushed to the mount by setenvironment.
+type envApplied struct {
+	pressure, temperature      float64
+	lat, lon, elev             float64
+	havePressure, haveTemp     bool
+	haveLat, haveLon, haveElev bool
+	lastTimeSync               time.Time
 }
 
 // NewTelescope builds the driver for the 10Micron mount at addr (host:port).
@@ -377,10 +392,10 @@ func (t *Telescope) SideOfPier() alpacadev.PierSide {
 // Driver-remembered properties (the mount does not read these back). Target
 // RA/Dec are stored by the embedded BaseTelescope (promoted TargetRightAscension/
 // TargetDeclination), which also enforces the ASCOM read-before-set rule.
-func (t *Telescope) SiteLatitude() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLat }
-func (t *Telescope) SiteLongitude() float64     { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLon }
-func (t *Telescope) SiteElevation() float64     { t.mu.Lock(); defer t.mu.Unlock(); return t.siteEl }
-func (t *Telescope) SlewSettleTime() int        { t.mu.Lock(); defer t.mu.Unlock(); return t.slewSettleSec }
+func (t *Telescope) SiteLatitude() float64  { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLat }
+func (t *Telescope) SiteLongitude() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLon }
+func (t *Telescope) SiteElevation() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.siteEl }
+func (t *Telescope) SlewSettleTime() int    { t.mu.Lock(); defer t.mu.Unlock(); return t.slewSettleSec }
 
 func (t *Telescope) TrackingRate() alpacadev.DriveRate {
 	t.mu.Lock()

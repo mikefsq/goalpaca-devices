@@ -13,7 +13,7 @@
 # Pure-Go drivers — build anywhere, no vendor SDK. astrocam is the RE'd ZWO camera
 # driver (module asicam-alpaca) that replaced the SDK-based asicam.
 DRIVERS := tenmicron asiam5 rst onstep astrocam asieaf asiefw \
-           focuscube focuslynx oasisfoc oasisfw
+           focuscube focuslynx oasisfoc oasisfw mgpbox unihedron
 
 # cgo drivers that link the ZWO SDK (libASICamera2) — opt-in, not in the default build.
 SDK_DRIVERS := asiccd asicaa

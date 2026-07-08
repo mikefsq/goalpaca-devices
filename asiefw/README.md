@@ -55,11 +55,9 @@ bind by **serial** for start-before-plug and multi-device setups.
 ## Testing
 
 End-to-end tests drive the **full stack** — Alpaca HTTP → server → this driver →
-`goasi/efw` → transport — with no hardware (a fake transport), plus an optional
-real-hardware run.
+`goasi/efw` → transport — fake transport, or real-hardware.
 
 ```sh
 go test -race ./...                                            # fake transport (no hardware, CI)
 EFW_HARDWARE=1 go test -race -run TestAlpacaHardware -v ./...  # real wheel (physically rotates it)
 ```
-

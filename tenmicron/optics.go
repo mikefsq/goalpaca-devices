@@ -3,6 +3,7 @@ package driver
 import (
 	"encoding/json"
 	"math"
+	"strings"
 	"sync"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
@@ -19,18 +20,22 @@ type localOptics struct {
 	ap, area, fl, gap, gfl float64
 }
 
+// Optics returns the optical-train values (aperture, area, focal length, guider aperture,
+// guider focal length) in metres / m².
 func (o *localOptics) Optics() (float64, float64, float64, float64, float64) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.ap, o.area, o.fl, o.gap, o.gfl
 }
 
+// SetOptics replaces the optical-train values (metres / m²).
 func (o *localOptics) SetOptics(ap, area, fl, gap, gfl float64) {
 	o.mu.Lock()
 	o.ap, o.area, o.fl, o.gap, o.gfl = ap, area, fl, gap, gfl
 	o.mu.Unlock()
 }
 
+// opticsStore returns the current optics holder (the injected shared one, or localOptics).
 func (t *Telescope) opticsStore() alpacadev.OpticsStore {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -55,6 +60,30 @@ type opticsParams struct {
 	GuiderAperture    *float64 `json:"guider_aperture,omitempty"`     // mm
 	GuiderFocalLength *float64 `json:"guider_focal_length,omitempty"` // mm
 }
+
+// actionOptics is the dual-mode "Optics" action: EMPTY params reads back the current optical
+// train as JSON — the same shape SetOptics accepts, lengths in mm — a value patches it.
+func (t *Telescope) actionOptics(params string) (string, error) {
+	if strings.TrimSpace(params) == "" {
+		ap, area, fl, gap, gfl := t.opticsStore().Optics()
+		out, _ := json.Marshal(opticsParams{
+			Aperture:          mmPtr(ap),
+			ApertureArea:      f64Ptr(area),
+			FocalLength:       mmPtr(fl),
+			GuiderAperture:    mmPtr(gap),
+			GuiderFocalLength: mmPtr(gfl),
+		})
+		return string(out), nil
+	}
+	return t.actionSetOptics(params)
+}
+
+// mmPtr converts metres (the holder unit) to millimetres and returns a pointer to it, for
+// the optional-field opticsParams read-back.
+func mmPtr(metres float64) *float64 { v := metres * 1000; return &v }
+
+// f64Ptr returns a pointer to v.
+func f64Ptr(v float64) *float64 { return &v }
 
 // actionSetOptics applies the present payload fields to the optics holder, so
 // ApertureDiameter/FocalLength (Alpaca) and INDI TELESCOPE_INFO report the new optical

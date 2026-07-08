@@ -225,12 +225,16 @@ func TestOasisFocuserActions(t *testing.T) {
 	names, _ := sa.Value.([]any)
 	have := map[string]bool{}
 	for _, n := range names {
-		have[n.(string)] = true
+		have[strings.ToLower(n.(string))] = true // advertised CamelCase; match case-insensitively
 	}
-	for _, want := range []string{"setbacklash", "setreverse", "heatingon", "config", "firmwareversion", "movein"} {
+	for _, want := range []string{"backlash", "reverse", "heatingon", "config", "firmwareversion", "movein"} {
 		if !have[want] {
 			t.Errorf("supportedactions missing %q", want)
 		}
+	}
+	// Collapsed convention: no separate SetX actions.
+	if have["setbacklash"] || have["setreverse"] {
+		t.Error("SetX actions should be collapsed into their read/write field action")
 	}
 
 	// Getters.
@@ -250,23 +254,30 @@ func TestOasisFocuserActions(t *testing.T) {
 		t.Errorf("config = %v, want it to contain maxStep=80000", r.Value)
 	}
 
-	// Setters → "ok".
-	if r := action(t, base, "setbeeponmove", "off"); r.Value != "ok" {
-		t.Errorf("setbeeponmove: %v (err %d %s)", r.Value, r.ErrorNumber, r.ErrorMessage)
+	// Dual-mode field: a value writes → "ok"; empty reads back a value.
+	if r := action(t, base, "beeponmove", "off"); r.Value != "ok" {
+		t.Errorf("beeponmove set: %v (err %d %s)", r.Value, r.ErrorNumber, r.ErrorMessage)
 	}
-	if r := action(t, base, "setbacklash", "500"); r.Value != "ok" {
-		t.Errorf("setbacklash: %v (err %d)", r.Value, r.ErrorNumber)
+	if r := action(t, base, "backlash", "500"); r.Value != "ok" {
+		t.Errorf("backlash set: %v (err %d)", r.Value, r.ErrorNumber)
 	}
-	if r := action(t, base, "setheatingon", "true"); r.Value != "ok" {
-		t.Errorf("setheatingon: %v (err %d)", r.Value, r.ErrorNumber)
+	if r := action(t, base, "backlash", ""); r.ErrorNumber != 0 || r.Value == "" {
+		t.Errorf("backlash read: %v (err %d), want a value", r.Value, r.ErrorNumber)
+	}
+	if r := action(t, base, "heatingon", "true"); r.Value != "ok" {
+		t.Errorf("heatingon set: %v (err %d)", r.Value, r.ErrorNumber)
 	}
 	if r := action(t, base, "movein", "100"); r.Value != "ok" {
 		t.Errorf("movein: %v (err %d)", r.Value, r.ErrorNumber)
 	}
 
+	// Read-only action rejects a params value.
+	if r := action(t, base, "serial", "xyz"); r.ErrorNumber != 0x401 {
+		t.Errorf("serial(with params): err %d, want 0x401 (read-only)", r.ErrorNumber)
+	}
 	// Bad integer param → InvalidValue.
-	if r := action(t, base, "setbacklash", "notanumber"); r.ErrorNumber != 0x401 {
-		t.Errorf("setbacklash(bad): err %d, want 0x401", r.ErrorNumber)
+	if r := action(t, base, "backlash", "notanumber"); r.ErrorNumber != 0x401 {
+		t.Errorf("backlash(bad): err %d, want 0x401", r.ErrorNumber)
 	}
 	// factoryreset is guarded.
 	if r := action(t, base, "factoryreset", ""); r.ErrorNumber != 0x401 {

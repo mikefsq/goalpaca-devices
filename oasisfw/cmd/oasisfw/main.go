@@ -9,8 +9,8 @@ import (
 	"strings"
 	"syscall"
 
-	alpacadev "github.com/mikefsq/goalpaca/server"
 	driver "github.com/mikefsq/goalpaca-devices/oasisfw"
+	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
 func main() {

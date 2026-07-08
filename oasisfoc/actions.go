@@ -18,33 +18,29 @@ type (
 
 // The Oasis focuser exposes more than ASCOM IFocuserV3 has slots for (backlash, reverse,
 // beeps, speed, heating, stall, USB power, names, identity, relative moves, sync/zero),
-// surfaced via the Action seam: SupportedActions lists names, Action(name, params)
-// dispatches to the oasisfoc library.
+// surfaced via the Action seam.
 //
-// Convention: action names are lowercase. Getters ignore params and return a string
-// ("true"/"false" for booleans). Setters take the value in params (booleans accept
-// 1/0/true/false/on/off, ints a decimal number, names the raw string) and return "ok".
-// Unknown names return ActionNotImplemented.
+// Conventions (goalpaca standard): names are advertised in CamelCase and matched
+// case-insensitively. Config fields are single read/write actions — EMPTY params reads the
+// current value, a value writes it (put/empty = read). Read-only telemetry rejects a params
+// value; no-arg operations reject a params value; operations that take an argument (MoveIn/
+// MoveOut/Sync) require it. Booleans read back as "true"/"false" and accept
+// 1/0/true/false/on/off on write.
 var oasisActions = []string{
-	// identity / telemetry (read)
-	"serial", "model", "hardwareversion", "firmwareversion", "firmwarebuilddate",
-	"protocolversion", "temperatureinternal", "temperatureexternal", "config",
-	// config (read)
-	"backlash", "backlashdirection", "reverse", "speed",
-	"beeponmove", "beeponstartup", "bluetoothon",
-	"heatingon", "heatingtemperature", "stalldetection", "usbpowercapacity",
-	"friendlyname", "bluetoothname",
-	// config (write)
-	"setbacklash", "setbacklashdirection", "setreverse", "setspeed",
-	"setbeeponmove", "setbeeponstartup", "setmaxstep",
-	"setheatingon", "setheatingtemperature", "setstalldetection", "setusbpowercapacity",
-	"setfriendlyname", "setbluetoothname",
-	// motion / position (not in IFocuserV3)
-	"movein", "moveout", "sync", "setzero", "clearstall",
+	// identity / telemetry (read-only)
+	"Serial", "Model", "HardwareVersion", "FirmwareVersion", "FirmwareBuildDate",
+	"ProtocolVersion", "TemperatureInternal", "TemperatureExternal", "Config", "BluetoothOn",
+	// config (read/write: empty reads, a value writes)
+	"Backlash", "BacklashDirection", "Reverse", "Speed", "MaxStep",
+	"BeepOnMove", "BeepOnStartup", "HeatingOn", "HeatingTemperature",
+	"StallDetection", "UsbPowerCapacity", "FriendlyName", "BluetoothName",
+	// operations
+	"MoveIn", "MoveOut", "Sync", "SetZero", "ClearStall",
 	// destructive (guarded)
-	"factoryreset",
+	"FactoryReset",
 }
 
+// SupportedActions lists the device-specific Action names (the oasisActions set above).
 func (f *OasisFocuser) SupportedActions() []string { return oasisActions }
 
 // Action dispatches a device-specific command to the oasisfoc library, serialized on the
@@ -59,93 +55,69 @@ func (f *OasisFocuser) Action(name, params string) (string, error) {
 
 	switch strings.ToLower(strings.TrimSpace(name)) {
 
-	// --- identity / telemetry (read) ---
+	// --- identity / telemetry (read-only) ---
 	case "serial":
-		return d.Serial()
+		return ro(params, d.Serial)
 	case "model":
-		return d.Model(), nil
+		return ro(params, wrap(d.Model))
 	case "hardwareversion":
-		return d.HardwareVersion(), nil
+		return ro(params, wrap(d.HardwareVersion))
 	case "firmwareversion":
-		return d.FirmwareVersion(), nil
+		return ro(params, wrap(d.FirmwareVersion))
 	case "firmwarebuilddate":
-		return d.FirmwareBuildDate(), nil
+		return ro(params, wrap(d.FirmwareBuildDate))
 	case "protocolversion":
-		return d.ProtocolVersion(), nil
+		return ro(params, wrap(d.ProtocolVersion))
 	case "temperatureinternal":
-		return floatStr(d.TemperatureInternal())
+		return ro(params, func() (string, error) { return floatStr(d.TemperatureInternal()) })
 	case "temperatureexternal":
-		return floatStr(d.TemperatureExternal())
+		return ro(params, func() (string, error) { return floatStr(d.TemperatureExternal()) })
 	case "config":
-		return f.dumpConfig(d)
+		return ro(params, func() (string, error) { return f.dumpConfig(d) })
+	case "bluetoothon": // readable, but no library setter — read-only
+		return ro(params, cfgBool(d, func(c oasisConfig) int { return c.BluetoothOn }))
 
-	// --- config (read) ---
+	// --- config (read/write: empty reads, a value writes) ---
 	case "backlash":
-		return cfgInt(d, func(c oasisConfig) int { return int(c.Backlash) })
+		return rwI(params, cfgInt(d, func(c oasisConfig) int { return int(c.Backlash) }), d.SetBacklash)
 	case "backlashdirection":
-		return cfgInt(d, func(c oasisConfig) int { return c.BacklashDirection })
+		return rwI(params, cfgInt(d, func(c oasisConfig) int { return c.BacklashDirection }),
+			func(n int32) error { return d.SetBacklashDirection(int(n)) })
 	case "reverse":
-		return cfgBool(d, func(c oasisConfig) int { return c.ReverseDirection })
+		return rwB(params, cfgBool(d, func(c oasisConfig) int { return c.ReverseDirection }), d.SetReverseDirection)
 	case "speed":
-		return cfgInt(d, func(c oasisConfig) int { return c.Speed })
+		return rwI(params, cfgInt(d, func(c oasisConfig) int { return c.Speed }),
+			func(n int32) error { return d.SetSpeed(int(n)) })
+	case "maxstep":
+		return rwI(params, cfgInt(d, func(c oasisConfig) int { return int(c.MaxStep) }), d.SetMaxStep)
 	case "beeponmove":
-		return cfgBool(d, func(c oasisConfig) int { return c.BeepOnMove })
+		return rwB(params, cfgBool(d, func(c oasisConfig) int { return c.BeepOnMove }), d.SetBeepOnMove)
 	case "beeponstartup":
-		return cfgBool(d, func(c oasisConfig) int { return c.BeepOnStartup })
-	case "bluetoothon":
-		return cfgBool(d, func(c oasisConfig) int { return c.BluetoothOn })
+		return rwB(params, cfgBool(d, func(c oasisConfig) int { return c.BeepOnStartup }), d.SetBeepOnStartup)
 	case "heatingon":
-		return extBool(d, func(e oasisExt) int { return e.HeatingOn })
+		return rwB(params, extBool(d, func(e oasisExt) int { return e.HeatingOn }), d.SetHeatingOn)
 	case "heatingtemperature":
-		return extInt(d, func(e oasisExt) int { return int(e.HeatingTemperature) })
+		return rwI(params, extInt(d, func(e oasisExt) int { return int(e.HeatingTemperature) }), d.SetHeatingTemperature)
 	case "stalldetection":
-		return extBool(d, func(e oasisExt) int { return e.StallDetection })
+		return rwB(params, extBool(d, func(e oasisExt) int { return e.StallDetection }), d.SetStallDetection)
 	case "usbpowercapacity":
-		return extInt(d, func(e oasisExt) int { return int(e.UsbPowerCapacity) })
+		return rwI(params, extInt(d, func(e oasisExt) int { return int(e.UsbPowerCapacity) }), d.SetUsbPowerCapacity)
 	case "friendlyname":
-		return d.FriendlyName()
+		return rwS(params, d.FriendlyName, d.SetFriendlyName)
 	case "bluetoothname":
-		return d.BluetoothName()
+		return rwS(params, d.BluetoothName, d.SetBluetoothName)
 
-	// --- config (write) ---
-	case "setbacklash":
-		return setI(params, func(n int32) error { return d.SetBacklash(n) })
-	case "setbacklashdirection":
-		return setI(params, func(n int32) error { return d.SetBacklashDirection(int(n)) })
-	case "setreverse":
-		return ok(d.SetReverseDirection(parseBool(params)))
-	case "setspeed":
-		return setI(params, func(n int32) error { return d.SetSpeed(int(n)) })
-	case "setbeeponmove":
-		return ok(d.SetBeepOnMove(parseBool(params)))
-	case "setbeeponstartup":
-		return ok(d.SetBeepOnStartup(parseBool(params)))
-	case "setmaxstep":
-		return setI(params, func(n int32) error { return d.SetMaxStep(n) })
-	case "setheatingon":
-		return ok(d.SetHeatingOn(parseBool(params)))
-	case "setheatingtemperature":
-		return setI(params, func(n int32) error { return d.SetHeatingTemperature(n) })
-	case "setstalldetection":
-		return ok(d.SetStallDetection(parseBool(params)))
-	case "setusbpowercapacity":
-		return setI(params, func(n int32) error { return d.SetUsbPowerCapacity(n) })
-	case "setfriendlyname":
-		return ok(d.SetFriendlyName(params))
-	case "setbluetoothname":
-		return ok(d.SetBluetoothName(params))
-
-	// --- motion / position ---
+	// --- operations ---
 	case "movein":
-		return setI(params, func(n int32) error { return d.MoveIn(n) })
+		return setI(params, d.MoveIn)
 	case "moveout":
-		return setI(params, func(n int32) error { return d.MoveOut(n) })
+		return setI(params, d.MoveOut)
 	case "sync":
 		return setI(params, func(n int32) error { return d.SyncPosition(n) })
 	case "setzero":
-		return ok(d.SetZeroPosition())
+		return trigger(params, d.SetZeroPosition)
 	case "clearstall":
-		return ok(d.ClearStall())
+		return trigger(params, d.ClearStall)
 
 	// --- destructive (guarded) ---
 	case "factoryreset":
@@ -176,8 +148,66 @@ func (f *OasisFocuser) dumpConfig(d oasisDev) (string, error) {
 		e.HeatingTemperature, e.UsbPowerCapacity), nil
 }
 
-// --- small helpers ---
+// --- dispatch helpers (shared shape across the fleet's Action drivers) ---
 
+// ro runs a read-only getter, rejecting a params value.
+func ro(params string, get func() (string, error)) (string, error) {
+	if strings.TrimSpace(params) != "" {
+		return "", roErr()
+	}
+	return get()
+}
+
+// rwI is a dual-mode int field action: EMPTY params reads via get, a value writes it via setI.
+func rwI(params string, get func() (string, error), set func(int32) error) (string, error) {
+	if strings.TrimSpace(params) == "" {
+		return get()
+	}
+	return setI(params, set)
+}
+
+// rwB is the bool counterpart of rwI (empty reads via get, a value writes via set).
+func rwB(params string, get func() (string, error), set func(bool) error) (string, error) {
+	if strings.TrimSpace(params) == "" {
+		return get()
+	}
+	return ok(set(parseBool(params)))
+}
+
+// rwS is the string counterpart of rwI (empty reads via get, a value writes via set).
+func rwS(params string, get func() (string, error), set func(string) error) (string, error) {
+	if strings.TrimSpace(params) == "" {
+		return get()
+	}
+	return ok(set(params))
+}
+
+// trigger runs a no-arg operation, rejecting a params value.
+func trigger(params string, fn func() error) (string, error) {
+	if strings.TrimSpace(params) != "" {
+		return "", noValErr()
+	}
+	return ok(fn())
+}
+
+// wrap adapts a no-error getter into the func() (string, error) shape.
+func wrap(get func() string) func() (string, error) {
+	return func() (string, error) { return get(), nil }
+}
+
+// roErr is the error returned when a value is passed to a read-only action.
+func roErr() error {
+	return alpacadev.NewError(alpacadev.ErrNumInvalidValue, "action is read-only (pass no value)")
+}
+
+// noValErr is the error returned when a value is passed to an action that takes none.
+func noValErr() error {
+	return alpacadev.NewError(alpacadev.ErrNumInvalidValue, "action takes no value")
+}
+
+// --- small value helpers ---
+
+// ok maps a library error to the standard action result ("ok" on success, else the error).
 func ok(err error) (string, error) {
 	if err != nil {
 		return "", err
@@ -185,6 +215,7 @@ func ok(err error) (string, error) {
 	return "ok", nil
 }
 
+// floatStr formats a float getter result to 2 decimals, propagating its error.
 func floatStr(v float64, err error) (string, error) {
 	if err != nil {
 		return "", err
@@ -192,6 +223,7 @@ func floatStr(v float64, err error) (string, error) {
 	return strconv.FormatFloat(v, 'f', 2, 64), nil
 }
 
+// setI parses an integer params value and applies it via fn (InvalidValue on a non-integer).
 func setI(params string, fn func(int32) error) (string, error) {
 	n, err := strconv.ParseInt(strings.TrimSpace(params), 10, 32)
 	if err != nil {
@@ -200,6 +232,7 @@ func setI(params string, fn func(int32) error) (string, error) {
 	return ok(fn(int32(n)))
 }
 
+// parseBool parses a boolean action value (1/true/on/yes/enable = true, else false).
 func parseBool(params string) bool {
 	switch strings.ToLower(strings.TrimSpace(params)) {
 	case "1", "true", "on", "yes", "enable", "enabled":
@@ -208,6 +241,7 @@ func parseBool(params string) bool {
 	return false
 }
 
+// boolStr renders a nonzero int (the library's bool encoding) as "true", else "false".
 func boolStr(i int) string {
 	if i != 0 {
 		return "true"
@@ -215,34 +249,47 @@ func boolStr(i int) string {
 	return "false"
 }
 
-func cfgInt(d oasisDev, pick func(oasisConfig) int) (string, error) {
-	c, err := d.Config()
-	if err != nil {
-		return "", err
+// cfgInt returns a getter thunk that reads one int field from the Config block — so rw*/ro
+// can defer the mount read until dispatch decides the call is a read.
+func cfgInt(d oasisDev, pick func(oasisConfig) int) func() (string, error) {
+	return func() (string, error) {
+		c, err := d.Config()
+		if err != nil {
+			return "", err
+		}
+		return strconv.Itoa(pick(c)), nil
 	}
-	return strconv.Itoa(pick(c)), nil
 }
 
-func cfgBool(d oasisDev, pick func(oasisConfig) int) (string, error) {
-	c, err := d.Config()
-	if err != nil {
-		return "", err
+// cfgBool returns a getter thunk that reads one bool field from the Config block.
+func cfgBool(d oasisDev, pick func(oasisConfig) int) func() (string, error) {
+	return func() (string, error) {
+		c, err := d.Config()
+		if err != nil {
+			return "", err
+		}
+		return boolStr(pick(c)), nil
 	}
-	return boolStr(pick(c)), nil
 }
 
-func extInt(d oasisDev, pick func(oasisExt) int) (string, error) {
-	e, err := d.ExtConfig()
-	if err != nil {
-		return "", err
+// extInt returns a getter thunk that reads one int field from the ExtConfig block.
+func extInt(d oasisDev, pick func(oasisExt) int) func() (string, error) {
+	return func() (string, error) {
+		e, err := d.ExtConfig()
+		if err != nil {
+			return "", err
+		}
+		return strconv.Itoa(pick(e)), nil
 	}
-	return strconv.Itoa(pick(e)), nil
 }
 
-func extBool(d oasisDev, pick func(oasisExt) int) (string, error) {
-	e, err := d.ExtConfig()
-	if err != nil {
-		return "", err
+// extBool returns a getter thunk that reads one bool field from the ExtConfig block.
+func extBool(d oasisDev, pick func(oasisExt) int) func() (string, error) {
+	return func() (string, error) {
+		e, err := d.ExtConfig()
+		if err != nil {
+			return "", err
+		}
+		return boolStr(pick(e)), nil
 	}
-	return boolStr(pick(e)), nil
 }

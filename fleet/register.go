@@ -13,11 +13,13 @@ import (
 	asiefwdrv "github.com/mikefsq/goalpaca-devices/asiefw"
 	focuscubedrv "github.com/mikefsq/goalpaca-devices/focuscube"
 	focuslynxdrv "github.com/mikefsq/goalpaca-devices/focuslynx"
+	mgpboxdrv "github.com/mikefsq/goalpaca-devices/mgpbox"
 	oasisfocdrv "github.com/mikefsq/goalpaca-devices/oasisfoc"
 	oasisfwdrv "github.com/mikefsq/goalpaca-devices/oasisfw"
 	onstepdrv "github.com/mikefsq/goalpaca-devices/onstep"
 	rstdrv "github.com/mikefsq/goalpaca-devices/rst"
 	tenmicrondrv "github.com/mikefsq/goalpaca-devices/tenmicron"
+	unihedrondrv "github.com/mikefsq/goalpaca-devices/unihedron"
 )
 
 // counters assigns sequential, 0-based ASCOM device numbers within each device type.
@@ -158,6 +160,39 @@ func registerDevice(srv *alpacadev.Server, spec DeviceSpec, port int, c counters
 			d.DevName = spec.Name
 		}
 		return reg(alpacadev.FilterWheelType, d)
+
+	// ---- Observing conditions (sky quality / weather) ----
+	case "mgpbox":
+		// Astromi.ch MGPBox weather box (temperature/humidity/pressure/dewpoint) over
+		// FTDI serial. Prefer the stable USB-bridge serial when given; otherwise discover.
+		var d *mgpboxdrv.MGPBox
+		if spec.Serial != "" {
+			d = mgpboxdrv.NewMGPBoxBySerial(spec.Index, spec.Serial)
+		} else {
+			d = mgpboxdrv.NewMGPBox(spec.Index)
+		}
+		if spec.Name != "" {
+			d.DevName = spec.Name
+		}
+		if spec.MountAddr != "" {
+			// Feed GPS + weather into a tenmicron mount's setenvironment Action.
+			d.SetMountFeed(spec.MountAddr, spec.MountDevice)
+		}
+		return reg(alpacadev.ObservingConditionsType, d)
+
+	case "unihedron":
+		// Unihedron SQM sky-quality meter over FTDI serial. Prefer the stable
+		// USB-bridge serial when given; otherwise bind by enumeration index.
+		var d *unihedrondrv.SQM
+		if spec.Serial != "" {
+			d = unihedrondrv.NewSQMBySerial(spec.Index, spec.Serial)
+		} else {
+			d = unihedrondrv.NewSQM(spec.Index)
+		}
+		if spec.Name != "" {
+			d.DevName = spec.Name
+		}
+		return reg(alpacadev.ObservingConditionsType, d)
 
 	// ---- Simulators (no hardware; for client development) ----
 	case "sim-telescope":

@@ -14,7 +14,8 @@ import (
 // package gives them a consistent shape over the RST's extras that no standard member
 // covers: an EMPTY params reads the current value; a non-empty params sets it (and
 // echoes it back). A few are read-only (telemetry), take an index (site/speed), or
-// are operations (polaraxis). Names are lower-case; matching is case-insensitive.
+// are operations (PolarAxis). Names are advertised in CamelCase; matching is
+// case-insensitive (a driver choice, not an Alpaca requirement).
 
 type actionFn func(params string) (string, error)
 
@@ -29,13 +30,16 @@ func (t *Telescope) SupportedActions() []string {
 	return names
 }
 
-// Action dispatches a custom action by name (case-insensitive).
+// Action dispatches a custom action by name, matched case-insensitively against the
+// CamelCase keys of actions().
 func (t *Telescope) Action(name, params string) (string, error) {
-	fn, ok := t.actions()[strings.ToLower(strings.TrimSpace(name))]
-	if !ok {
-		return "", alpacadev.ErrActionNotImplemented
+	want := strings.ToLower(strings.TrimSpace(name))
+	for n, fn := range t.actions() {
+		if strings.ToLower(n) == want {
+			return fn(strings.TrimSpace(params))
+		}
 	}
-	return fn(strings.TrimSpace(params))
+	return "", alpacadev.ErrActionNotImplemented
 }
 
 // live returns the connected mount or ErrNotConnected.
@@ -101,9 +105,9 @@ func (t *Telescope) indexed(fn func(*rst.Mount, int) (string, error)) actionFn {
 func (t *Telescope) actions() map[string]actionFn {
 	return map[string]actionFn{
 		// operation: slew the OTA to the polar axis (async — poll Slewing/AtHome).
-		"polaraxis": func(params string) (string, error) {
+		"PolarAxis": func(params string) (string, error) {
 			if params != "" {
-				return "", alpacadev.NewError(alpacadev.ErrNumInvalidValue, "polaraxis takes no value")
+				return "", alpacadev.NewError(alpacadev.ErrNumInvalidValue, "PolarAxis takes no value")
 			}
 			m, err := t.live()
 			if err != nil {
@@ -116,30 +120,30 @@ func (t *Telescope) actions() map[string]actionFn {
 		},
 
 		// read-only status / telemetry / clock
-		"homefound": t.read(func(m *rst.Mount) (string, error) { return strconv.FormatBool(m.HomeFound()), nil }),
-		"fault": t.read(func(m *rst.Mount) (string, error) {
+		"HomeFound": t.read(func(m *rst.Mount) (string, error) { return strconv.FormatBool(m.HomeFound()), nil }),
+		"Fault": t.read(func(m *rst.Mount) (string, error) {
 			f := m.Fault()
 			if f == "" {
 				f = "none"
 			}
 			return f, nil
 		}),
-		"voltage":    t.read(func(m *rst.Mount) (string, error) { v, err := m.Voltage(); return f(v, 1), err }),
-		"autoresume": t.read(func(m *rst.Mount) (string, error) { v, err := m.AutoResume(); return strconv.FormatBool(v), err }),
-		"localtime":  t.read(func(m *rst.Mount) (string, error) { v, err := m.LocalTime(); return f(v, 5), err }),
-		"date":       t.read(func(m *rst.Mount) (string, error) { return m.Date() }),
-		"utcoffset":  t.read(func(m *rst.Mount) (string, error) { v, err := m.UTCOffset(); return f(v, 1), err }),
-		"motorload": t.read(func(m *rst.Mount) (string, error) {
+		"Voltage":    t.read(func(m *rst.Mount) (string, error) { v, err := m.Voltage(); return f(v, 1), err }),
+		"AutoResume": t.read(func(m *rst.Mount) (string, error) { v, err := m.AutoResume(); return strconv.FormatBool(v), err }),
+		"LocalTime":  t.read(func(m *rst.Mount) (string, error) { v, err := m.LocalTime(); return f(v, 5), err }),
+		"Date":       t.read(func(m *rst.Mount) (string, error) { return m.Date() }),
+		"UTCOffset":  t.read(func(m *rst.Mount) (string, error) { v, err := m.UTCOffset(); return f(v, 1), err }),
+		"MotorLoad": t.read(func(m *rst.Mount) (string, error) {
 			d, r, err := m.MotorLoad()
 			return fmt.Sprintf("dec=%.1f,ra=%.1f", d, r), err
 		}),
-		"systemstatus": t.read(func(m *rst.Mount) (string, error) {
+		"SystemStatus": t.read(func(m *rst.Mount) (string, error) {
 			s, err := m.SystemStatus()
 			return fmt.Sprintf("tcs=%v,dec=%v,ra=%v", s.TCS, s.DecMotor, s.RAMotor), err
 		}),
 
 		// read/write config
-		"guiderate": t.readWrite(
+		"GuideRate": t.readWrite(
 			func(m *rst.Mount) (string, error) { v, err := m.GuideRate(); return f(v, 2), err },
 			func(m *rst.Mount, p string) error {
 				v, err := strconv.ParseFloat(p, 64)
@@ -150,7 +154,7 @@ func (t *Telescope) actions() map[string]actionFn {
 			}),
 
 		// set-only (the RST does not report the current force-flip state)
-		"forcepierflip": func(params string) (string, error) {
+		"ForcePierFlip": func(params string) (string, error) {
 			m, err := t.live()
 			if err != nil {
 				return "", err
@@ -166,11 +170,11 @@ func (t *Telescope) actions() map[string]actionFn {
 		},
 
 		// indexed reads
-		"sitename":  t.indexed(func(m *rst.Mount, n int) (string, error) { return m.SiteName(n) }),
-		"slewspeed": t.indexed(func(m *rst.Mount, n int) (string, error) { v, err := m.SlewSpeed(n); return strconv.Itoa(v), err }),
+		"SiteName":  t.indexed(func(m *rst.Mount, n int) (string, error) { return m.SiteName(n) }),
+		"SlewSpeed": t.indexed(func(m *rst.Mount, n int) (string, error) { v, err := m.SlewSpeed(n); return strconv.Itoa(v), err }),
 
 		// instrument profile (JSON payload; see optics.go)
-		"setoptics": t.actionSetOptics,
+		"SetOptics": t.actionSetOptics,
 	}
 }
 

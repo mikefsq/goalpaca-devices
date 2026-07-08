@@ -1,6 +1,9 @@
 package driver
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestSetOpticsAction(t *testing.T) {
 	tel := NewTelescope("")
@@ -33,11 +36,11 @@ func TestSupportedActionsHasSetOptics(t *testing.T) {
 	tel := NewTelescope("")
 	var found bool
 	for _, a := range tel.SupportedActions() {
-		if a == "setoptics" {
+		if strings.EqualFold(a, "setoptics") { // advertised CamelCase ("SetOptics"), matched case-insensitively
 			found = true
 		}
 	}
 	if !found {
-		t.Error("SupportedActions should include setoptics")
+		t.Error("SupportedActions should include a SetOptics action")
 	}
 }

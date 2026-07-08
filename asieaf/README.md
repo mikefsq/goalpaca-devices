@@ -1,21 +1,35 @@
 # asieaf
 
 A standalone ASCOM **Alpaca Focuser** server for the ZWO EAF, built on
-[`goalpaca`](https://github.com/mikefsq/goalpaca) and [`goasi/eaf`](https://github.com/mikefsq/goasi).
-One process serves one focuser as Alpaca device 0 on its own port.
+[`goalpaca`](https://github.com/mikefsq/goalpaca) and the Go
+[`goasi/eaf`](https://github.com/mikefsq/goasi) driver (USB-HID) — **no ZWO SDK
+runtime dependency**. One process serves one focuser as Alpaca device 0 on its own port.
 
 ## Build
 
+Go on Linux/Windows; macOS uses IOKit (cgo, on by default). Cross-compiles
+from any host to a static binary.
+
 ```sh
-CGO_ENABLED=1 go build .
+# macOS (Apple silicon)
+CGO_ENABLED=1 GOOS=darwin  GOARCH=arm64 go build -o asieaf     .
+# Linux / Raspberry Pi
+CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -o asieaf     .
+# Windows
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o asieaf.exe .
 ```
 
-Links `-lEAFFocuser` from `/usr/local/lib`. The ZWO SDK is **not** bundled —
-download it from ZWO and install `libEAFFocuser` into `/usr/local/lib` (or build
-with `CGO_LDFLAGS="-L/path/to/lib"`; on macOS rewrite the binary's path with
-`install_name_tool`). See the [`goasi`](https://github.com/mikefsq/goasi) README.
-On Linux the EAF also needs `libsdbus-c++.so.2` and `libWrapperSdbus.so` from the
-same SDK lib directory.
+### Linux permissions (udev)
+
+`/dev/hidraw*` is root-only by default; install a rule so the service user can
+open the focuser:
+
+```
+# /etc/udev/rules.d/99-zwo-eaf.rules
+KERNEL=="hidraw*", ATTRS{idVendor}=="03c3", MODE="0660", TAG+="uaccess"
+```
+
+Windows vendor-HID is user-accessible — no driver install needed.
 
 ## Run
 
@@ -26,8 +40,8 @@ same SDK lib directory.
 | Flag | Default | Meaning |
 |---|---|---|
 | `-port` | `11112` | Alpaca HTTP port |
-| `-serial` | "" | bind the focuser with this serial (hex); recommended |
-| `-focuser` | `0` | enumeration index (used only when `-serial` is empty) |
+| `-serial` | "" | currently ignored (EAF serial decode not yet implemented) |
+| `-focuser` | `0` | enumeration index — the device selector |
 | `-discovery` | `direct` | `direct` \| `register` \| `off` |
 | `-discovery-server` | `localhost:32227` | proxy address for `register` mode |
 | `-ipv6` | false | also answer IPv6 multicast discovery |

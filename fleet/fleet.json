@@ -16,7 +16,11 @@
 
     { "driver": "oasisfoc", "port": 11120, "index": 0 },
 
-    { "driver": "oasisfw", "port": 11123, "index": 0 }
+    { "driver": "oasisfw", "port": 11123, "index": 0 },
+
+    { "driver": "unihedron", "port": 11124, "name": "Sky quality" },
+
+    { "driver": "mgpbox", "port": 11125, "name": "Weather" }
 
   ]
 }

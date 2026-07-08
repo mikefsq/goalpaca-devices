@@ -446,10 +446,12 @@ func (c *PureASICamera) CanStopExposure() bool       { return true }
 
 // --- Video (free-run) mode: the Alpaca Action "videomode" toggles it ---
 
-// SupportedActions advertises the device-specific Actions. "videomode" (params on|off) switches
-// the camera between single-shot and continuous free-run streaming; "fpspercent" (params 40..100,
-// or empty to query) sets the readout bandwidth-overload throttle.
-func (c *PureASICamera) SupportedActions() []string { return []string{"videomode", "fpspercent"} }
+// SupportedActions advertises the device-specific Actions (CamelCase; matched
+// case-insensitively). "VideoMode" switches the camera between single-shot and continuous
+// free-run streaming — params on|off writes, empty reads the current state (put/empty=read);
+// "FpsPercent" (params 40..100, or empty to query) sets the readout bandwidth-overload
+// throttle.
+func (c *PureASICamera) SupportedActions() []string { return []string{"VideoMode", "FpsPercent"} }
 
 // Action handles the device-specific commands. videomode=on starts the internal free-run stream
 // (StartExposure then serves the latest streamed frame, ~2× the rate); videomode=off returns to
@@ -471,6 +473,11 @@ func (c *PureASICamera) actionVideoMode(params string) (string, error) {
 		return "", alpacadev.ErrNotConnected
 	}
 	switch strings.ToLower(strings.TrimSpace(params)) {
+	case "": // empty params reads the current state (put/empty = read)
+		c.mu.Lock()
+		on := c.videoOn
+		c.mu.Unlock()
+		return strconv.FormatBool(on), nil
 	case "on", "true", "1", "start":
 		c.mu.Lock()
 		dur := c.lastDuration
@@ -486,7 +493,7 @@ func (c *PureASICamera) actionVideoMode(params string) (string, error) {
 		c.stopVideo()
 		return "ok", nil
 	default:
-		return "", fmt.Errorf("%w: videomode wants on|off", alpacadev.ErrInvalidValue)
+		return "", fmt.Errorf("%w: videomode wants on|off (or empty to read)", alpacadev.ErrInvalidValue)
 	}
 }
 

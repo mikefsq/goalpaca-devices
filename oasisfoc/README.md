@@ -50,3 +50,25 @@ Windows vendor-HID is user-accessible — no driver install needed.
 | `-discovery` | `direct` | `direct` \| `register` \| `off` |
 | `-discovery-server` | `localhost:32227` | proxy address for `register` mode |
 | `-ipv6` | false | also answer IPv6 multicast discovery |
+
+## Device Actions
+
+The Oasis exposes more than ASCOM IFocuserV3 covers, via device-specific **Actions** (`PUT
+…/action`; names advertised in CamelCase, matched case-insensitively; see `GET
+supportedactions`). Config fields follow the fleet convention — **empty `Parameters` reads,
+a value writes** — so there is one action per setting (no separate `SetX`):
+
+- **Config (read/write):** `Backlash`, `BacklashDirection`, `Reverse`, `Speed`, `MaxStep`,
+  `BeepOnMove`, `BeepOnStartup`, `HeatingOn`, `HeatingTemperature`, `StallDetection`,
+  `UsbPowerCapacity`, `FriendlyName`, `BluetoothName` (booleans take `1/0/true/false/on/off`).
+- **Read-only:** `Serial`, `Model`, `HardwareVersion`, `FirmwareVersion`, `FirmwareBuildDate`,
+  `ProtocolVersion`, `TemperatureInternal`, `TemperatureExternal`, `BluetoothOn`, `Config`
+  (a value is rejected).
+- **Operations:** `MoveIn`/`MoveOut` (relative steps), `Sync` (set position), `SetZero`,
+  `ClearStall`; `FactoryReset` requires `Parameters=confirm`.
+
+```sh
+B=http://localhost:11120/api/v1/focuser/0/action
+curl -s -X PUT $B -d 'Action=Backlash&Parameters=&ClientID=1'      # read
+curl -s -X PUT $B -d 'Action=Backlash&Parameters=500&ClientID=1'   # write
+```

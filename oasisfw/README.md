@@ -48,3 +48,19 @@ Windows vendor-HID is user-accessible — no driver install needed.
 | `-discovery` | `direct` | `direct` \| `register` \| `off` |
 | `-discovery-server` | `localhost:32227` | proxy address for `register` mode |
 | `-ipv6` | false | also answer IPv6 multicast discovery |
+
+## Device Actions
+
+Beyond ASCOM IFilterWheel, the Oasis exposes device-specific **Actions** (`PUT …/action`;
+names advertised in CamelCase, matched case-insensitively; see `GET supportedactions`).
+Config fields follow the fleet convention — **empty `Parameters` reads, a value writes**:
+
+- **Config (read/write):** `Speed`, `Autorun`, `BluetoothOn`, `Turbo`, `FriendlyName`,
+  `BluetoothName` (booleans take `1/0/true/false/on/off`).
+- **Read-only:** `Serial`, `Model`, `HardwareVersion`, `FirmwareVersion`,
+  `FirmwareBuildDate`, `ProtocolVersion`, `Temperature`, `TemperatureRaw`, `Slots`, `State`,
+  `Config` (a value is rejected).
+- **Per-slot** (the index is required both ways, so read + `SetX` stay separate):
+  `SlotName`/`FocusOffset`/`Color` read with `Parameters=<slot>`; `SetSlotName`/
+  `SetFocusOffset`/`SetColor` write with `Parameters=<slot>:<value>` (e.g. `1:Ha`, `0:00ff00`).
+- **Maintenance:** `Calibrate`; `FactoryReset` requires `Parameters=confirm`.
