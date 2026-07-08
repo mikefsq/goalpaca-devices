@@ -1,0 +1,8 @@
+github.com/adrianmo/go-nmea v1.10.0 h1:L1aYaebZ4cXFCoXNSeDeQa0tApvSKvIbqMsK+iaRiCo=
+github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+github.com/mikefsq/goalpaca v0.2.0 h1:uTECbuUKDwFT38frtXjTNw84BE26pu+z7d8Hnv2hlMo=
+github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
+github.com/stretchr/testify v1.5.1 h1:nOGnQDM7FYENwehXlg/kFVnos3rEvtKTjRvOWSzb6H4=
+go.bug.st/serial v1.7.1 h1:5aP8wYL0UjEYOVs3oPAGscjaSfRQLHtCvBFXNN/rwtc=
+golang.org/x/sys v0.43.0 h1:Rlag2XtaFTxp19wS8MXlJwTvoh8ArU6ezoyFsMyCTNI=
+gopkg.in/yaml.v2 v2.2.2 h1:ZCJp+EgiOT7lHqUV2J862kp8Qj64Jo6az82+3Td9dZw=
