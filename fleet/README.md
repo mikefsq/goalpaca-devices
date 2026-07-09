@@ -1,5 +1,11 @@
 # astrofleet
 
+> **Deprecated — superseded by [alpacahurd](https://github.com/mikefsq/alpacahurd).**
+> The engine moved there (package `hurd`), and per-driver construction moved into
+> each driver module's `hurd.go` via `goalpaca/registry`, so drivers are selected
+> in `hurd.conf` at build time instead of being hardcoded here. This directory
+> stays until alpacahurd is validated on the Pi, then gets deleted.
+
 One ASCOM Alpaca server that hosts several `goalpaca_devices` drivers in a single
 process, on a single port, with a single discovery responder — instead of running
 one binary (and one systemd unit) per device.
