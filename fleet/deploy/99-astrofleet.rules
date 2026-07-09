@@ -4,7 +4,8 @@
 # (/dev/bus/usb/*), which needs read-write access to the device node; the ASCOM
 # serial bind also opens each candidate to read its factory serial (the cameras
 # expose no USB serial-number descriptor — it lives in flash behind a vendor
-# control transfer). HID drivers (ZWO EAF/EFW) need hidraw access.
+# control transfer). HID drivers (ZWO EAF/EFW, Oasis) need hidraw access; serial
+# drivers (Pegasus/Optec focusers, MGPBox, Unihedron, serial mounts) use /dev/ttyUSB*.
 #
 # Install: sudo cp deploy/99-astrofleet.rules /etc/udev/rules.d/
 #          sudo udevadm control --reload && sudo udevadm trigger
@@ -25,5 +26,12 @@ SUBSYSTEM=="usb", ATTRS{idVendor}=="a0a0", MODE="0660", GROUP="plugdev", TAG+="u
 # driver talks over hidraw (/dev/hidrawN), so the hidraw node is what needs access.
 KERNEL=="hidraw*", ATTRS{idVendor}=="338f", MODE="0660", GROUP="plugdev", TAG+="uaccess"
 
-# Add other vendors' idVendor here as you wire their drivers in (e.g. Pegasus
-# focusers) — usbfs nodes use the SUBSYSTEM=="usb" form, HID devices the hidraw form.
+# FTDI-serial devices — VID 0403, appear as /dev/ttyUSB*: Pegasus FocusCube, Optec
+# FocusLynx, Astromi.ch MGPBox, Unihedron SQM, and the serial mounts (RST, OnStep, AM5).
+# /dev/ttyUSB* already belongs to the "dialout" group on Raspbian, so a non-root service
+# user in that group needs no rule — this line just also grants "plugdev"/the seat, keeping
+# every astrofleet device on one group (see astrofleet.service).
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", MODE="0660", GROUP="plugdev", TAG+="uaccess"
+
+# Add other vendors' idVendor here as you wire their drivers in — usbfs nodes use the
+# SUBSYSTEM=="usb" form, HID devices the hidraw form, FTDI/serial the SUBSYSTEM=="tty" form.

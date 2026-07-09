@@ -1,5 +1,5 @@
 [Unit]
-Description=astrofleet — ASCOM Alpaca device fleet (mounts, focusers, filter wheels, cameras)
+Description=astrofleet — ASCOM Alpaca device fleet (mounts, focusers, filter wheels, cameras, observing conditions)
 Documentation=https://github.com/mikefsq
 # Wait for the network so discovery binds and networked mounts are reachable.
 After=network-online.target

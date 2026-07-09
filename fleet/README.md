@@ -10,7 +10,13 @@ enable in a config file and runs the shared server.
 
 ## Configure
 
-Which devices run is declared in a JSON config (`-config`, default `fleet.json`).
+Which devices run is declared in a JSON config. Pass `-config <path>` explicitly, or
+let it search (first found wins): `./fleet.json`, then
+`$XDG_CONFIG_HOME/astrofleet/fleet.json` (`~/.config/astrofleet/fleet.json`), then
+`/etc/astrofleet/fleet.json` — the location `deploy/install.sh` uses (the systemd unit
+passes it explicitly; it's also the default fallback). `$ASTROFLEET_CONFIG` overrides
+the search.
+
 A device runs if it's in the list and not disabled. To turn one off without
 deleting its entry (and its serial/port/options), set `"enable": false` — omitted
 means enabled. See [`config/fleet.example.json`](config/fleet.example.json).

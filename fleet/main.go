@@ -52,13 +52,20 @@ type built struct {
 }
 
 func main() {
-	cfgPath := flag.String("config", "fleet.json", "path to the fleet config JSON file")
+	cfgPath := flag.String("config", "",
+		"path to the fleet config JSON file (default: search ./fleet.json, "+
+			"$XDG_CONFIG_HOME/astrofleet/fleet.json, /etc/astrofleet/fleet.json; or $ASTROFLEET_CONFIG)")
 	flag.Parse()
 
-	cfg, err := LoadConfig(*cfgPath)
+	resolvedCfg, err := resolveConfigPath(*cfgPath)
 	if err != nil {
 		log.Fatalf("astrofleet: %v", err)
 	}
+	cfg, err := LoadConfig(resolvedCfg)
+	if err != nil {
+		log.Fatalf("astrofleet: %v", err)
+	}
+	log.Printf("astrofleet: config %s", resolvedCfg)
 
 	var logger *log.Logger
 	if cfg.Debug {
@@ -115,7 +122,7 @@ func main() {
 		}
 	}
 	if len(servers) == 0 {
-		log.Fatalf("astrofleet: no enabled devices in %s", *cfgPath)
+		log.Fatalf("astrofleet: no enabled devices in %s", resolvedCfg)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

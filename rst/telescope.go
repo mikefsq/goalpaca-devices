@@ -20,6 +20,13 @@ const (
 	slewTimeout = 3 * time.Minute
 	acquirePoll = 3 * time.Second
 	monitorPoll = 2 * time.Second
+
+	// A single failed health-check read is not a lost mount: on the shared USB-serial
+	// line a reply can be delayed or collide with an async completion token, and the
+	// full teardown+reconnect drops every front-end (Alpaca clients and the LX200
+	// bridge) for ~10s. So re-probe a few times before declaring the mount lost.
+	healthRetries  = 3
+	healthRetryGap = 500 * time.Millisecond
 )
 
 // snapshot caches the last good value of each error-free getter, returned when
@@ -127,7 +134,7 @@ func (t *Telescope) manage(ctx context.Context) {
 		t.mu.Lock()
 		m := t.m
 		t.mu.Unlock()
-		if _, err := m.RA(); err != nil {
+		if _, err := m.RA(); err != nil && !alive(ctx, m) {
 			log.Printf("rst: mount %s lost (%v); reconnecting", t.ID, err)
 			t.mu.Lock()
 			m.Close()
@@ -138,6 +145,24 @@ func (t *Telescope) manage(ctx context.Context) {
 		}
 		sleepCtx(ctx, monitorPoll)
 	}
+}
+
+// alive re-probes the mount after a failed health-check read, tolerating a transient
+// miss (a delayed reply or a collision with an async completion token on the shared
+// serial line) so it doesn't trigger a disruptive teardown+reconnect. It reports true
+// as soon as any retry read succeeds, false once all retries fail (a genuine loss) or
+// ctx is cancelled.
+func alive(ctx context.Context, m *rst.Mount) bool {
+	for i := 0; i < healthRetries; i++ {
+		sleepCtx(ctx, healthRetryGap)
+		if ctx.Err() != nil {
+			return true // shutting down; don't churn the connection
+		}
+		if _, err := m.RA(); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *Telescope) mount() *rst.Mount { t.mu.Lock(); defer t.mu.Unlock(); return t.m }

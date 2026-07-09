@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 )
 
 // Config is the fleet configuration: the devices in Devices, plus the shared
@@ -144,6 +146,38 @@ type DeviceSpec struct {
 	// GuideRate is the mount's guide speed as a fraction of sidereal (e.g. 0.5),
 	// reported over INDI so PHD2 can scale calibration. Defaults to 0.5 when omitted.
 	GuideRate float64 `json:"guideRate,omitempty"`
+}
+
+// resolveConfigPath decides which config file to load when the -config flag is not
+// given an explicit value. An explicit flag always wins; otherwise $ASTROFLEET_CONFIG
+// overrides the search, and failing that the first existing file among these standard
+// locations is used, most-specific first:
+//
+//	./fleet.json                              — current dir (running from a source/dev tree)
+//	$XDG_CONFIG_HOME/astrofleet/fleet.json    — per-user (~/.config/astrofleet/fleet.json)
+//	/etc/astrofleet/fleet.json                — system-wide (the deploy/install.sh target)
+//
+// Under systemd the working dir is /, so ./fleet.json is absent and it falls through to
+// /etc — matching where install.sh puts the config, so the unit needs no -config flag.
+func resolveConfigPath(explicit string) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+	if env := os.Getenv("ASTROFLEET_CONFIG"); env != "" {
+		return env, nil
+	}
+	candidates := []string{"fleet.json"}
+	if dir, err := os.UserConfigDir(); err == nil {
+		candidates = append(candidates, filepath.Join(dir, "astrofleet", "fleet.json"))
+	}
+	candidates = append(candidates, "/etc/astrofleet/fleet.json")
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("no config file found (looked in %s); pass -config or set $ASTROFLEET_CONFIG",
+		strings.Join(candidates, ", "))
 }
 
 // LoadConfig reads and validates a fleet config file. Unknown JSON fields are
