@@ -1,4 +1,6 @@
 github.com/mikefsq/astrocam v0.0.0-20260707042246-a133a20b0bd3 h1:PNpiQJZh338bsx5PRDckS++7pM3v6pfK94IcxNhhReA=
 github.com/mikefsq/astrocam v0.0.0-20260707042246-a133a20b0bd3/go.mod h1:uyqx0HIkXiGjewySY+zKLe5lJnoUX3f6HJEMV0qr5/I=
-github.com/mikefsq/goalpaca v0.2.0 h1:uTECbuUKDwFT38frtXjTNw84BE26pu+z7d8Hnv2hlMo=
-github.com/mikefsq/goalpaca v0.2.0/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.1 h1:tzoC1z5CVYSX/H6TmBR/TakPmqDEOjQ3EAkOrEqFaJo=
+github.com/mikefsq/goalpaca v0.3.1/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goindi v0.0.0-20260623000347-2dda0b2dec05 h1:eZmdbZO/5QqoWWFQXltaIh4kHDpDF4VCSfN8b2daPPc=
+github.com/mikefsq/goindi v0.0.0-20260623000347-2dda0b2dec05/go.mod h1:VfpBywDi5mzxwT3hyE6zbAiYxB0bDowDUjMkWXhaq8E=

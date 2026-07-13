@@ -1,5 +1,5 @@
-github.com/mikefsq/goalpaca v0.2.0 h1:uTECbuUKDwFT38frtXjTNw84BE26pu+z7d8Hnv2hlMo=
-github.com/mikefsq/goalpaca v0.2.0/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.1 h1:tzoC1z5CVYSX/H6TmBR/TakPmqDEOjQ3EAkOrEqFaJo=
+github.com/mikefsq/goalpaca v0.3.1/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/optec v0.0.0-20260707021816-df3786ba6eb4 h1:XK9zSc9VulrSgeIi7InPKCD+N+O8a5qG4UuIWucThh0=
 github.com/mikefsq/optec v0.0.0-20260707021816-df3786ba6eb4/go.mod h1:ntwr57cUWCCEYxu5bUQkt44RzcYjumqRuLJ6Iv+ooY8=
 go.bug.st/serial v1.7.1 h1:5aP8wYL0UjEYOVs3oPAGscjaSfRQLHtCvBFXNN/rwtc=

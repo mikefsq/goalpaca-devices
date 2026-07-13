@@ -104,17 +104,13 @@ Stellarium / SkySafari. It ships `sim-*` drivers (one per ASCOM type) for client
 development with no hardware, and installs as a systemd (Linux) or launchd (macOS)
 service. See the [alpacahurd README](https://github.com/mikefsq/alpacahurd).
 
-The herd's predecessor, `astrofleet` (in [`fleet/`](fleet/README.md)), is
-deprecated and will be removed once alpacahurd is validated on deployed hardware.
-
 ## Build
 
 From this directory the `Makefile` builds into `./bin`:
 
 ```sh
-make                # every Go driver + astrofleet
+make                # every Go driver
 make tenmicron      # one driver
-make astrofleet     # the deprecated aggregator (superseded by alpacahurd)
 make sdk            # the cgo ZWO-SDK drivers (asiccd, asicaa) — needs the ZWO lib
 make sim            # the coupled guide sim (mount + camera, one shared sky)
 make alpacasim      # run goalpaca's one-of-every-type protocol sim (not guidable)
