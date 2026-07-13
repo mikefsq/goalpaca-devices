@@ -257,7 +257,7 @@ func TestOasisWheelActions(t *testing.T) {
 
 // --- Tier-2 hardware end-to-end test (gated; opens the REAL wheel) ---
 //
-// Mirrors the fleet pattern (asiefw TestAlpacaHardware): open the real device through
+// Mirrors the host pattern (asiefw TestAlpacaHardware): open the real device through
 // the driver's normal Open() lifecycle, serve it on a real Alpaca server behind httptest,
 // and drive it through the full HTTP stack with a non-destructive move-and-restore.
 

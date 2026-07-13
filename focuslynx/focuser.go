@@ -1,6 +1,6 @@
 // Package driver is the ASCOM Alpaca Focuser device for one channel of an Optec
 // FocusLynx / ThirdLynx hub, over the Go optec/focuslynx library
-// (USB-serial). It is served standalone by cmd/focuslynx and hosted by astrofleet.
+// (USB-serial). It is served standalone by cmd/focuslynx and hosted by alpacahurd.
 package driver
 
 import (

@@ -148,7 +148,7 @@ func (f *OasisFocuser) dumpConfig(d oasisDev) (string, error) {
 		e.HeatingTemperature, e.UsbPowerCapacity), nil
 }
 
-// --- dispatch helpers (shared shape across the fleet's Action drivers) ---
+// --- dispatch helpers (shared shape across the host's Action drivers) ---
 
 // ro runs a read-only getter, rejecting a params value.
 func ro(params string, get func() (string, error)) (string, error) {

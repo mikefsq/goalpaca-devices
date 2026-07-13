@@ -1,6 +1,6 @@
 module github.com/mikefsq/goalpaca-devices/astrocam
 
-go 1.25
+go 1.23
 
 require github.com/mikefsq/goalpaca v0.2.0
 

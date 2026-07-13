@@ -1,6 +1,6 @@
 module github.com/mikefsq/goalpaca-devices/fleet
 
-go 1.25.0
+go 1.23
 
 require (
 	github.com/mikefsq/astrocam v0.0.0-20260707042246-a133a20b0bd3

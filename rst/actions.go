@@ -173,8 +173,11 @@ func (t *Telescope) actions() map[string]actionFn {
 		"SiteName":  t.indexed(func(m *rst.Mount, n int) (string, error) { return m.SiteName(n) }),
 		"SlewSpeed": t.indexed(func(m *rst.Mount, n int) (string, error) { v, err := m.SlewSpeed(n); return strconv.Itoa(v), err }),
 
-		// instrument profile (JSON payload; see optics.go)
-		"SetOptics": t.actionSetOptics,
+		// instrument profile (see optics.go): empty params reads the current optics,
+		// a JSON payload patches it. Both names are dual-mode, matching tenmicron so a
+		// client drives optics identically regardless of which mount is configured.
+		"setoptics": t.actionSetOptics,
+		"optics":    t.actionSetOptics,
 	}
 }
 

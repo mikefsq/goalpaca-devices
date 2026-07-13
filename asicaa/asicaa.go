@@ -1,6 +1,6 @@
 // Package driver is the ASCOM Alpaca Rotator device for the ZWO CAA (Camera Angle
 // Adjuster), over goasi/caa (cgo, the ZWO CAA SDK). It is served standalone by
-// cmd/asicaa and hosted by the astrofleet aggregator.
+// cmd/asicaa; being cgo + SDK, it is not built into the vendor-free alpacahurd.
 package driver
 
 import (

@@ -72,6 +72,21 @@ Weather / sky-quality sensors, exposed as ASCOM **ObservingConditions**. Go, no 
 The MGPBox can also feed its GPS + weather into a `tenmicron` mount (site coordinates,
 clock, and refraction pressure/temperature) via the `mountAddr` config field.
 
+## Simulator
+
+| Dir | Device | Backend | Port |
+|---|---|---|---|
+| `sim` | Simulated mount + guide camera on **one shared sky** | **Go**, no hardware | 11110 |
+
+One binary, both devices (telescope 0 + camera 0) on one port: the mount owns the
+pointing error and the camera renders it, so a guiding client (PHD2) can calibrate
+and guide a closed loop with no hardware. Camera scale is configurable
+(`-focal-length`, `-pixel-size`, `-width`/`-height`). The same devices are available
+inside alpacahurd as its `sim-telescope`/`sim-camera` drivers; this is the standalone
+form, in parity with the hardware drivers. (goalpaca's `cmd/alpacasim` is different —
+one of every device type for protocol/ConformU testing, but its camera is not coupled
+to its mount, so it cannot guide.)
+
 ## The herd — one process, one config
 
 Rather than launch each driver by hand,
@@ -101,7 +116,8 @@ make                # every Go driver + astrofleet
 make tenmicron      # one driver
 make astrofleet     # the deprecated aggregator (superseded by alpacahurd)
 make sdk            # the cgo ZWO-SDK drivers (asiccd, asicaa) — needs the ZWO lib
-make sim            # run all simulated Alpaca devices (no hardware)
+make sim            # the coupled guide sim (mount + camera, one shared sky)
+make alpacasim      # run goalpaca's one-of-every-type protocol sim (not guidable)
 ```
 
 Or build any module in place: `cd tenmicron && go build .`, then e.g.

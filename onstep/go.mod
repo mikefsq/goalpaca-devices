@@ -1,6 +1,6 @@
 module github.com/mikefsq/goalpaca-devices/onstep
 
-go 1.25.0
+go 1.23
 
 require (
 	github.com/mikefsq/goalpaca v0.2.0

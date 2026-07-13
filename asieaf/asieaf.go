@@ -1,6 +1,6 @@
 // Package driver is the ASCOM Alpaca Focuser device for the ZWO EAF, over the Go
 // goasi/eaf driver (USB-HID — no ZWO SDK; cgo only on macOS for IOKit). It is served
-// standalone by cmd/asieaf and hosted by the astrofleet aggregator.
+// standalone by cmd/asieaf and hosted by the alpacahurd aggregator.
 package driver
 
 import (

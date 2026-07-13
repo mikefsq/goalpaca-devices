@@ -3,12 +3,13 @@ package driver
 import (
 	"encoding/json"
 	"math"
+	"strings"
 	"sync"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
-// localOptics is the default in-process alpacadev.OpticsStore. The fleet injects a
+// localOptics is the default in-process alpacadev.OpticsStore. The host injects a
 // shared holder via UseOptics so the INDI front-end's TELESCOPE_INFO reports what an
 // Alpaca setoptics Action sets; a standalone driver uses this default. Metres / m².
 type localOptics struct {
@@ -34,7 +35,7 @@ func (t *Telescope) opticsStore() alpacadev.OpticsStore {
 	return t.optics
 }
 
-// UseOptics replaces the optics holder with a shared one (the fleet injects a holder
+// UseOptics replaces the optics holder with a shared one (the host injects a holder
 // the INDI front-end reads too). Call before serving.
 func (t *Telescope) UseOptics(s alpacadev.OpticsStore) {
 	t.mu.Lock()
@@ -67,6 +68,10 @@ func (t *Telescope) SetOptics(diameterMeters, areaSqMeters, focalLengthMeters fl
 // setoptics is registered as an Action in actions.go (with the rest of the RST
 // custom actions); actionSetOptics is its handler.
 
+// mmPtr converts metres (the holder unit) to millimetres and returns a pointer, for the
+// optional-field opticsParams read-back.
+func mmPtr(metres float64) *float64 { v := metres * 1000; return &v }
+
 // opticsParams is the setoptics payload. Lengths are millimetres (focal_length,
 // aperture, guider_*); aperture_area is m². Present fields patch the current optics,
 // guider_* default to the main scope.
@@ -79,11 +84,22 @@ type opticsParams struct {
 }
 
 func (t *Telescope) actionSetOptics(params string) (string, error) {
+	s := t.opticsStore()
+	if strings.TrimSpace(params) == "" { // read-back: current optics in the payload shape (mm / m²)
+		ap, area, fl, gap, gfl := s.Optics()
+		out, _ := json.Marshal(opticsParams{
+			Aperture:          mmPtr(ap),
+			ApertureArea:      &area,
+			FocalLength:       mmPtr(fl),
+			GuiderAperture:    mmPtr(gap),
+			GuiderFocalLength: mmPtr(gfl),
+		})
+		return string(out), nil
+	}
 	var p opticsParams
 	if err := json.Unmarshal([]byte(params), &p); err != nil {
 		return "", alpacadev.NewError(alpacadev.ErrNumInvalidValue, "setoptics: invalid JSON: "+err.Error())
 	}
-	s := t.opticsStore()
 	ap, area, fl, gap, gfl := s.Optics()
 
 	var applied []string

@@ -294,7 +294,7 @@ func TestOasisFocuserActions(t *testing.T) {
 
 // --- Tier-2 hardware end-to-end test (gated; opens the REAL focuser) ---
 //
-// Mirrors the fleet pattern (asieaf/asiefw TestAlpacaHardware): open the real device via
+// Mirrors the host pattern (asieaf/asiefw TestAlpacaHardware): open the real device via
 // the driver's normal Open() lifecycle, serve it on a real Alpaca server behind httptest,
 // and drive the full HTTP stack with a small non-destructive relative move-and-restore.
 

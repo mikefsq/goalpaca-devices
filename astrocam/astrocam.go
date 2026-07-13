@@ -1,7 +1,7 @@
 // Package driver is the ASCOM Alpaca Camera device for ZWO ASI and PlayerOne
 // cameras, over the Go astrocam library (the USB wire protocol implemented
 // directly — no ZWO SDK). It is served standalone by cmd/astrocam and hosted by
-// the astrofleet aggregator.
+// the alpacahurd aggregator.
 package driver
 
 import (
@@ -83,7 +83,7 @@ type PureASICamera struct {
 	startX, startY int
 	numX, numY     int
 
-	// Factory hot-pixel correction. Off by default; enabled by the fleet "fixdefects" spec field
+	// Factory hot-pixel correction. Off by default; enabled by the host "fixdefects" spec field
 	// via SetFixDefects. The per-unit defect map is read once from SPI flash and applied to
 	// full-frame RAW16 frames in runExposure.
 	fixDefects bool
@@ -143,7 +143,7 @@ func NewPureASICamera(index int, serial string) *PureASICamera {
 }
 
 // SetFixDefects enables factory hot-pixel correction: the per-unit defect map read once from
-// SPI flash, neighbour-averaged into full-frame RAW16 frames. Off by default; set by the fleet
+// SPI flash, neighbour-averaged into full-frame RAW16 frames. Off by default; set by the host
 // from the "fixdefects" device-spec field.
 func (c *PureASICamera) SetFixDefects(on bool) { c.fixDefects = on }
 

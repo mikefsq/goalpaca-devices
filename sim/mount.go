@@ -12,7 +12,7 @@ import (
 // simMount is the Alpaca telescope simulator (goalpaca/sim) coupled to the shared
 // guide model: the mount owns the pointing error, so its reported RA/Dec and the sim
 // camera's star image are the same quantity. It also exposes a LiveMount seam so the
-// same simulated mount drives the fleet's INDI and LX200 front-ends.
+// same simulated mount drives the host's INDI and LX200 front-ends.
 type simMount struct {
 	*sim.Telescope
 	lx     *simMountAdapter
@@ -20,16 +20,12 @@ type simMount struct {
 }
 
 func newSimMount(name string) *simMount {
-	st := sim.NewTelescope()
+	// Start pointed at mid-sky and tracking, off the degenerate pole where PHD2's
+	// calibration warns. WithPosition, not a sync: SyncToCoordinates marks the target
+	// properties set (per ASCOM), which must not happen before a client acts.
+	st := sim.NewTelescope(sim.WithPosition(6.0, 20.0))
 	if name != "" {
 		st.DevName = name
-	}
-	// Start pointed at mid-sky and tracking, off the degenerate pole where PHD2's
-	// calibration warns. Sync establishes a target so RA/Dec read cleanly.
-	if err := st.SetTargetRightAscension(6.0); err == nil {
-		if err := st.SetTargetDeclination(20.0); err == nil {
-			_ = st.SyncToTarget()
-		}
 	}
 	_ = st.SetTracking(true)
 
@@ -91,7 +87,7 @@ func (s *simMount) SyncToTarget() error {
 }
 
 // LiveMount exposes the simulator as a lx200.Mount for the INDI server and LX200
-// bridge — the liveMounter seam the fleet wires those front-ends onto.
+// bridge — the liveMounter seam the host wires those front-ends onto.
 func (s *simMount) LiveMount() (lx200.Mount, error) { return s.lx, nil }
 
 // UseOptics + the optics getters let the sim report a configured optical train over

@@ -10,7 +10,7 @@ import (
 )
 
 // Optical-train parameters: the mount can't report them, so they come from config and
-// can be updated at runtime via the setoptics Action. The fleet injects one holder
+// can be updated at runtime via the setoptics Action. The host injects one holder
 // (alpacadev.OpticsStore) that the INDI front-end (TELESCOPE_INFO) also reads; a
 // standalone driver uses localOptics. Values are metres / m².
 
@@ -42,7 +42,7 @@ func (t *Telescope) opticsStore() alpacadev.OpticsStore {
 	return t.optics
 }
 
-// UseOptics replaces the optics holder with a shared one (the fleet injects a holder
+// UseOptics replaces the optics holder with a shared one (the host injects a holder
 // the INDI front-end reads too). Call before serving.
 func (t *Telescope) UseOptics(s alpacadev.OpticsStore) {
 	t.mu.Lock()

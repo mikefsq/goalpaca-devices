@@ -1,6 +1,6 @@
 // Package driver is the ASCOM Alpaca Focuser device for the Astroasis Oasis
 // focuser, over the Go oasis-astro/oasisfoc library (USB-HID). It is served
-// standalone by cmd/oasisfoc and hosted by the astrofleet aggregator.
+// standalone by cmd/oasisfoc and hosted by the alpacahurd aggregator.
 package driver
 
 import (

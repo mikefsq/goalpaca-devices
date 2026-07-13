@@ -1,7 +1,7 @@
 // Package driver is the ASCOM Alpaca ObservingConditions device for Unihedron Sky
 // Quality Meters (SQM-LU / SQM-LU-DL / SQM-LE), over the Go mikefsq/unihedron library
 // (FTDI USB-serial). It is served standalone by cmd/unihedron and can be hosted by
-// astrofleet.
+// alpacahurd.
 //
 // Sensor mapping is deliberately narrow and honest. An SQM measures exactly two things:
 //   - sky brightness in mag/arcsec²  → SkyQuality()  (the ASCOM field defined in those

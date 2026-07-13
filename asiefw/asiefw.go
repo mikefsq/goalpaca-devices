@@ -1,6 +1,6 @@
 // Package driver is the ASCOM Alpaca FilterWheel device for the ZWO EFW, over the
 // Go goasi/efw driver (USB-HID, no ZWO SDK). It is served standalone by
-// cmd/asiefw and hosted by the astrofleet aggregator.
+// cmd/asiefw and hosted by the alpacahurd aggregator.
 package driver
 
 import (

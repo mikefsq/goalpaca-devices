@@ -168,7 +168,7 @@ func (w *OasisWheel) Action(name, params string) (string, error) {
 	return "", alpacadev.ErrActionNotImplemented
 }
 
-// --- dispatch helpers (shared shape across the fleet's Action drivers) ---
+// --- dispatch helpers (shared shape across the host's Action drivers) ---
 
 // ro runs a read-only getter, rejecting a params value.
 func ro(params string, get func() (string, error)) (string, error) {

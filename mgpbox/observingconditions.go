@@ -1,7 +1,7 @@
 // Package driver is the ASCOM Alpaca ObservingConditions device for the Astromi.ch
 // MGPBox / MGPBox v2 (GPS + weather + dew-heater box), over the Go mikefsq/astromi.ch
 // mgpbox library (FTDI USB-serial). Sibling of the other goalpaca-devices drivers; served
-// standalone by cmd/mgpbox or hosted by astrofleet.
+// standalone by cmd/mgpbox or hosted by alpacahurd.
 //
 // The MGPBox exposes four ambient sensors, mapped directly to ASCOM: Temperature,
 // Humidity, Pressure (hPa), DewPoint. The remaining ObservingConditions properties stay at

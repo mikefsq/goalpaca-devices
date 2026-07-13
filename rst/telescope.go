@@ -1,6 +1,6 @@
 // Package driver is the ASCOM Alpaca Telescope device for Rainbow Astro RST
 // harmonic mounts (RST-135/300), over the lx200/rst protocol library
-// (USB-serial). It is served standalone by cmd/rst and hosted by astrofleet.
+// (USB-serial). It is served standalone by cmd/rst and hosted by alpacahurd.
 package driver
 
 import (
@@ -52,7 +52,7 @@ type Telescope struct {
 	slewSettleSec            int
 
 	// Optics — instrument profile (the mount can't report it). Backed by an
-	// OpticsStore so the fleet can inject a holder shared with the INDI front-end.
+	// OpticsStore so the host can inject a holder shared with the INDI front-end.
 	optics alpacadev.OpticsStore
 }
 

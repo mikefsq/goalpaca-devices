@@ -1,6 +1,6 @@
 // Package driver is the ASCOM Alpaca FilterWheel device for the Astroasis Oasis
 // filter wheel, over the Go oasis-astro/oasisfw library (USB-HID). It is
-// served standalone by cmd/oasisfw and hosted by the astrofleet aggregator.
+// served standalone by cmd/oasisfw and hosted by the alpacahurd aggregator.
 package driver
 
 import (

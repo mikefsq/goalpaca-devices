@@ -1,6 +1,6 @@
 // Package driver is the ASCOM Alpaca Telescope device for ZWO AM-series harmonic
 // mounts (AM3/AM5/AM5N/AM7), over the lx200/am5 protocol library (USB-serial or
-// WiFi/TCP). It is served standalone by cmd/asiam5 and hosted by astrofleet.
+// WiFi/TCP). It is served standalone by cmd/asiam5 and hosted by alpacahurd.
 package driver
 
 import (

@@ -1,6 +1,6 @@
 // Package driver is the ASCOM Alpaca Telescope device for OnStep / OnStepX
 // controllers, over the lx200/onstep protocol library (USB-serial or WiFi/TCP).
-// It is served standalone by cmd/onstep and hosted by the astrofleet aggregator.
+// It is served standalone by cmd/onstep and hosted by the alpacahurd aggregator.
 package driver
 
 import (

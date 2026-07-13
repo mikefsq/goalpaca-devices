@@ -1,6 +1,6 @@
 // Package driver is the ASCOM Alpaca Focuser device for Pegasus Astro FocusCube-
 // family focusers, over the Go pegasus-astro/focuscube library (FTDI
-// USB-serial). It is served standalone by cmd/focuscube and hosted by astrofleet.
+// USB-serial). It is served standalone by cmd/focuscube and hosted by alpacahurd.
 package driver
 
 import (

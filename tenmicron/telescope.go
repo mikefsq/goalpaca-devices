@@ -1,6 +1,6 @@
 // Package driver is the ASCOM Alpaca Telescope device for 10Micron GM-series
 // mounts, over the lx200/tenmicron protocol library (TCP). It is served
-// standalone by cmd/tenmicron and hosted by the astrofleet aggregator.
+// standalone by cmd/tenmicron and hosted by the alpacahurd aggregator.
 package driver
 
 import (
@@ -62,7 +62,7 @@ type Telescope struct {
 	maxSlewRate              float64   // mount's max slew rate (deg/s), read at connect; AxisRates ceiling
 
 	// Optics — instrument profile (the mount can't report it). Backed by an
-	// OpticsStore so the fleet can inject a holder shared with the INDI front-end.
+	// OpticsStore so the host can inject a holder shared with the INDI front-end.
 	optics alpacadev.OpticsStore
 
 	// envMu guards lastEnv: the environment values last applied to the mount, so

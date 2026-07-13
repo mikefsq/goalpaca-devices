@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -42,5 +43,31 @@ func TestSupportedActionsHasSetOptics(t *testing.T) {
 	}
 	if !found {
 		t.Error("SupportedActions should include a SetOptics action")
+	}
+}
+
+// TestOpticsReadBack: an empty-params call reads the current optics back in the same
+// mm/m² shape the write accepts (dual-mode, in parity with tenmicron), under both the
+// "setoptics" and "optics" action names.
+func TestOpticsReadBack(t *testing.T) {
+	tel := NewTelescope("")
+	if _, err := tel.Action("setoptics", `{"aperture":130,"focal_length":715}`); err != nil {
+		t.Fatalf("setoptics write: %v", err)
+	}
+	for _, name := range []string{"setoptics", "optics"} {
+		got, err := tel.Action(name, "") // empty params → read
+		if err != nil {
+			t.Fatalf("%s read-back: %v", name, err)
+		}
+		var p struct {
+			Aperture    float64 `json:"aperture"`
+			FocalLength float64 `json:"focal_length"`
+		}
+		if err := json.Unmarshal([]byte(got), &p); err != nil {
+			t.Fatalf("%s read-back not JSON: %v (%q)", name, err, got)
+		}
+		if p.Aperture != 130 || p.FocalLength != 715 {
+			t.Errorf("%s read-back = aperture %v focal_length %v, want 130/715 (mm)", name, p.Aperture, p.FocalLength)
+		}
 	}
 }
