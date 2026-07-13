@@ -8,9 +8,9 @@ import (
 	"github.com/mikefsq/goalpaca/sim"
 
 	am5drv "github.com/mikefsq/goalpaca-devices/asiam5"
-	asicamdrv "github.com/mikefsq/goalpaca-devices/astrocam"
 	asieafdrv "github.com/mikefsq/goalpaca-devices/asieaf"
 	asiefwdrv "github.com/mikefsq/goalpaca-devices/asiefw"
+	asicamdrv "github.com/mikefsq/goalpaca-devices/astrocam"
 	focuscubedrv "github.com/mikefsq/goalpaca-devices/focuscube"
 	focuslynxdrv "github.com/mikefsq/goalpaca-devices/focuslynx"
 	mgpboxdrv "github.com/mikefsq/goalpaca-devices/mgpbox"
@@ -18,6 +18,7 @@ import (
 	oasisfwdrv "github.com/mikefsq/goalpaca-devices/oasisfw"
 	onstepdrv "github.com/mikefsq/goalpaca-devices/onstep"
 	rstdrv "github.com/mikefsq/goalpaca-devices/rst"
+	simdrv "github.com/mikefsq/goalpaca-devices/sim"
 	tenmicrondrv "github.com/mikefsq/goalpaca-devices/tenmicron"
 	unihedrondrv "github.com/mikefsq/goalpaca-devices/unihedron"
 )
@@ -196,13 +197,14 @@ func registerDevice(srv *alpacadev.Server, spec DeviceSpec, port int, c counters
 
 	// ---- Simulators (no hardware; for client development) ----
 	case "sim-telescope":
-		// Backed by a lx200.Mount adapter, so the sim also drives the INDI/LX200
-		// front-ends — not just Alpaca (unlike the other sim-* devices).
-		return reg(alpacadev.TelescopeType, newSimMount(spec.Name))
+		// The coupled guide-loop sim lives in the goalpaca-devices/sim module (shared
+		// with alpacahurd): the mount owns the pointing error and drives the INDI/LX200
+		// front-ends via its LiveMount seam.
+		return reg(alpacadev.TelescopeType, simdrv.NewMount(spec.Name))
 	case "sim-camera":
-		// Backed by a ccd.Camera adapter, so the sim camera also drives the INDI CCD
-		// device — PHD2 can use it as a guide camera, not just Alpaca.
-		return reg(alpacadev.CameraType, newSimCamera(spec.Name))
+		// Same module: the guide camera renders the shared sky (also over INDI as a
+		// guide camera). focalLength (mm) sets the arcsec→pixel scale of the field.
+		return reg(alpacadev.CameraType, simdrv.NewCamera(spec.Name, spec.FocalLength, spec.PixelSizeX, spec.PixelSizeY, spec.PixelCountX, spec.PixelCountY))
 	case "sim-focuser":
 		d := sim.NewFocuser()
 		simName(spec, &d.DevName)

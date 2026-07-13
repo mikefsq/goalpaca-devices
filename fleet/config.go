@@ -146,6 +146,14 @@ type DeviceSpec struct {
 	// GuideRate is the mount's guide speed as a fraction of sidereal (e.g. 0.5),
 	// reported over INDI so PHD2 can scale calibration. Defaults to 0.5 when omitted.
 	GuideRate float64 `json:"guideRate,omitempty"`
+
+	// PixelSizeX/Y (µm) set a sim-camera's pixel size, which with focalLength fixes
+	// the guide field's arcsec→px scale. PixelCountX/Y set the sensor dimensions
+	// (CameraXSize/CameraYSize). Omitted defaults to the sim sensor's values.
+	PixelSizeX  float64 `json:"pixelSizeX,omitempty"`
+	PixelSizeY  float64 `json:"pixelSizeY,omitempty"`
+	PixelCountX int     `json:"pixelCountX,omitempty"`
+	PixelCountY int     `json:"pixelCountY,omitempty"`
 }
 
 // resolveConfigPath decides which config file to load when the -config flag is not

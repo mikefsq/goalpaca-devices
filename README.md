@@ -10,6 +10,13 @@ the device protocols were implemented directly (USB-HID, USB-serial, or the
 reverse-engineered ZWO/PlayerOne camera wire protocol). Only the `goasi`-based ZWO
 drivers are cgo and need the proprietary ZWO ASI SDK.
 
+Each vendor-free driver module also **registers itself** with
+[`goalpaca/registry`](https://github.com/mikefsq/goalpaca) (its `hurd.go` file:
+name, ASCOM type, config example, factory), so the
+[alpacahurd](https://github.com/mikefsq/alpacahurd) composed server can compile
+it in with one `hurd.conf` line — standalone binary and herd membership from
+the same module.
+
 ## Telescopes
 
 LX200-family mounts, built on [`lx200`](https://github.com/mikefsq/lx200). Go, no SDK.
@@ -65,30 +72,25 @@ Weather / sky-quality sensors, exposed as ASCOM **ObservingConditions**. Go, no 
 The MGPBox can also feed its GPS + weather into a `tenmicron` mount (site coordinates,
 clock, and refraction pressure/temperature) via the `mountAddr` config field.
 
-## The fleet — one process, one config
+## The herd — one process, one config
 
-Rather than launch each driver by hand, **`astrofleet`** (in [`fleet/`](fleet/README.md))
-runs every enabled device in a single process from one JSON config — each on its own
-Alpaca port, behind a single UDP-32227 discovery responder, with per-device acquire/
-reconnect so it survives an empty bus and unplug/replug.
+Rather than launch each driver by hand,
+**[alpacahurd](https://github.com/mikefsq/alpacahurd)** (its own repo) runs every
+enabled device in a single process from one JSON config — each on its own Alpaca
+port, behind a single UDP-32227 discovery responder, with per-device acquire/
+reconnect so it survives an empty bus and unplug/replug. Which drivers are
+compiled in is chosen at build time in its `hurd.conf`; the drivers here are the
+default set.
 
 It also serves two **optional native front-ends** over the same device objects (no
 `indiserver`, no translation shims — they are siblings of the Alpaca server, sharing
-the one source-of-truth device):
+the one source-of-truth device): **INDI** for PHD2 and **LX200** for
+Stellarium / SkySafari. It ships `sim-*` drivers (one per ASCOM type) for client
+development with no hardware, and installs as a systemd (Linux) or launchd (macOS)
+service. See the [alpacahurd README](https://github.com/mikefsq/alpacahurd).
 
-- **INDI** (`"indi": { "enable": true, "port": 7624 }`) — one multiplexed server for
-  PHD2 / KStars-Ekos; a mount opts in with `"indi": true`.
-- **LX200** (`"lx200": { "enable": true, "basePort": 4030 }`) — a Meade-LX200 TCP
-  server per mount (one port each, assigned from `basePort`) for Stellarium / SkySafari.
-
-For client development with **no hardware**, the fleet has `sim-*` drivers (one per
-ASCOM type); `config/fleet.sim.json` is a ready-made full simulated fleet:
-
-```sh
-cd fleet && go run . -config config/fleet.sim.json
-```
-
-See [`fleet/README.md`](fleet/README.md) for the full config reference.
+The herd's predecessor, `astrofleet` (in [`fleet/`](fleet/README.md)), is
+deprecated and will be removed once alpacahurd is validated on deployed hardware.
 
 ## Build
 
@@ -97,7 +99,7 @@ From this directory the `Makefile` builds into `./bin`:
 ```sh
 make                # every Go driver + astrofleet
 make tenmicron      # one driver
-make astrofleet     # just the aggregator
+make astrofleet     # the deprecated aggregator (superseded by alpacahurd)
 make sdk            # the cgo ZWO-SDK drivers (asiccd, asicaa) — needs the ZWO lib
 make sim            # run all simulated Alpaca devices (no hardware)
 ```
