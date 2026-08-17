@@ -29,7 +29,7 @@ go build .          # Go, no SDK
 ## Environment feed (refraction / site / time)
 
 Another driver (an environment/GPS feeder) can push observing-site data into the
-mount over the standard, stateless Alpaca port — no side channel:
+mount over the standard, stateless Alpaca port:
 
 - **Site latitude/longitude/elevation** and **UTC date** are standard ASCOM
   Telescope members — `PUT sitelatitude`, `sitelongitude`, `siteelevation`,

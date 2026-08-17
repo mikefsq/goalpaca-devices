@@ -313,7 +313,10 @@ func (t *Telescope) actions() map[string]actionFn {
 				return okErr(ok, err, "meridian slew limit rejected")
 			}),
 		"meridiantracklimit": t.readWrite(
-			func(m *tenmicron.Mount) (string, error) { v, err := m.MeridianTrackLimit(); return strconv.Itoa(v), err },
+			func(m *tenmicron.Mount) (string, error) {
+				v, err := m.MeridianTrackLimit()
+				return strconv.Itoa(v), err
+			},
 			func(m *tenmicron.Mount, p string) error {
 				v, err := parseIntArg(p)
 				if err != nil {
@@ -323,7 +326,10 @@ func (t *Telescope) actions() map[string]actionFn {
 				return okErr(ok, err, "meridian track limit rejected")
 			}),
 		"meridiansidebehaviour": t.readWrite(
-			func(m *tenmicron.Mount) (string, error) { s, err := m.MeridianSideBehaviour(); return meridianStr(s), err },
+			func(m *tenmicron.Mount) (string, error) {
+				s, err := m.MeridianSideBehaviour()
+				return meridianStr(s), err
+			},
 			func(m *tenmicron.Mount, p string) error {
 				s, ok := parseMeridian(p)
 				if !ok {
@@ -333,7 +339,10 @@ func (t *Telescope) actions() map[string]actionFn {
 				return okErr(ok2, err, "meridian side rejected")
 			}),
 		"unattendedflip": t.readWrite(
-			func(m *tenmicron.Mount) (string, error) { v, err := m.UnattendedFlip(); return strconv.FormatBool(v), err },
+			func(m *tenmicron.Mount) (string, error) {
+				v, err := m.UnattendedFlip()
+				return strconv.FormatBool(v), err
+			},
 			func(m *tenmicron.Mount, p string) error {
 				b, ok := parseBool(p)
 				if !ok {
@@ -378,7 +387,10 @@ func (t *Telescope) actions() map[string]actionFn {
 		// weather station / refraction auto-update
 		"weather": t.read(t.readWeather),
 		"weatherautoupdate": t.readWrite(
-			func(m *tenmicron.Mount) (string, error) { md, err := m.WeatherAutoUpdateMode(); return weatherModeStr(md), err },
+			func(m *tenmicron.Mount) (string, error) {
+				md, err := m.WeatherAutoUpdateMode()
+				return weatherModeStr(md), err
+			},
 			func(m *tenmicron.Mount, p string) error {
 				md, ok := parseWeatherMode(p)
 				if !ok {
@@ -402,7 +414,10 @@ func (t *Telescope) actions() map[string]actionFn {
 				}
 				return m.SetUTCOffset(time.Duration(v * float64(time.Hour)))
 			}),
-		"syncgps":   t.op(func(m *tenmicron.Mount) (string, error) { ok, err := m.UpdateFromGPS(); return strconv.FormatBool(ok), err }),
+		"syncgps": t.op(func(m *tenmicron.Mount) (string, error) {
+			ok, err := m.UpdateFromGPS()
+			return strconv.FormatBool(ok), err
+		}),
 		"gpsstatus": t.read(func(m *tenmicron.Mount) (string, error) { s, err := m.GPSSyncState(); return gpsStr(s), err }),
 
 		// power / system / network
@@ -425,7 +440,10 @@ func (t *Telescope) actions() map[string]actionFn {
 				return m.SetWakeOnLAN(b)
 			}),
 		"webinterface": t.readWrite(
-			func(m *tenmicron.Mount) (string, error) { v, err := m.WebInterfaceActive(); return strconv.FormatBool(v), err },
+			func(m *tenmicron.Mount) (string, error) {
+				v, err := m.WebInterfaceActive()
+				return strconv.FormatBool(v), err
+			},
 			func(m *tenmicron.Mount, p string) error {
 				b, ok := parseBool(p)
 				if !ok {
@@ -449,11 +467,14 @@ func (t *Telescope) actions() map[string]actionFn {
 		"network": t.read(t.readNetwork),
 
 		// telemetry
-		"firmware":          t.read(t.readFirmware),
-		"motortemperature":  t.read(t.readMotorTemps),
-		"parallacticangle":  t.read(func(m *tenmicron.Mount) (string, error) { v, err := m.ParallacticAngle(); return ftoa(v, 4), err }),
-		"axisangles":        t.read(t.readAxisAngles),
-		"timetotrackingend": t.read(func(m *tenmicron.Mount) (string, error) { d, err := m.TimeToTrackingEnd(); return ftoa(d.Seconds(), 0), err }),
+		"firmware":         t.read(t.readFirmware),
+		"motortemperature": t.read(t.readMotorTemps),
+		"parallacticangle": t.read(func(m *tenmicron.Mount) (string, error) { v, err := m.ParallacticAngle(); return ftoa(v, 4), err }),
+		"axisangles":       t.read(t.readAxisAngles),
+		"timetotrackingend": t.read(func(m *tenmicron.Mount) (string, error) {
+			d, err := m.TimeToTrackingEnd()
+			return ftoa(d.Seconds(), 0), err
+		}),
 
 		// parking variants
 		"parkinplace": t.op(func(m *tenmicron.Mount) (string, error) { return "parking", m.ParkInPlace() }),

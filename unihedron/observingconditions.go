@@ -3,15 +3,11 @@
 // (FTDI USB-serial). It is served standalone by cmd/unihedron and can be hosted by
 // alpacahurd.
 //
-// Sensor mapping is deliberately narrow and honest. An SQM measures exactly two things:
-//   - sky brightness in mag/arcsec²  → SkyQuality()  (the ASCOM field defined in those
-//     very units — an exact, not converted, mapping)
-//   - temperature at the light sensor → Temperature() (ambient-ish; the SQM has no IR
-//     sky sensor, so SkyTemperature is intentionally left NotImplemented, as is
-//     SkyBrightness, whose ASCOM unit is Lux — a band/model-dependent conversion we
-//     decline to fabricate)
+// Sensor mapping is deliberately narrow. An SQM measures exactly two things:
+//   - sky brightness in mag/arcsec²  → SkyQuality()
+//   - temperature at the light sensor → Temperature()
 //
-// Everything else stays at the BaseObservingConditions NotImplemented default.
+// Everything else returns BaseObservingConditions NotImplemented default.
 package driver
 
 import (
@@ -30,7 +26,7 @@ var _ alpacadev.ObservingConditions = (*SQM)(nil)
 
 // cacheTTL bounds how long one device reading is reused. A client's Refresh() +
 // several property GETs (SkyQuality, Temperature, TimeSinceLastUpdate) then share a
-// single serial round-trip instead of hammering the meter once per property.
+// single serial round-trip.
 const cacheTTL = 2 * time.Second
 
 // SQM adapts a mikefsq/unihedron Sky Quality Meter to the alpacadev.ObservingConditions
@@ -78,8 +74,6 @@ func (s *SQM) init() {
 	s.Info = "unihedron — Unihedron SQM Alpaca ObservingConditions driver over Go mikefsq/unihedron"
 	s.IfaceVer = alpacadev.InterfaceVersionObservingConditions
 }
-
-// --- Hardware lifecycle (mirrors the sibling focuscube device) ---
 
 func (s *SQM) Open(ctx context.Context) error {
 	if s.openDev == nil {
@@ -163,9 +157,8 @@ func (s *SQM) tryAcquire() bool {
 }
 
 // openByIndex probes the FTDI ports for actual SQMs (skipping other FTDI devices such as
-// a Pegasus focuser) and opens the index-th one. With the default index 0 this reliably
-// finds the meter without a configured serial; index only matters in the rare multi-SQM
-// setup.
+// a Pegasus focuser) and opens the index-th one. The default index 0 finds a meter without
+// a configured serial. The index only needs to be set if there are multiple SQMs.
 func (s *SQM) openByIndex() (*unihedron.SQM, error) {
 	found, err := unihedron.Discover()
 	if err != nil {
@@ -178,8 +171,6 @@ func (s *SQM) openByIndex() (*unihedron.SQM, error) {
 }
 
 func (s *SQM) openBySerial() (*unihedron.SQM, error) { return unihedron.OpenBySerial(s.serial) }
-
-// --- ObservingConditions members ---
 
 // reading returns a cached meter reading, refreshing from the device when the cache is
 // older than cacheTTL (or force is set). Caller must not hold s.mu.
@@ -201,8 +192,8 @@ func (s *SQM) reading(force bool) (unihedron.Reading, error) {
 	return r, nil
 }
 
-// SkyQuality returns the sky brightness in mag/arcsec² — the SQM's native measurement,
-// and the exact quantity the ASCOM SkyQuality property is defined in.
+// SkyQuality returns the sky brightness in mag/arcsec² which is the SQM's native measurement,
+// and the quantity the ASCOM SkyQuality property is defined in.
 func (s *SQM) SkyQuality() (float64, error) {
 	r, err := s.reading(false)
 	return r.MagPerArcsec2, err

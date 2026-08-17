@@ -17,11 +17,11 @@ import (
 
 const (
 	defaultMaxAxisRate = 6.0 // fallback MoveAxis/AxisRates ceiling (deg/s) until the mount reports MaxSlewRate
-	slewTimeout = 3 * time.Minute
-	acquirePoll = 3 * time.Second
-	monitorPoll = 1 * time.Second        // snapshot refresh cadence when idle/tracking
-	slewPoll    = 250 * time.Millisecond // refresh while slewing
-	fullPoll    = 5 * time.Second        // cadence for the slow-changing set (home/guide/refraction)
+	slewTimeout        = 3 * time.Minute
+	acquirePoll        = 3 * time.Second
+	monitorPoll        = 1 * time.Second        // snapshot refresh cadence when idle/tracking
+	slewPoll           = 250 * time.Millisecond // refresh while slewing
+	fullPoll           = 5 * time.Second        // cadence for the slow-changing set (home/guide/refraction)
 
 	// mountCacheTTL is the mount's :Ginfo# cache lifetime. Longer than monitorPoll so
 	// the LX200 bridge and INDI server ride the poller's cache between cycles.

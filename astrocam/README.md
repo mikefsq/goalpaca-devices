@@ -1,19 +1,13 @@
 # astrocam
 
-A standalone ASCOM **Alpaca Camera** server for ZWO ASI and PlayerOne cameras,
-built on [`goalpaca`](https://github.com/mikefsq/goalpaca) and the **Go**
-[`astrocam`](https://github.com/mikefsq/astrocam) camera library — the ZWO/PlayerOne
-USB wire protocol implemented directly, with **no `libASICamera2` (ZWO SDK)**. One
+A standalone ASCOM **Alpaca Camera** server for various CMOS astrophotography cameras
+(e.g. ASI6200, ASI174MM) built on [`goalpaca`](https://github.com/mikefsq/goalpaca) and the **Go**
+[`astrocam`](https://github.com/mikefsq/astrocam) camera library. One
 process serves one *or more* cameras, each as its own Alpaca device (0, 1, …) on the
 same port.
 
-The USB transport is per-platform: **usbfs** on Linux and **WinUSB** on Windows (both
-**cgo-free**), **IOKit** on macOS (cgo). So on Linux and Windows it cross-compiles to a
-static binary with `CGO_ENABLED=0`.
-
-> `astrocam` and [`asiccd`](../asiccd) are two routes to a ZWO camera — the Go
-> protocol here vs. the official ZWO SDK — and share the default port `11111`. Run one
-> or the other.
+The USB transport is implemented per-platform: **usbfs** on Linux and **WinUSB** on Windows,
+and **IOKit** on macOS. 
 
 ## Build
 
@@ -90,17 +84,15 @@ unplug/replug (and a driver-confirmed device wedge) without dropping the Alpaca 
 
 ### Device Actions
 
-Beyond the standard members, two device-specific Actions (advertised in CamelCase, matched
-case-insensitively; see `GET supportedactions`):
+These device-specific Actions are supported (see `GET supportedactions`):
 
 | Action | Parameters | Effect |
 |---|---|---|
 | `VideoMode` | empty reads the current `true`/`false`; `on`/`off` (also `true`/`1`/`start`, `false`/`0`/`stop`) sets it | toggles continuous free-run streaming — for constant-exposure guiding at ~2× the single-shot rate. Frames still flow over the standard `ImageArray` path; only the acquisition engine changes. |
 | `FpsPercent` | empty to query, or an integer `40..100` to set | the FPS-percent / bandwidth-overload throttle the readout HMAX/line-time math derates by. Lower = slower readout (larger HMAX) to fit a constrained USB link; the query returns the live value (link-dependent default — 100 on USB3, 40 on USB2 — until set). |
+| `CoolerFault` | read-only (empty params) | the error the cooling loop stopped with, or empty. The driver zeroes the TEC and stops regulating after 15 consecutive thermal read/write failures; `CoolerOn` then reads `false` and this Action says why. Setting `CoolerOn` again starts a fresh loop. |
 
-Factory **hot-pixel correction** (the per-unit defect map from SPI flash, applied to
-full-frame RAW16) is available via `SetFixDefects` — off by default; the fleet enables
-it per-camera with the `"fixdefects": true` config field (see [`../fleet`](../fleet)).
+Factory **hot-pixel correction** (the per-unit defect map from SPI flash) is available via `SetFixDefects` or the `"fixdefects": true` config field.
 
 ## Testing
 

@@ -3,7 +3,7 @@
 ASCOM Alpaca **ObservingConditions** device for **Unihedron Sky Quality Meters**
 (SQM-LU / SQM-LU-DL / SQM-LE), over the Go [`mikefsq/unihedron`](../../unihedron)
 library (FTDI USB-serial). Sibling of the other `goalpaca-devices` drivers; served
-standalone by `cmd/unihedron` or hosted by `astrofleet`.
+standalone by `cmd/unihedron` or hosted by `alpacahurd`.
 
 Hardware-validated end-to-end against a live SQM-LU (unit serial 5533): the server
 auto-acquires the meter and serves `SkyQuality` ≈ 10.95 mag/arcsec² and `Temperature`
@@ -16,15 +16,14 @@ leaves the rest at the `BaseObservingConditions` *NotImplemented* default:
 
 | ASCOM property | Source | Notes |
 |----------------|--------|-------|
-| `SkyQuality`   | SQM reading (mag/arcsec²) | Exact — the ASCOM property is *defined* in these units. |
+| `SkyQuality`   | SQM reading (mag/arcsec²) | The ASCOM property is *defined* in these units. |
 | `Temperature`  | SQM light-sensor temperature (°C) | Ambient-ish enclosure temperature. |
 
 Deliberately **not** implemented:
 
-- `SkyBrightness` — ASCOM unit is Lux; converting from mag/arcsec² is band/model-
-  dependent, so we don't fabricate it. `SkyQuality` is the honest field.
-- `SkyTemperature` — implies an IR cloud sensor; the SQM has none.
-- Humidity / pressure / wind / rain / cloud / dewpoint / FWHM — no such sensors.
+- `SkyBrightness` — THe ASCOM unit is Lux; converting from mag/arcsec² is band/model-dependent. 
+- `SkyTemperature` — implies an IR cloud sensor.
+- Humidity / pressure / wind / rain / cloud / dewpoint / FWHM.
 
 `Refresh` forces a fresh reading; a short (2 s) cache lets a client's `Refresh` +
 several property GETs share one serial round-trip. `TimeSinceLastUpdate` returns the

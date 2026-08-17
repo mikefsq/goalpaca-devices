@@ -28,7 +28,10 @@ func (t *Telescope) modelActions() map[string]actionFn {
 		"deletealignment":   t.op(func(m *tenmicron.Mount) (string, error) { return "alignment deleted", m.DeleteAlignment() }),
 
 		// alignment telemetry
-		"alignmentstarcount":  t.read(func(m *tenmicron.Mount) (string, error) { n, err := m.AlignmentStarCount(); return strconv.Itoa(n), err }),
+		"alignmentstarcount": t.read(func(m *tenmicron.Mount) (string, error) {
+			n, err := m.AlignmentStarCount()
+			return strconv.Itoa(n), err
+		}),
 		"maxalignmentstars":   t.read(func(m *tenmicron.Mount) (string, error) { n, err := m.MaxAlignmentStars(); return strconv.Itoa(n), err }),
 		"alignmentstar":       t.indexed(func(m *tenmicron.Mount, n int) (string, error) { return m.AlignmentStar(n) }),
 		"deletealignmentstar": t.indexed(func(m *tenmicron.Mount, n int) (string, error) { return "deleted", m.DeleteAlignmentStar(n) }),

@@ -279,10 +279,10 @@ func (t *Telescope) SideOfPier() alpacadev.PierSide {
 // Driver-remembered properties (the mount does not read these back). Target
 // RA/Dec are stored by the embedded BaseTelescope (promoted TargetRightAscension/
 // TargetDeclination), which also enforces the ASCOM read-before-set rule.
-func (t *Telescope) SiteLatitude() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLat }
-func (t *Telescope) SiteLongitude() float64     { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLon }
-func (t *Telescope) SiteElevation() float64     { t.mu.Lock(); defer t.mu.Unlock(); return t.siteEl }
-func (t *Telescope) SlewSettleTime() int        { t.mu.Lock(); defer t.mu.Unlock(); return t.slewSettleSec }
+func (t *Telescope) SiteLatitude() float64  { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLat }
+func (t *Telescope) SiteLongitude() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.siteLon }
+func (t *Telescope) SiteElevation() float64 { t.mu.Lock(); defer t.mu.Unlock(); return t.siteEl }
+func (t *Telescope) SlewSettleTime() int    { t.mu.Lock(); defer t.mu.Unlock(); return t.slewSettleSec }
 
 func (t *Telescope) TrackingRate() alpacadev.DriveRate {
 	t.mu.Lock()

@@ -1,108 +1,102 @@
 # goalpaca-devices
 
-Standalone **ASCOM Alpaca** driver devices — each a small server that exposes a
-piece of astronomy hardware over the Alpaca (REST/JSON + UDP discovery) protocol,
-built on the [goalpaca](https://github.com/mikefsq/goalpaca) server library.
+Standalone **ASCOM Alpaca** device drivers built on the 
+[goalpaca](https://github.com/mikefsq/goalpaca) server library. These drivers 
+are intended to be distributed as source code without vendor library dependencies and 
+are intended to be run on a raspberry pi or similar hardware. 
 
-Every driver is its **own Go module and binary**: one process serves one device as
-Alpaca device 0 on its own port. Most of these drivers are **Go with no vendor SDK** —
-the device protocols were implemented directly (USB-HID, USB-serial, or the
-reverse-engineered ZWO/PlayerOne camera wire protocol). Only the `goasi`-based ZWO
-drivers are cgo and need the proprietary ZWO ASI SDK.
+Each driver connects to a hardware device and serves an Alpaca server. Each will 
+respond using the standard Alpaca shared discovery port 32227 so can be used by 
+any client on the local network that supports Alpaca devices. Each driver is 
+responsible for handling the device connects, disconnects, reconnects, and to 
+an extent fault recovery, so the Alpaca client will receive a stable interface
+to the devices it needs. 
 
-Each vendor-free driver module also **registers itself** with
-[`goalpaca/registry`](https://github.com/mikefsq/goalpaca) (its `hurd.go` file:
-name, ASCOM type, config example, factory), so the
-[alpacahurd](https://github.com/mikefsq/alpacahurd) composed server can compile
-it in with one `hurd.conf` line — standalone binary and herd membership from
-the same module.
+A simple setup (beyond just running the cmd directly) uses a systemd script to
+launch needed drivers.  If there are many drivers it is convenient to
+use the composed server [alpacahurd](https://github.com/mikefsq/alpacahurd).
+
+Most of these drivers are **Go with no vendor SDK** and run on Linux and macOS
+hosts. The device protocols were implemented directly. 
 
 ## Telescopes
 
-LX200-family mounts, built on [`lx200`](https://github.com/mikefsq/lx200). Go, no SDK.
+LX200-family mounts, built on [`lx200`](https://github.com/mikefsq/lx200). 
 
 | Dir | Mount | Connect | Port |
 |---|---|---|---|
 | `tenmicron` | 10Micron GM-series | TCP | 11200 |
-| `asiam5` | ZWO AM3/AM5/AM5N/AM7 | USB-serial or WiFi/TCP | 11201 |
 | `rst` | Rainbow Astro RST-135/300 | USB-serial | 11202 |
 | `onstep` | OnStep / OnStepX | USB-serial or WiFi/TCP | 11203 |
+| `asiam5` | ZWO AM3/AM5/AM5N/AM7 | USB-serial or WiFi/TCP | 11201 |
 
 ## Cameras
 
-| Dir | Camera | Backend | Port |
-|---|---|---|---|
-| `astrocam` | ZWO ASI / PlayerOne | **Go** over [`astrocam`](https://github.com/mikefsq/astrocam) — no SDK | 11111 |
-| `asiccd` | ZWO ASI | cgo, ZWO **ASICamera2** SDK (via `goasi`) | 11111 |
-
-`astrocam` and `asiccd` are two routes to a ZWO camera (Go vs the official SDK);
-run one or the other (they share the default port).
+| Dir | Camera | Backend |
+|---|---|---|
+| `astrocam` | ASI6200, ASI174MM, ASI290MM, etc. | **Go** [`astrocam`](https://github.com/mikefsq/astrocam) — no SDKs |
+| `ptpcam` | USB PTP cameras (Fuji, Sony) | **Go** [`ptp`](https://github.com/mikefsq/ptp) — no SDKs |
 
 ## Focusers
 
-| Dir | Focuser | Backend | Port |
-|---|---|---|---|
-| `oasisfoc` | Astroasis Oasis | **Go**, USB-HID ([`oasis-astro`](https://github.com/mikefsq/oasis-astro)) | 11120 |
-| `focuscube` | Pegasus FocusCube / DMFC | **Go**, USB-serial ([`pegasus-astro`](https://github.com/mikefsq/pegasus-astro)) | 11121 |
-| `focuslynx` | Optec FocusLynx / ThirdLynx | **Go**, USB-serial ([`optec`](https://github.com/mikefsq/optec)) | 11122 |
-| `asieaf` | ZWO EAF | **Go**, USB-HID ([`goasi/eaf`](https://github.com/mikefsq/goasi)) — no SDK | 11112 |
+| Dir | Focuser | Backend |
+|---|---|---|
+| `oasisfoc` | Astroasis Oasis | **Go**, USB-HID ([`oasis-astro`](https://github.com/mikefsq/oasis-astro)) |
+| `focuscube` | Pegasus FocusCube / DMFC | **Go**, USB-serial ([`pegasus-astro`](https://github.com/mikefsq/pegasus-astro)) |
+| `focuslynx` | Optec FocusLynx / ThirdLynx | **Go**, USB-serial ([`optec`](https://github.com/mikefsq/optec)) |
+| `asieaf` | ZWO EAF | **Go**, USB-HID ([`goasi/eaf`](https://github.com/mikefsq/goasi)) |
 
 ## Filter wheels
 
-| Dir | Wheel | Backend | Port |
-|---|---|---|---|
-| `oasisfw` | Astroasis Oasis | **Go**, USB-HID ([`oasis-astro`](https://github.com/mikefsq/oasis-astro)) | 11123 |
-| `asiefw` | ZWO EFW | **Go**, USB-HID ([`goasi/efw`](https://github.com/mikefsq/goasi)) — no SDK | 11113 |
+| Dir | Wheel | Backend |
+|---|---|---|
+| `oasisfw` | Astroasis Oasis | **Go**, USB-HID ([`oasis-astro`](https://github.com/mikefsq/oasis-astro)) |
+| `asiefw` | ZWO EFW | **Go**, USB-HID ([`goasi/efw`](https://github.com/mikefsq/goasi))|
 
 ## Rotators
 
-| Dir | Rotator | Backend | Port |
-|---|---|---|---|
-| `asicaa` | ZWO CAA (Camera Angle Adjuster) | cgo, ZWO **CAA** SDK (via `goasi`) | 11114 |
+| Dir | Rotator | Backend |
+|---|---|---|
 
 ## Observing conditions
 
-Weather / sky-quality sensors, exposed as ASCOM **ObservingConditions**. Go, no SDK.
+Weather / sky-quality sensors, exposed as ASCOM **ObservingConditions**. 
 
-| Dir | Device | Backend | Port |
-|---|---|---|---|
-| `unihedron` | Unihedron SQM (sky quality meter) | **Go**, USB-serial ([`unihedron`](https://github.com/mikefsq/unihedron)) | 11124 |
-| `mgpbox` | Astromi.ch MGPBox (GPS + weather + dew heater) | **Go**, USB-serial ([`astromi.ch`](https://github.com/mikefsq/astromi.ch)) | 11125 |
+| Dir | Device | Backend |
+|---|---|---|
+| `unihedron` | Unihedron SQM (sky quality meter) | **Go**, USB-serial ([`unihedron`](https://github.com/mikefsq/unihedron)) |
+| `mgpbox` | Astromi.ch MGPBox (GPS + weather) | **Go**, USB-serial ([`astromi.ch`](https://github.com/mikefsq/astromi.ch)) |
 
-The MGPBox can also feed its GPS + weather into a `tenmicron` mount (site coordinates,
+Note: This MGPBox driver can feed its GPS + weather data into the goalpaca `tenmicron` driver (site coordinates,
 clock, and refraction pressure/temperature) via the `mountAddr` config field.
 
 ## Simulator
 
-| Dir | Device | Backend | Port |
-|---|---|---|---|
-| `sim` | Simulated mount + guide camera on **one shared sky** | **Go**, no hardware | 11110 |
+| Dir | Device | Backend |
+|---|---|---|
+| `sim` | Simulated mount + guide camera on **one shared sky model** | **Go**, no hardware |
 
-One binary, both devices (telescope 0 + camera 0) on one port: the mount owns the
-pointing error and the camera renders it, so a guiding client (PHD2) can calibrate
-and guide a closed loop with no hardware. Camera scale is configurable
-(`-focal-length`, `-pixel-size`, `-width`/`-height`). The same devices are available
-inside alpacahurd as its `sim-telescope`/`sim-camera` drivers; this is the standalone
-form, in parity with the hardware drivers. (goalpaca's `cmd/alpacasim` is different —
-one of every device type for protocol/ConformU testing, but its camera is not coupled
-to its mount, so it cannot guide.)
+Note: This simulated device connects the mount coordinates with a simulated star field 
+for the guide camera. So it presents one binary with both devices (telescope 0 + camera 0) 
+on one port. A guiding client like PHD2 can calibrate and guide a closed loop with no hardware. 
+The camera scale is configurable, see driver documentation. 
+
 
 ## The herd — one process, one config
 
 Rather than launch each driver by hand,
 **[alpacahurd](https://github.com/mikefsq/alpacahurd)** (its own repo) runs every
-enabled device in a single process from one JSON config — each on its own Alpaca
-port, behind a single UDP-32227 discovery responder, with per-device acquire/
-reconnect so it survives an empty bus and unplug/replug. Which drivers are
-compiled in is chosen at build time in its `hurd.conf`; the drivers here are the
-default set.
+enabled device in a single process from one JSON config. Each process runs on its 
+own Alpaca port and there is shared UDP-32227 discovery responder. This also monitors for
+per-device acquire/reconnect so it can survive an empty bus and unplug/replug. 
 
-It also serves two **optional native front-ends** over the same device objects (no
-`indiserver`, no translation shims — they are siblings of the Alpaca server, sharing
-the one source-of-truth device): **INDI** for PHD2 and **LX200** for
-Stellarium / SkySafari. It ships `sim-*` drivers (one per ASCOM type) for client
-development with no hardware, and installs as a systemd (Linux) or launchd (macOS)
-service. See the [alpacahurd README](https://github.com/mikefsq/alpacahurd).
+It also serves two **optional native front-ends** over the same device objects. It can serve
+an **LX200** endpoint so clients like Stellarium or SkySafari can connect and control the mount. 
+It also supports limited INDI mount and camera interfaces intended for PHD2 control. But since 
+PHD2 now supports Alpaca directly, this INDI guide workaround is not needed anymore. 
+
+You may find dpkgs for raspbian (and also windows and osx builds) containing Alpaca here: [PHD2](https://github.com/mikefsq/phd2).
+
 
 ## Build
 
@@ -111,29 +105,26 @@ From this directory the `Makefile` builds into `./bin`:
 ```sh
 make                # every Go driver
 make tenmicron      # one driver
-make sdk            # the cgo ZWO-SDK drivers (asiccd, asicaa) — needs the ZWO lib
 make sim            # the coupled guide sim (mount + camera, one shared sky)
 make alpacasim      # run goalpaca's one-of-every-type protocol sim (not guidable)
 ```
 
 Or build any module in place: `cd tenmicron && go build .`, then e.g.
 `./tenmicron -addr 10.0.1.51:3492`. The Go drivers (telescopes, `astrocam`,
-`oasisfoc`/`oasisfw`, `focuslynx`, `focuscube`, `unihedron`, `mgpbox`, `asieaf`, `asiefw`)
-need **no vendor SDK**; on Linux and Windows they build with `CGO_ENABLED=0` (the USB-HID
-and `astrocam` USB backends use cgo only on macOS). The `goasi`-**SDK** drivers (`asiccd`,
-`asicaa`) are cgo and require the ZWO ASI SDK runtime — see each driver's
-`README.md` and the `goasi` README.
+`oasisfoc`, `oasisfw`, `focuslynx`, `focuscube`, `unihedron`, `mgpbox`). 
 
-See each driver's `README.md` for its flags and behavior.
+See each driver's `README.md` for details. 
 
 ## Dependencies
 
+These drivers depend on the goalpaca server library and underlying device driver libraries:
+
 - [`goalpaca`](https://github.com/mikefsq/goalpaca) — the Alpaca server framework (all drivers)
-- [`lx200`](https://github.com/mikefsq/lx200) — mount protocol libraries (telescopes)
-- [`goasi`](https://github.com/mikefsq/goasi) — ZWO camera/CAA SDK bindings (cgo: `asiccd`/`asicaa`) **and** pure-Go USB-HID drivers (`efw`, `eaf`)
-- Go device libraries: [`astrocam`](https://github.com/mikefsq/astrocam) (ZWO/PlayerOne camera),
-  [`oasis-astro`](https://github.com/mikefsq/oasis-astro), [`optec`](https://github.com/mikefsq/optec),
-  [`pegasus-astro`](https://github.com/mikefsq/pegasus-astro),
+- Go device libraries: [`astrocam`](https://github.com/mikefsq/astrocam) (CMOS camera like the ASI6200, ASI174MM, etc.),
+  [`lx200`](https://github.com/mikefsq/lx200) — mount protocol libraries (10 Micron, Rainbow Astro, OnStep).
+  [`oasis-astro`](https://github.com/mikefsq/oasis-astro) (Focuser, Filter Wheel), 
+  [`optec`](https://github.com/mikefsq/optec) (Optec Focuser),
+  [`pegasus-astro`](https://github.com/mikefsq/pegasus-astro) (Pegasus Focuser),
   [`unihedron`](https://github.com/mikefsq/unihedron) (SQM sky-quality meter),
   [`astromi.ch`](https://github.com/mikefsq/astromi.ch) (MGPBox GPS/weather)
 

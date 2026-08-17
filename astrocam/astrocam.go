@@ -313,6 +313,17 @@ func (c *PureASICamera) configureOpened(cam *astrocam.Camera, d astrocam.DeviceI
 	_ = cam.SetROI(0, 0, info.MaxWidth, info.MaxHeight) // full frame
 	_ = cam.SetGain(0)
 	_ = cam.SetExposure(time.Second)
+	// The offset is set explicitly to the range default and then read back from the sensor
+	// (Offset() reads the registers), so the value the client sees is what the camera holds.
+	omin, omax, odef, ook := cam.OffsetRange()
+	if ook {
+		if err := cam.SetOffset(odef); err != nil {
+			log.Printf("asicam-alpaca: camera %s: set default offset %d: %v", c.ID, odef, err)
+		}
+		if got := cam.Offset(); got != odef {
+			log.Printf("asicam-alpaca: camera %s: offset read back %d after setting %d", c.ID, got, odef)
+		}
+	}
 
 	gmin, gmax := cam.GainRange()
 	emin, emax := cam.ExposureRange()
@@ -325,7 +336,7 @@ func (c *PureASICamera) configureOpened(cam *astrocam.Camera, d astrocam.DeviceI
 	c.startX, c.startY = 0, 0
 	c.numX, c.numY = info.MaxWidth, info.MaxHeight
 	c.gainMin, c.gainMax = gmin, gmax
-	c.offsetMin, c.offsetMax, _, c.offsetOK = cam.OffsetRange()
+	c.offsetMin, c.offsetMax, c.offsetOK = omin, omax, ook
 	c.expMinSec, c.expMaxSec = emin.Seconds(), emax.Seconds()
 	c.DevName = cam.Name()
 	c.Desc = fmt.Sprintf("ZWO %s (%dx%d, %.2fµm) [Go asicam]", cam.Name(), info.MaxWidth, info.MaxHeight, info.PixelUm)
@@ -450,8 +461,10 @@ func (c *PureASICamera) CanStopExposure() bool       { return true }
 // case-insensitively). "VideoMode" switches the camera between single-shot and continuous
 // free-run streaming — params on|off writes, empty reads the current state (put/empty=read);
 // "FpsPercent" (params 40..100, or empty to query) sets the readout bandwidth-overload
-// throttle.
-func (c *PureASICamera) SupportedActions() []string { return []string{"VideoMode", "FpsPercent"} }
+// throttle; "CoolerFault" (read-only) returns the error the cooling loop retired with, or "".
+func (c *PureASICamera) SupportedActions() []string {
+	return []string{"VideoMode", "FpsPercent", "CoolerFault"}
+}
 
 // Action handles the device-specific commands. videomode=on starts the internal free-run stream
 // (StartExposure then serves the latest streamed frame, ~2× the rate); videomode=off returns to
@@ -463,6 +476,13 @@ func (c *PureASICamera) Action(name, params string) (string, error) {
 		return c.actionVideoMode(params)
 	case strings.EqualFold(name, "fpspercent"):
 		return c.actionFPSPercent(params)
+	case strings.EqualFold(name, "coolerfault"):
+		// Read-only: the error the cooling loop retired with (empty while it runs or was
+		// switched off by the client); CoolerOn already reflects the retire.
+		if err := c.cam.CoolerFault(); err != nil {
+			return err.Error(), nil
+		}
+		return "", nil
 	default:
 		return c.BaseCamera.Action(name, params)
 	}
@@ -566,6 +586,7 @@ func (c *PureASICamera) startVideoLocked(dur float64) error {
 		c.mu.Unlock()
 		return fmt.Errorf("%w: %v", alpacadev.ErrInvalidValue, err)
 	}
+	c.startX, c.startY, _, _ = c.cam.ROI() // the start the sensor aligned to (StartX/StartY report it)
 	if err := c.cam.SetExposure(time.Duration(dur * float64(time.Second))); err != nil {
 		c.mu.Unlock()
 		return err
@@ -722,6 +743,7 @@ func (c *PureASICamera) StartExposure(duration float64, light bool) error {
 		c.mu.Unlock()
 		return fmt.Errorf("%w: %v", alpacadev.ErrInvalidValue, err)
 	}
+	c.startX, c.startY, _, _ = c.cam.ROI() // the start the sensor aligned to (StartX/StartY report it)
 	if err := c.cam.SetExposure(time.Duration(duration * float64(time.Second))); err != nil {
 		c.mu.Unlock()
 		return err
@@ -994,7 +1016,21 @@ func (c *PureASICamera) CCDTemperature() (float64, error) {
 	return t, nil
 }
 
-func (c *PureASICamera) CoolerOn() bool { c.mu.Lock(); defer c.mu.Unlock(); return c.coolerOn }
+// CoolerOn reports the regulation state as the camera holds it: the client's request and the
+// loop still running. When the loop retires on its own (thermal I/O failing for
+// runMaxConsecFails ticks; astrocam zeroes the TEC and drops the loop) the flag follows, the
+// fault is logged once, and the "CoolerFault" Action returns it.
+func (c *PureASICamera) CoolerOn() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.coolerOn && c.cam != nil && !c.cam.CoolerOn() {
+		c.coolerOn = false
+		if err := c.cam.CoolerFault(); err != nil {
+			log.Printf("asicam-alpaca: camera %s: cooling loop stopped: %v", c.ID, err)
+		}
+	}
+	return c.coolerOn
+}
 
 func (c *PureASICamera) SetCoolerOn(on bool) error {
 	if !c.cam.Cooled() {
