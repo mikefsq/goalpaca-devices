@@ -24,6 +24,10 @@ var _ alpacadev.FilterWheel = (*ASIFilterWheel)(nil)
 // The EFW SDK is not safe for concurrent per-device calls; all efw access is
 // serialized by mu. mu is never held across a sleep.
 type ASIFilterWheel struct {
+	// stopLoop ends the loop Open started and waits for it. Close calls it
+	// before releasing the handle, so a reload's replacement opens the hardware
+	// with no old loop left to re-acquire it (server.RunLoop).
+	stopLoop func(time.Duration)
 	alpacadev.BaseFilterWheel
 
 	index          int
@@ -67,12 +71,15 @@ func NewASIFilterWheel(index int, serial string, unidirectional bool) *ASIFilter
 // Open starts the hardware-management goroutine and returns immediately, so the
 // Alpaca server comes up with or without a wheel attached.
 func (w *ASIFilterWheel) Open(ctx context.Context) error {
-	go alpacadev.Supervise(ctx, w.ID, func() { w.manageHardware(ctx) })
+	w.stopLoop = alpacadev.RunLoop(ctx, w.ID, w.manageHardware)
 	return nil
 }
 
 // Close releases the device on graceful shutdown only.
 func (w *ASIFilterWheel) Close(ctx context.Context) error {
+	if w.stopLoop != nil {
+		w.stopLoop(10 * time.Second) // end the loop Open started before the handle goes
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.dev != nil {

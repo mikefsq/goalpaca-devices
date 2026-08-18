@@ -77,6 +77,10 @@ import (
 // interfaces exist precisely for this, and this is their first real consumer —
 // which is why the vendor packages carry compile-time assertions against them.
 type Camera struct {
+	// stopLoop ends the loop Open started and waits for it. Close calls it
+	// before releasing the handle, so a reload's replacement opens the hardware
+	// with no old loop left to re-acquire it (server.RunLoop).
+	stopLoop func(time.Duration)
 	alpacadev.BaseCamera
 
 	// Body is the open camera. The capability fields below are the same object
@@ -119,6 +123,11 @@ type Camera struct {
 	// found the session dead, which the presence probe cannot see.
 	hwPresent      atomic.Bool
 	needsReconnect atomic.Bool
+	// replaced is set by the alive probe when the body at the bus is a new
+	// attachment (unplugged and replugged between two probes): the open
+	// session is dead for certain, so the supervisor re-acquires at once rather
+	// than after the miss count that guards against an enumeration blink.
+	replaced atomic.Bool
 
 	// exposeWG joins an in-flight exposure before the handle is freed.
 	exposeWG sync.WaitGroup

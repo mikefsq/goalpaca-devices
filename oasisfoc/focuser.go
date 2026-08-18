@@ -33,6 +33,10 @@ var debugMoves = func() bool {
 // presents as an ASCOM absolute focuser; it also has a manual clutch, so the reported
 // position can change without a commanded move (the encoder still tracks it).
 type OasisFocuser struct {
+	// stopLoop ends the loop Open started and waits for it. Close calls it
+	// before releasing the handle, so a reload's replacement opens the hardware
+	// with no old loop left to re-acquire it (server.RunLoop).
+	stopLoop func(time.Duration)
 	alpacadev.BaseFocuser
 
 	index int
@@ -76,11 +80,14 @@ func (f *OasisFocuser) Open(ctx context.Context) error {
 	if f.openDev == nil {
 		f.openDev = f.openByIndex
 	}
-	go alpacadev.Supervise(ctx, f.ID, func() { f.manageHardware(ctx) })
+	f.stopLoop = alpacadev.RunLoop(ctx, f.ID, f.manageHardware)
 	return nil
 }
 
 func (f *OasisFocuser) Close(ctx context.Context) error {
+	if f.stopLoop != nil {
+		f.stopLoop(10 * time.Second) // end the loop Open started before the handle goes
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.dev != nil {

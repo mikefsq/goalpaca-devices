@@ -8,6 +8,7 @@ import (
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
 	"github.com/mikefsq/ptp"
+	"github.com/mikefsq/ptp/usb"
 )
 
 // Hardware lifecycle, following the pattern astrocam established.
@@ -42,7 +43,7 @@ const (
 // Open starts the hardware-management goroutine and returns immediately, so the
 // Alpaca endpoint comes up whether or not a camera is attached.
 func (c *Camera) Open(ctx context.Context) error {
-	go alpacadev.Supervise(ctx, c.ID, func() { c.manageHardware(ctx) })
+	c.stopLoop = alpacadev.RunLoop(ctx, c.ID, c.manageHardware)
 	return nil
 }
 
@@ -52,6 +53,9 @@ func (c *Camera) Open(ctx context.Context) error {
 // dials, buttons and shutter dead in its owner's hands, and a Sony can be left
 // with its shutter held down.
 func (c *Camera) Close(ctx context.Context) error {
+	if c.stopLoop != nil {
+		c.stopLoop(10 * time.Second) // end the loop Open started before the handle goes
+	}
 	c.teardown()
 	return nil
 }
@@ -85,6 +89,12 @@ func (c *Camera) manageHardware(ctx context.Context) {
 		if c.alive() {
 			misses = 0
 			sleepCtx(ctx, probeInterval)
+			continue
+		}
+		if c.replaced.CompareAndSwap(true, false) {
+			log.Printf("ptpcam: camera %s replugged (new attachment); re-acquiring", c.ID)
+			c.teardown()
+			misses = 0
 			continue
 		}
 		misses++
@@ -175,6 +185,29 @@ func (c *Camera) alive() bool {
 	}
 	return c.AliveFn()
 }
+
+// Attachment is the plugging-in the open body's transport was opened on
+// (usb.DeviceInfo.Attachment), or 0 with no body or a transport that offers
+// none. The alive probe compares it against the current enumeration.
+func (c *Camera) Attachment() uint64 {
+	c.mu.Lock()
+	body := c.Body
+	c.mu.Unlock()
+	if body == nil {
+		return 0
+	}
+	if i, ok := body.(interface{ Info() (usb.DeviceInfo, bool) }); ok {
+		if d, ok := i.Info(); ok {
+			return d.Attachment
+		}
+	}
+	return 0
+}
+
+// MarkReplaced tells the supervisor the body on the bus is a new attachment
+// and the open session is dead; the next probe pass re-acquires at once. The
+// alive probe calls it.
+func (c *Camera) MarkReplaced() { c.replaced.Store(true) }
 
 // noteTransportError records a failure that means the session is dead, so the
 // supervisor re-acquires.

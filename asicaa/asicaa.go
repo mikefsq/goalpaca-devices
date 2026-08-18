@@ -29,6 +29,10 @@ var _ alpacadev.Rotator = (*ASIRotator)(nil)
 // The CAA SDK is not safe for concurrent per-device calls; all caa access is
 // serialized by mu. mu is never held across a sleep.
 type ASIRotator struct {
+	// stopLoop ends the loop Open started and waits for it. Close calls it
+	// before releasing the handle, so a reload's replacement opens the hardware
+	// with no old loop left to re-acquire it (server.RunLoop).
+	stopLoop func(time.Duration)
 	alpacadev.BaseRotator
 
 	index      int
@@ -69,12 +73,15 @@ func NewASIRotator(index int, serial string) *ASIRotator {
 // Open starts the hardware-management goroutine and returns immediately, so the
 // Alpaca server comes up with or without a rotator attached.
 func (r *ASIRotator) Open(ctx context.Context) error {
-	go alpacadev.Supervise(ctx, r.ID, func() { r.manageHardware(ctx) })
+	r.stopLoop = alpacadev.RunLoop(ctx, r.ID, r.manageHardware)
 	return nil
 }
 
 // Close releases the SDK on graceful shutdown only.
 func (r *ASIRotator) Close(ctx context.Context) error {
+	if r.stopLoop != nil {
+		r.stopLoop(10 * time.Second) // end the loop Open started before the handle goes
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.hwPresent {

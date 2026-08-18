@@ -25,21 +25,27 @@ import (
 // not report their pixel dimensions either, so a client cannot compute image
 // scale or plate-solve unless the operator supplies "pixelSize" — and, where the
 // body is silent, "sensorWidth"/"sensorHeight".
+// Config is the ptpcam entry's driver-owned keys: which body to bind and the
+// sensor geometry the driver reports for it. Every field applies at the next
+// start; the setup page shows them read-only.
+type Config struct {
+	Vendor       string  `json:"vendor,omitempty"       alpaca:"label=Vendor,when=start,help=fuji or sony"`
+	Serial       string  `json:"serial,omitempty"       alpaca:"label=Serial,when=start,help=Camera body serial"`
+	SensorWidth  int     `json:"sensorWidth,omitempty"  alpaca:"label=Sensor width (px),min=0,when=start"`
+	SensorHeight int     `json:"sensorHeight,omitempty" alpaca:"label=Sensor height (px),min=0,when=start"`
+	PixelSize    float64 `json:"pixelSize,omitempty"    alpaca:"label=Pixel size (µm),min=0,when=start"`
+}
+
 func init() {
 	registry.Register(registry.Driver{
 		Name:        "ptpcam",
 		Type:        alpacadev.CameraType,
 		Description: "Fujifilm/Sony PTP stills camera (no vendor SDK)",
+		Config:      func() any { return &Config{} },
 		ConfigExample: `{ "driver": "ptpcam", "vendor": "auto", "pixelSize": 3.04, ` +
 			`"name": "X-T5" }`,
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
-			var cfg struct {
-				Vendor       string  `json:"vendor,omitempty"`
-				Serial       string  `json:"serial,omitempty"`
-				SensorWidth  int     `json:"sensorWidth,omitempty"`
-				SensorHeight int     `json:"sensorHeight,omitempty"`
-				PixelSize    float64 `json:"pixelSize,omitempty"`
-			}
+			var cfg Config
 			if err := spec.Decode(&cfg); err != nil {
 				return nil, err
 			}
@@ -65,7 +71,7 @@ func init() {
 			d := New("ptpcam-0", name, NewOpener(cfg.Vendor, cfg.Serial))
 			// A liveness probe that sent PTP traffic would compete with an
 			// exposure in flight, so presence is read off the USB registry.
-			d.AliveFn = NewAliveProbe(cfg.Vendor, cfg.Serial)
+			d.AliveFn = NewAliveProbe(cfg.Vendor, cfg.Serial, d)
 			if cfg.SensorWidth > 0 {
 				d.SetGeometry(cfg.SensorWidth, cfg.SensorHeight)
 			}
@@ -112,12 +118,17 @@ func NewOpener(vendor, serial string) func() (ptp.Camera, error) {
 	}
 }
 
-// NewAliveProbe reports whether a body matching the filter is still enumerated.
+// NewAliveProbe reports whether a body matching the filter is still enumerated
+// as the same attachment the open session was opened on.
 //
 // It answers "is the body still on the bus", not "is the session healthy" — a
 // camera that has stopped answering is still enumerated, and that case is caught
-// by ptp.ErrNotResponding instead.
-func NewAliveProbe(vendor, serial string) func() bool {
+// by ptp.ErrNotResponding instead. A body that matches the filter under a
+// different attachment was unplugged and replugged between two probes; the
+// probe reports it absent and marks the camera replaced, so the supervisor
+// re-acquires at once instead of waiting out the miss count. cam may be nil,
+// in which case presence is judged by the filter alone.
+func NewAliveProbe(vendor, serial string, cam *Camera) func() bool {
 	return func() bool {
 		devs, err := usb.Enumerate()
 		if err != nil {
@@ -126,17 +137,37 @@ func NewAliveProbe(vendor, serial string) func() bool {
 			// host's USB registry hiccuped.
 			return true
 		}
-		for _, d := range devs {
-			if serial != "" && d.Serial != serial {
-				continue
-			}
-			if !wantVendor(vendor, ptp.VendorID(d.VID)) {
-				continue
-			}
-			return true
+		var open uint64
+		if cam != nil {
+			open = cam.Attachment()
 		}
-		return false
+		present, replaced := attachmentPresent(devs, vendor, serial, open)
+		if replaced && cam != nil {
+			cam.MarkReplaced()
+		}
+		return present
 	}
+}
+
+// attachmentPresent is the probe's judgement over an enumeration: present when
+// a body matching vendor and serial is listed under the same attachment as the
+// open session (or an attachment neither side can name); replaced when every
+// matching body is a different attachment.
+func attachmentPresent(devs []usb.DeviceInfo, vendor, serial string, open uint64) (present, replaced bool) {
+	for _, d := range devs {
+		if serial != "" && d.Serial != serial {
+			continue
+		}
+		if !wantVendor(vendor, ptp.VendorID(d.VID)) {
+			continue
+		}
+		if open != 0 && d.Attachment != 0 && d.Attachment != open {
+			replaced = true
+			continue
+		}
+		return true, false
+	}
+	return false, replaced
 }
 
 // knownVendor reports whether v is a vendor filter this build understands. An

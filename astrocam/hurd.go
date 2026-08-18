@@ -12,23 +12,34 @@ import (
 // host (alpacahurd) can construct it from a config entry by importing this
 // package. The blank sensors import above makes every decoded sensor profile
 // available to any host that compiles this driver in.
+// Config is the astrocam entry's driver-owned keys: which camera to bind and
+// how to run it. Index and Serial select the hardware and apply at the next
+// start; FixDefects and FpsPercent are live and change through the setup page.
+type Config struct {
+	Index      int    `json:"index,omitempty"      alpaca:"label=Enumeration index,min=0,when=start,help=Bind the Nth attached camera; prefer Serial"`
+	Serial     string `json:"serial,omitempty"     alpaca:"label=Serial,when=start,help=Factory serial (hex); stable across replug and start-before-plug"`
+	FixDefects bool   `json:"fixdefects,omitempty" alpaca:"label=Hot-pixel correction,help=Apply the factory defect map from SPI flash to full-frame RAW16"`
+	FpsPercent int    `json:"fpsPercent,omitempty" alpaca:"label=FPS percent,min=40,max=100,help=Readout throttle for a constrained USB link; 0 keeps the link default"`
+}
+
 func init() {
 	registry.Register(registry.Driver{
 		Name:          "astrocam",
 		Type:          alpacadev.CameraType,
 		Description:   "ZWO ASI camera (pure-Go USB driver)",
 		ConfigExample: `{ "driver": "astrocam", "serial": "1a2b3c4d", "name": "Main camera" }`,
+		Config:        func() any { return &Config{} },
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
-			var cfg struct {
-				Index      int    `json:"index,omitempty"`
-				Serial     string `json:"serial,omitempty"`
-				FixDefects bool   `json:"fixdefects,omitempty"`
-			}
+			var cfg Config
 			if err := spec.Decode(&cfg); err != nil {
 				return nil, err
 			}
 			d := NewPureASICamera(cfg.Index, cfg.Serial)
+			d.Instance = spec.Instance      // the host's name for this camera, for log lines
 			d.SetFixDefects(cfg.FixDefects) // "fixdefects": true → factory hot-pixel correction
+			if cfg.FpsPercent != 0 {
+				d.SetFPSPercent(cfg.FpsPercent) // stored; applied on acquire
+			}
 			if spec.Name != "" {
 				d.DevName = spec.Name
 			}

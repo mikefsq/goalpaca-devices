@@ -21,6 +21,10 @@ var _ alpacadev.Focuser = (*PegasusFocuser)(nil)
 // configured at startup. TempCompAvailable is false: the serial protocol has no
 // on-device temp-comp command (compensation is host-side).
 type PegasusFocuser struct {
+	// stopLoop ends the loop Open started and waits for it. Close calls it
+	// before releasing the handle, so a reload's replacement opens the hardware
+	// with no old loop left to re-acquire it (server.RunLoop).
+	stopLoop func(time.Duration)
 	alpacadev.BaseFocuser
 
 	index   int
@@ -72,11 +76,14 @@ func (f *PegasusFocuser) Open(ctx context.Context) error {
 	if f.openDev == nil {
 		f.openDev = f.openByIndex
 	}
-	go alpacadev.Supervise(ctx, f.ID, func() { f.manageHardware(ctx) })
+	f.stopLoop = alpacadev.RunLoop(ctx, f.ID, f.manageHardware)
 	return nil
 }
 
 func (f *PegasusFocuser) Close(ctx context.Context) error {
+	if f.stopLoop != nil {
+		f.stopLoop(10 * time.Second) // end the loop Open started before the handle goes
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.dev != nil {

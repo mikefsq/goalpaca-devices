@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"log"
 	"os/signal"
@@ -77,6 +78,22 @@ func main() {
 	for i, cam := range cams {
 		if err := srv.Register(alpacadev.CameraType, i, cam); err != nil {
 			log.Fatalf("asicam: register camera device %d: %v", i, err)
+		}
+		// The setup form is generated from the driver's tagged Config, the same
+		// as under alpacahurd. Flags are the config here, so the serial each
+		// camera was bound by is the one pinned key.
+		var raw json.RawMessage
+		var pinned map[string]bool
+		if sn := cam.Serial(); sn != "" {
+			raw, _ = json.Marshal(map[string]string{"serial": sn})
+			pinned = map[string]bool{"serial": true}
+		}
+		sc, err := alpacadev.NewStructConfig(cam, func() any { return &driver.Config{} }, raw, pinned, "set by the -serial flag")
+		if err != nil {
+			log.Fatalf("asicam: setup form for device %d: %v", i, err)
+		}
+		if err := srv.RegisterConfigurable(alpacadev.CameraType, i, sc); err != nil {
+			log.Fatalf("asicam: setup form for device %d: %v", i, err)
 		}
 		log.Printf("asicam: registered camera device %d (%s)", i, cam.ID)
 	}

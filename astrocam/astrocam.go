@@ -39,6 +39,10 @@ func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 // it at once. The adapter's own mu guards only adapter-side state (geometry, the exposure
 // result, flags); it is never held across a blocking readout or a cooling state change.
 type PureASICamera struct {
+	// stopLoop ends the loop Open started and waits for it. Close calls it
+	// before releasing the handle, so a reload's replacement opens the hardware
+	// with no old loop left to re-acquire it (server.RunLoop).
+	stopLoop func(time.Duration)
 	alpacadev.BaseCamera
 
 	index      int
@@ -52,6 +56,10 @@ type PureASICamera struct {
 
 	cam *astrocam.Camera
 	loc uint32 // USB location of the open camera (non-perturbing liveness check via Enumerate)
+	// attachment is the plugging-in the open handle belongs to (Camera.Attachment); 0 when the
+	// platform offers none. Enumerate reporting a different one at loc means the camera was
+	// unplugged and replugged between two polls: the port is occupied and the handle is dead.
+	attachment uint64
 
 	mu        sync.Mutex
 	hwPresent atomic.Bool // camera open; read lock-free by Connected()
@@ -102,6 +110,10 @@ type PureASICamera struct {
 	// manageHardware then tears down and re-acquires. runExposure can't tear down itself (it runs
 	// inside exposeWG, which teardown joins — self-deadlock), so it signals through this flag.
 	needsReconnect atomic.Bool
+	// replaced is set by stillPresent when the device at our port is a new attachment: the
+	// handle is dead for certain, so manageHardware re-acquires at once rather than after the
+	// miss count that guards against a transient enumeration gap.
+	replaced atomic.Bool
 
 	// Video (free-run) mode — toggled by the Alpaca Action "videomode" (constant-exposure guiding).
 	// When on, drainVideo runs the sensor free-run (cam.StartVideo) and continuously reads every
@@ -142,22 +154,70 @@ func NewPureASICamera(index int, serial string) *PureASICamera {
 	return c
 }
 
+// Serial returns the factory serial this camera was told to bind, or "" when it
+// binds by enumeration index.
+func (c *PureASICamera) Serial() string { return c.wantSerial }
+
 // SetFixDefects enables factory hot-pixel correction: the per-unit defect map read once from
 // SPI flash, neighbour-averaged into full-frame RAW16 frames. Off by default; set by the host
 // from the "fixdefects" device-spec field.
-func (c *PureASICamera) SetFixDefects(on bool) { c.fixDefects = on }
+func (c *PureASICamera) SetFixDefects(on bool) {
+	c.mu.Lock()
+	c.fixDefects = on
+	c.mu.Unlock()
+}
+
+// SetFPSPercent stores the readout throttle (40..100) to apply when the camera is
+// acquired, and applies it at once when the camera is already open. 0 clears the
+// stored value so the camera keeps its link-dependent default. It is the config-file
+// counterpart of the "fpspercent" Action.
+func (c *PureASICamera) SetFPSPercent(pct int) error {
+	if pct != 0 && (pct < 40 || pct > 100) {
+		return fmt.Errorf("%w: fpsPercent %d out of range 40..100", alpacadev.ErrInvalidValue, pct)
+	}
+	if !c.hwPresent.Load() {
+		c.mu.Lock()
+		c.fpsPercent = pct
+		c.mu.Unlock()
+		return nil
+	}
+	if pct == 0 {
+		c.mu.Lock()
+		c.fpsPercent = 0
+		c.mu.Unlock()
+		return nil
+	}
+	_, err := c.actionFPSPercent(strconv.Itoa(pct))
+	return err
+}
+
+// Reconfigure applies the live keys of a Config from the setup page: FixDefects
+// and FpsPercent. Index and Serial select the hardware and are start-time, so
+// the setup page never sends a change to them; they are read here only to keep
+// the signature honest about what arrives.
+func (c *PureASICamera) Reconfigure(v any) error {
+	cfg, ok := v.(*Config)
+	if !ok {
+		return fmt.Errorf("astrocam: Reconfigure wants *Config, got %T", v)
+	}
+	c.SetFixDefects(cfg.FixDefects)
+	return c.SetFPSPercent(cfg.FpsPercent)
+}
 
 // --- Hardware lifecycle ---
 
 // Open starts the hardware-management goroutine and returns immediately, so the Alpaca
 // endpoint comes up with or without a camera attached.
 func (c *PureASICamera) Open(ctx context.Context) error {
-	go alpacadev.Supervise(ctx, c.ID, func() { c.manageHardware(ctx) })
+	c.stopLoop = alpacadev.RunLoop(ctx, c.ID, c.manageHardware)
 	return nil
 }
 
 // Close releases the camera on graceful shutdown only (cam.Close stops cooling + USB).
 func (c *PureASICamera) Close(ctx context.Context) error {
+	if c.stopLoop != nil {
+		c.stopLoop(10 * time.Second) // end the loop Open started before the handle goes
+	}
 	c.teardown()
 	return nil
 }
@@ -206,7 +266,7 @@ func (c *PureASICamera) manageHardware(ctx context.Context) {
 		if !c.hwPresent.Load() {
 			if c.tryAcquire() {
 				misses = 0
-				log.Printf("asicam-alpaca: camera %s acquired", c.ID)
+				log.Printf("asicam-alpaca: %s acquired", c.Label())
 			} else {
 				sleepCtx(ctx, 3*time.Second)
 			}
@@ -216,7 +276,7 @@ func (c *PureASICamera) manageHardware(ctx context.Context) {
 		// isn't a physical absence, so the aliveFn probe below won't catch it; teardown joins the
 		// in-flight readout, then the loop re-opens by serial and re-Inits.
 		if c.needsReconnect.CompareAndSwap(true, false) {
-			log.Printf("asicam-alpaca: camera %s readout wedged — disconnect + re-acquire", c.ID)
+			log.Printf("asicam-alpaca: %s readout wedged — disconnect + re-acquire", c.Label())
 			c.teardown()
 			misses = 0
 			continue
@@ -228,32 +288,57 @@ func (c *PureASICamera) manageHardware(ctx context.Context) {
 			sleepCtx(ctx, 2*time.Second)
 			continue
 		}
+		if c.replaced.CompareAndSwap(true, false) {
+			log.Printf("asicam-alpaca: %s replugged (new attachment at the same port); re-acquiring", c.Label())
+			c.teardown()
+			misses = 0
+			continue
+		}
 		misses++
 		if misses < maxMisses {
 			sleepCtx(ctx, 2*time.Second)
 			continue
 		}
-		log.Printf("asicam-alpaca: camera %s unplugged (x%d); re-acquiring", c.ID, misses)
+		log.Printf("asicam-alpaca: %s unplugged (x%d); re-acquiring", c.Label(), misses)
 		c.teardown()
 		misses = 0
 	}
 }
 
-// stillPresent reports whether our camera's USB location is still on the bus.
+// stillPresent reports whether the camera the open handle belongs to is still on the bus:
+// present at our USB location and, where the platform tells attachments apart, the same
+// attachment. A different attachment at the same location is a replug (macOS keeps the
+// locationID per port; the old IOUSBHost handle is dead), reported through c.replaced so
+// manageHardware re-acquires without waiting out the miss count.
 func (c *PureASICamera) stillPresent() bool {
 	devs, err := astrocam.Enumerate()
 	if err != nil {
 		return true // can't tell — don't tear down on a query error
 	}
 	c.mu.Lock()
-	loc := c.loc
+	loc, att := c.loc, c.attachment
 	c.mu.Unlock()
-	for _, d := range devs {
-		if d.Location == loc {
-			return true
-		}
+	present, replaced := attachmentPresent(devs, loc, att)
+	if replaced {
+		c.replaced.Store(true)
 	}
-	return false
+	return present
+}
+
+// attachmentPresent is stillPresent's judgement over an enumeration: present when a device
+// sits at loc with the same attachment (or an attachment neither side can name); replaced
+// when a device sits at loc under a different attachment.
+func attachmentPresent(devs []astrocam.DeviceInfo, loc uint32, attachment uint64) (present, replaced bool) {
+	for _, d := range devs {
+		if d.Location != loc {
+			continue
+		}
+		if attachment != 0 && d.Attachment != 0 && d.Attachment != attachment {
+			return false, true
+		}
+		return true, false
+	}
+	return false, false
 }
 
 // tryAcquire opens the target camera (via the openDev seam), initializes it, and publishes
@@ -318,10 +403,10 @@ func (c *PureASICamera) configureOpened(cam *astrocam.Camera, d astrocam.DeviceI
 	omin, omax, odef, ook := cam.OffsetRange()
 	if ook {
 		if err := cam.SetOffset(odef); err != nil {
-			log.Printf("asicam-alpaca: camera %s: set default offset %d: %v", c.ID, odef, err)
+			log.Printf("asicam-alpaca: %s: set default offset %d: %v", c.Label(), odef, err)
 		}
 		if got := cam.Offset(); got != odef {
-			log.Printf("asicam-alpaca: camera %s: offset read back %d after setting %d", c.ID, got, odef)
+			log.Printf("asicam-alpaca: %s: offset read back %d after setting %d", c.Label(), got, odef)
 		}
 	}
 
@@ -332,6 +417,7 @@ func (c *PureASICamera) configureOpened(cam *astrocam.Camera, d astrocam.DeviceI
 	defer c.mu.Unlock()
 	c.cam = cam
 	c.loc = d.Location
+	c.attachment = cam.Attachment()
 	c.coolerOn = false
 	c.startX, c.startY = 0, 0
 	c.numX, c.numY = info.MaxWidth, info.MaxHeight
@@ -605,7 +691,7 @@ func (c *PureASICamera) startVideoLocked(dur float64) error {
 	c.mu.Unlock()
 	c.vidWG.Add(1)
 	go c.drainVideo(ctx, dur)
-	log.Printf("asicam-alpaca: camera %s video mode ON (exp %.3fs)", c.ID, dur)
+	log.Printf("asicam-alpaca: %s video mode ON (exp %.3fs)", c.Label(), dur)
 	return nil
 }
 
@@ -632,7 +718,7 @@ func (c *PureASICamera) stopVideoLocked() {
 	}
 	c.vidWG.Wait()           // join the drain before touching the device again
 	_ = c.cam.StopExposure() // halt the sensor stream
-	log.Printf("asicam-alpaca: camera %s video mode OFF", c.ID)
+	log.Printf("asicam-alpaca: %s video mode OFF", c.Label())
 }
 
 // drainVideo runs for the lifetime of video mode: it reads every free-run frame back-to-back (no
@@ -824,7 +910,10 @@ func (c *PureASICamera) runExposure(light bool) {
 		c.exposeOp.Fail(fmt.Errorf("readout: %w", err))
 		return
 	}
-	if c.fixDefects {
+	c.mu.Lock()
+	fix := c.fixDefects
+	c.mu.Unlock()
+	if fix {
 		c.applyDefects(buf[:n], w, h, sx, sy, bpp)
 	}
 	c.mu.Lock()
@@ -851,7 +940,7 @@ func (c *PureASICamera) applyDefects(frame []byte, w, h, sx, sy, bpp int) {
 		loaded, err := c.cam.LoadDefectMap(info.MaxWidth, info.MaxHeight)
 		if err != nil {
 			if camDebug {
-				log.Printf("asicam-alpaca: %s fixdefects: load map: %v (frame left raw)", c.ID, err)
+				log.Printf("asicam-alpaca: %s fixdefects: load map: %v (frame left raw)", c.Label(), err)
 			}
 			return
 		}
@@ -1026,7 +1115,7 @@ func (c *PureASICamera) CoolerOn() bool {
 	if c.coolerOn && c.cam != nil && !c.cam.CoolerOn() {
 		c.coolerOn = false
 		if err := c.cam.CoolerFault(); err != nil {
-			log.Printf("asicam-alpaca: camera %s: cooling loop stopped: %v", c.ID, err)
+			log.Printf("asicam-alpaca: %s: cooling loop stopped: %v", c.Label(), err)
 		}
 	}
 	return c.coolerOn

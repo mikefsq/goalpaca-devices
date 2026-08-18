@@ -13,4 +13,6 @@ require golang.org/x/sys v0.19.0 // indirect
 // and published.
 replace github.com/mikefsq/goalpaca => ../../goalpaca
 
-replace github.com/mikefsq/asiair => ../../asiair
+// The asiair client is a nested module inside the goasi checkout, not a
+// top-level sibling.
+replace github.com/mikefsq/asiair => ../../goasi/asiair

@@ -39,6 +39,10 @@ type snapshot struct {
 
 // Telescope is the Rainbow Astro RST Alpaca Telescope device.
 type Telescope struct {
+	// stopLoop ends the loop Open started and waits for it. Close calls it
+	// before releasing the handle, so a reload's replacement opens the hardware
+	// with no old loop left to re-acquire it (server.RunLoop).
+	stopLoop func(time.Duration)
 	alpacadev.BaseTelescope
 
 	serial string // USB-serial port; empty = auto-detect the first RST
@@ -75,12 +79,15 @@ func (t *Telescope) dial() (*rst.Mount, error) {
 // Open starts the supervised background loop that dials the mount and keeps it
 // connected. It touches no hardware itself.
 func (t *Telescope) Open(ctx context.Context) error {
-	go alpacadev.Supervise(ctx, t.ID, func() { t.manage(ctx) })
+	t.stopLoop = alpacadev.RunLoop(ctx, t.ID, t.manage)
 	return nil
 }
 
 // Close disconnects from the mount and releases the serial port.
 func (t *Telescope) Close(ctx context.Context) error {
+	if t.stopLoop != nil {
+		t.stopLoop(10 * time.Second) // end the loop Open started before the handle goes
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.m != nil {

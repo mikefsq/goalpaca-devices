@@ -82,20 +82,30 @@ on one port. A guiding client like PHD2 can calibrate and guide a closed loop wi
 The camera scale is configurable, see driver documentation. 
 
 
-## The herd — one process, one config
+## The herd
 
 Rather than launch each driver by hand,
-**[alpacahurd](https://github.com/mikefsq/alpacahurd)** (its own repo) runs every
-enabled device in a single process from one JSON config. Each process runs on its 
-own Alpaca port and there is shared UDP-32227 discovery responder. This also monitors for
-per-device acquire/reconnect so it can survive an empty bus and unplug/replug. 
+**[alpacahurd](https://github.com/mikefsq/alpacahurd)** (its own repo) runs the
+enabled devices from one configuration: `hurd.json` for the shared blocks and a
+`devices.d` directory with one file per device. Drivers can be compiled into
+the alpacahurd binary or run as separate binaries under the platform supervisor;
+both layouts are supported and a deployment may mix them. Each device serves on
+its own Alpaca port, or several share one, and one UDP-32227 discovery responder
+answers for all of them. Every device has its own acquire and reconnect loop, so
+it survives an empty bus and unplug or replug.
 
-It also serves two **optional native front-ends** over the same device objects. It can serve
-an **LX200** endpoint so clients like Stellarium or SkySafari can connect and control the mount. 
-It also supports limited INDI mount and camera interfaces intended for PHD2 control. But since 
-PHD2 now supports Alpaca directly, this INDI guide workaround is not needed anymore. 
+alpacahurd also serves two optional native front-ends over the same device
+objects: an LX200 endpoint for Stellarium or SkySafari, and limited INDI mount
+and camera interfaces intended for PHD2. PHD2 now supports Alpaca directly, so
+the INDI guide path is no longer needed.
 
 You may find dpkgs for raspbian (and also windows and osx builds) containing Alpaca here: [PHD2](https://github.com/mikefsq/phd2).
+
+## Setup forms
+
+Each driver's browser configuration page is generated from its tagged config
+struct; the driver writes no form code. [SETUP_FORMS.md](SETUP_FORMS.md) covers
+the tags, the start-time versus live distinction, and the `Reconfigure` hook.
 
 
 ## Build

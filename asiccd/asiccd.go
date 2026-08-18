@@ -23,6 +23,10 @@ import (
 // calls, and Alpaca HTTP handlers run concurrently. mu is never held across a sleep (the exposure
 // poll locks per-call only).
 type ASICamera struct {
+	// stopLoop ends the loop Open started and waits for it. Close calls it
+	// before releasing the handle, so a reload's replacement opens the hardware
+	// with no old loop left to re-acquire it (server.RunLoop).
+	stopLoop func(time.Duration)
 	alpacadev.BaseCamera
 
 	index      int
@@ -79,12 +83,15 @@ func NewASICamera(index int, serial string) *ASICamera {
 // appears (matching the serial), monitors it, and re-acquires after an unplug, never exiting the
 // process.
 func (c *ASICamera) Open(ctx context.Context) error {
-	go alpacadev.Supervise(ctx, c.ID, func() { c.manageHardware(ctx) })
+	c.stopLoop = alpacadev.RunLoop(ctx, c.ID, c.manageHardware)
 	return nil
 }
 
 // Close releases the SDK on graceful shutdown only.
 func (c *ASICamera) Close(ctx context.Context) error {
+	if c.stopLoop != nil {
+		c.stopLoop(10 * time.Second) // end the loop Open started before the handle goes
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.cam != nil && c.hwPresent.Load() {

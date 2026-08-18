@@ -32,6 +32,10 @@ const cacheTTL = 2 * time.Second
 // SQM adapts a mikefsq/unihedron Sky Quality Meter to the alpacadev.ObservingConditions
 // + Hardware interfaces.
 type SQM struct {
+	// stopLoop ends the loop Open started and waits for it. Close calls it
+	// before releasing the handle, so a reload's replacement opens the hardware
+	// with no old loop left to re-acquire it (server.RunLoop).
+	stopLoop func(time.Duration)
 	alpacadev.BaseObservingConditions
 
 	index  int
@@ -79,11 +83,14 @@ func (s *SQM) Open(ctx context.Context) error {
 	if s.openDev == nil {
 		s.openDev = s.openByIndex
 	}
-	go alpacadev.Supervise(ctx, s.ID, func() { s.manageHardware(ctx) })
+	s.stopLoop = alpacadev.RunLoop(ctx, s.ID, s.manageHardware)
 	return nil
 }
 
 func (s *SQM) Close(ctx context.Context) error {
+	if s.stopLoop != nil {
+		s.stopLoop(10 * time.Second) // end the loop Open started before the handle goes
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.dev != nil {

@@ -39,6 +39,11 @@ const firstSampleWait = 6 * time.Second
 // MGPBox adapts a mikefsq/astromi.ch MGPBox to the alpacadev.ObservingConditions +
 // Hardware interfaces.
 type MGPBox struct {
+	// stopLoop ends the loop Open started and waits for it. Close calls it
+	// before releasing the handle, so a reload's replacement opens the hardware
+	// with no old loop left to re-acquire it (server.RunLoop).
+	stopLoop func(time.Duration)
+	stopFeed func(time.Duration)
 	alpacadev.BaseObservingConditions
 
 	index  int
@@ -141,14 +146,20 @@ func (m *MGPBox) Open(ctx context.Context) error {
 	if m.openDev == nil {
 		m.openDev = m.openByIndex
 	}
-	go alpacadev.Supervise(ctx, m.ID, func() { m.manageHardware(ctx) })
+	m.stopLoop = alpacadev.RunLoop(ctx, m.ID, m.manageHardware)
 	// The environment feed runs unconditionally and no-ops while no mount is configured,
 	// so SetMountFeed can enable it at runtime (e.g. via the mountfeed Action).
-	go alpacadev.Supervise(ctx, m.ID+"-feed", func() { m.feedLoop(ctx) })
+	m.stopFeed = alpacadev.RunLoop(ctx, m.ID+"-feed", m.feedLoop)
 	return nil
 }
 
 func (m *MGPBox) Close(ctx context.Context) error {
+	if m.stopLoop != nil {
+		m.stopLoop(10 * time.Second) // end the loops Open started before the handle goes
+	}
+	if m.stopFeed != nil {
+		m.stopFeed(10 * time.Second)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.dev != nil {

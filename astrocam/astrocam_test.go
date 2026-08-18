@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/mikefsq/astrocam"
 	_ "github.com/mikefsq/astrocam/sensors" // registers the PID -> sensor profile table
+	"github.com/mikefsq/goalpaca/registry"
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
@@ -603,4 +605,110 @@ func TestAlpacaHardware(t *testing.T) {
 	waitConnected(t, base, true)
 	t.Logf("name=%v size=%vx%v temp=%v", value(t, base, "name"),
 		value(t, base, "cameraxsize"), value(t, base, "cameraysize"), get(t, base, "ccdtemperature").Value)
+}
+
+// TestSetupFormGenerated: the driver's tagged Config renders a setup form
+// through the generic adapter with no form code here, and a live change to
+// FpsPercent through that form reaches the camera, which the fpspercent Action
+// then reports.
+func TestSetupFormGenerated(t *testing.T) {
+	sd := &stubDev{pid: pid290, present: true, serial: astrocam.Serial{0x1d, 0x21, 0x04, 0x06, 0x22, 0x09, 0x09, 0x01}}
+	dev := NewPureASICamera(0, "")
+	dev.openDev = sd.open
+	dev.aliveFn = sd.isPresent
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := dev.Open(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = dev.Close(context.Background()) })
+
+	drv, ok := registry.Lookup("astrocam")
+	if !ok || drv.Config == nil {
+		t.Fatal("astrocam driver has no Config func")
+	}
+	srv := alpacadev.New(alpacadev.Config{Discovery: alpacadev.DiscoveryConfig{Mode: alpacadev.DiscoveryOff}, ServerName: "t"})
+	wrapped := newINDICamera(dev) // what New returns
+	if err := srv.Register(alpacadev.CameraType, 0, wrapped); err != nil {
+		t.Fatal(err)
+	}
+	sc, err := alpacadev.NewStructConfig(wrapped, drv.Config,
+		json.RawMessage(`{"driver":"astrocam","serial":"1d21040622090901","fixdefects":true}`),
+		map[string]bool{"serial": true}, "set in hurd.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := srv.RegisterConfigurable(alpacadev.CameraType, 0, sc); err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(http.HandlerFunc(srv.ServeHTTP))
+	t.Cleanup(ts.Close)
+	waitConnected(t, ts.URL+"/api/v1/camera/0/", true)
+
+	// The form renders every Config field: serial pinned by the host, index
+	// start-time, fixdefects and fpsPercent live.
+	r, err := http.Get(ts.URL + "/setup/v1/camera/0/setup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(r.Body)
+	r.Body.Close()
+	body := string(b)
+	for _, want := range []string{`name="serial"`, `name="index"`, `name="fixdefects"`, `name="fpsPercent"`, "set in hurd.conf", "next start", "min 40 · max 100"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("setup form missing %q", want)
+		}
+	}
+	if !strings.Contains(body, `name="fixdefects" value="true" checked`) {
+		t.Errorf("fixdefects should render checked from the config")
+	}
+
+	// A live change through the form reaches the camera.
+	resp, err := http.PostForm(ts.URL+"/setup/v1/camera/0/setup", url.Values{"fpsPercent": {"55"}, "fixdefects": {"true"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(b), "Settings applied") {
+		t.Fatalf("apply failed:\n%s", b)
+	}
+	if got := put(t, ts.URL+"/api/v1/camera/0/", "action", "Action=fpspercent&Parameters="); got.Value != "55" {
+		t.Errorf("fpspercent after form apply = %v, want 55", got.Value)
+	}
+	// An out-of-range value is refused before it reaches the camera.
+	resp, _ = http.PostForm(ts.URL+"/setup/v1/camera/0/setup", url.Values{"fpsPercent": {"200"}, "fixdefects": {"true"}})
+	b, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(b), "above the maximum") {
+		t.Errorf("range error not shown:\n%s", b)
+	}
+	if got := put(t, ts.URL+"/api/v1/camera/0/", "action", "Action=fpspercent&Parameters="); got.Value != "55" {
+		t.Errorf("fpspercent changed by a rejected submit: %v", got.Value)
+	}
+}
+
+// TestAttachmentPresent: the liveness judgement tells continued presence from a replug at
+// the same port by the attachment identity, and falls back to location alone where a side
+// has none.
+func TestAttachmentPresent(t *testing.T) {
+	devs := []astrocam.DeviceInfo{{Location: 0x14100000, Attachment: 0x1000}, {Location: 0x14200000}}
+	cases := []struct {
+		name              string
+		loc               uint32
+		att               uint64
+		present, replaced bool
+	}{
+		{"same attachment", 0x14100000, 0x1000, true, false},
+		{"replugged at the same port", 0x14100000, 0x0fff, false, true},
+		{"unplugged", 0x14300000, 0x1000, false, false},
+		{"handle has no attachment", 0x14100000, 0, true, false},
+		{"enumeration has no attachment", 0x14200000, 0x0fff, true, false},
+	}
+	for _, tc := range cases {
+		p, r := attachmentPresent(devs, tc.loc, tc.att)
+		if p != tc.present || r != tc.replaced {
+			t.Errorf("%s: present %v replaced %v, want %v %v", tc.name, p, r, tc.present, tc.replaced)
+		}
+	}
 }

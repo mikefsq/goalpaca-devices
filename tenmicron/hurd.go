@@ -11,16 +11,21 @@ import (
 // host (alpacahurd) can construct it from a config entry by importing this
 // package. Construction touches no hardware; the device connects in its own
 // acquire/monitor/re-acquire loop once served.
+// Config is the entry's driver-owned keys. Every field selects the hardware
+// to bind and applies at the next start; the setup page shows them read-only.
+type Config struct {
+	Addr string `json:"addr,omitempty" alpaca:"label=Address,when=start,help=host:port"`
+}
+
 func init() {
 	registry.Register(registry.Driver{
 		Name:          "tenmicron",
 		Type:          alpacadev.TelescopeType,
 		Description:   "10Micron GM-series mount (TCP)",
 		ConfigExample: `{ "driver": "tenmicron", "addr": "10.0.1.51:3492", "aperture": 200, "focalLength": 1600 }`,
+		Config:        func() any { return &Config{} },
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
-			var cfg struct {
-				Addr string `json:"addr"`
-			}
+			var cfg Config
 			if err := spec.Decode(&cfg); err != nil {
 				return nil, err
 			}

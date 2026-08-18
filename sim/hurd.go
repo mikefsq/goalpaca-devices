@@ -8,6 +8,16 @@ import (
 	"github.com/mikefsq/goalpaca/sim"
 )
 
+// simCameraConfig is the sim-camera entry's driver-owned keys. The geometry
+// defines the sensor the simulator renders, so every field applies at the next
+// start; the setup page shows them read-only.
+type simCameraConfig struct {
+	PixelSizeX  float64 `json:"pixelSizeX,omitempty"  alpaca:"label=Pixel size X (µm),min=0,when=start"`
+	PixelSizeY  float64 `json:"pixelSizeY,omitempty"  alpaca:"label=Pixel size Y (µm),min=0,when=start"`
+	PixelCountX int     `json:"pixelCountX,omitempty" alpaca:"label=Sensor width (px),min=0,when=start"`
+	PixelCountY int     `json:"pixelCountY,omitempty" alpaca:"label=Sensor height (px),min=0,when=start"`
+}
+
 // init registers the simulated devices — one per ASCOM type — in the goalpaca driver
 // registry, so a composed host (alpacahurd) constructs them from config by importing
 // this package. Keep it always compiled in: a binary that can serve a full
@@ -46,15 +56,11 @@ func init() {
 		Name: "sim-camera", Type: alpacadev.CameraType,
 		Description:   "simulated guide camera (Alpaca + INDI); focalLength (mm) + pixelSizeX/Y (µm) set the scale, pixelCountX/Y the sensor size",
 		ConfigExample: `{ "driver": "sim-camera", "name": "Sim Guide Camera", "focalLength": 200, "pixelSizeX": 2.9, "pixelSizeY": 2.9, "pixelCountX": 1936, "pixelCountY": 1096, "indi": true }`,
+		Config:        func() any { return &simCameraConfig{} },
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
 			// pixel* are driver-owned keys (decoded strictly); focalLength is a
 			// host-common key (stripped by Decode), read straight from the raw entry.
-			var cfg struct {
-				PixelSizeX  float64 `json:"pixelSizeX,omitempty"`
-				PixelSizeY  float64 `json:"pixelSizeY,omitempty"`
-				PixelCountX int     `json:"pixelCountX,omitempty"`
-				PixelCountY int     `json:"pixelCountY,omitempty"`
-			}
+			var cfg simCameraConfig
 			if err := spec.Decode(&cfg); err != nil {
 				return nil, err
 			}
