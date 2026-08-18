@@ -53,6 +53,9 @@ type PureASICamera struct {
 	// still present.
 	openDev func() (*astrocam.Camera, astrocam.DeviceInfo, error)
 	aliveFn func() bool
+	// hotplugFn subscribes to the OS's USB attach and detach notifications; astrocam.Hotplug by
+	// default, nil in tests, which then exercise the polling path.
+	hotplugFn func(context.Context) (<-chan astrocam.HotplugEvent, error)
 
 	cam *astrocam.Camera
 	loc uint32 // USB location of the open camera (non-perturbing liveness check via Enumerate)
@@ -140,6 +143,7 @@ func NewPureASICamera(index int, serial string) *PureASICamera {
 	c := &PureASICamera{index: index, wantSerial: strings.ToLower(serial)}
 	c.openDev = c.openReal
 	c.aliveFn = c.stillPresent
+	c.hotplugFn = astrocam.Hotplug
 	c.Version = "0.1.0"
 	c.Info = "asicam-alpaca — ZWO ASI Alpaca driver over the Go asicam (no ZWO SDK)"
 	c.IfaceVer = alpacadev.InterfaceVersionCamera
@@ -259,16 +263,38 @@ func (c *PureASICamera) Connect(ctx context.Context) error {
 }
 
 // manageHardware acquires, monitors, and re-acquires the camera for the process lifetime.
+//
+// The OS's hotplug notification (astrocam.Hotplug) is the interrupt: an attach wakes the
+// acquire attempt at once, a detach of the very attachment we hold tears down at once, and any
+// other event brings the presence check forward. The polls stay as the fallback for a platform
+// without notifications or a missed one, at a slower cadence when the notifications are there.
 func (c *PureASICamera) manageHardware(ctx context.Context) {
 	const maxMisses = 3
 	misses := 0
+	events := c.hotplug(ctx)
+	acquirePoll, alivePoll := 3*time.Second, 2*time.Second
+	if events != nil {
+		acquirePoll, alivePoll = 10*time.Second, 10*time.Second
+	}
+	// eager counts quick retries left after an attach event or a teardown: the
+	// first-match notification lands while the OS is still configuring the
+	// device, so the first open can fail, and a second later it succeeds. Only
+	// after those does the acquire fall back to the slow poll.
+	eager := 0
 	for ctx.Err() == nil {
 		if !c.hwPresent.Load() {
 			if c.tryAcquire() {
 				misses = 0
 				log.Printf("asicam-alpaca: %s acquired", c.Label())
-			} else {
-				sleepCtx(ctx, 3*time.Second)
+				continue
+			}
+			wait := acquirePoll
+			if eager > 0 {
+				eager--
+				wait = time.Second
+			}
+			if ev := c.pause(ctx, events, wait); ev != nil && ev.Attached {
+				eager = 5
 			}
 			continue
 		}
@@ -285,18 +311,23 @@ func (c *PureASICamera) manageHardware(ctx context.Context) {
 		// touches the open camera; non-perturbing). Tests override it.
 		if c.aliveFn() {
 			misses = 0
-			sleepCtx(ctx, 2*time.Second)
+			if ev := c.pause(ctx, events, alivePoll); ev != nil && c.detachedUs(ev) {
+				log.Printf("asicam-alpaca: %s unplugged (detach notification); re-acquiring", c.Label())
+				c.teardown()
+				eager = 5
+			}
 			continue
 		}
 		if c.replaced.CompareAndSwap(true, false) {
 			log.Printf("asicam-alpaca: %s replugged (new attachment at the same port); re-acquiring", c.Label())
 			c.teardown()
 			misses = 0
+			eager = 5
 			continue
 		}
 		misses++
 		if misses < maxMisses {
-			sleepCtx(ctx, 2*time.Second)
+			c.pause(ctx, events, 2*time.Second)
 			continue
 		}
 		log.Printf("asicam-alpaca: %s unplugged (x%d); re-acquiring", c.Label(), misses)
@@ -430,6 +461,52 @@ func (c *PureASICamera) configureOpened(cam *astrocam.Camera, d astrocam.DeviceI
 		c.ID = "ASI-" + serialHex
 	}
 	c.hwPresent.Store(true)
+}
+
+// hotplug subscribes to the OS's attach and detach notifications through the hotplugFn seam,
+// returning nil where none is available (the loop then polls at the faster cadence).
+func (c *PureASICamera) hotplug(ctx context.Context) <-chan astrocam.HotplugEvent {
+	if c.hotplugFn == nil {
+		return nil
+	}
+	ch, err := c.hotplugFn(ctx)
+	if err != nil {
+		log.Printf("asicam-alpaca: %s: no hotplug notifications (%v); polling", c.Label(), err)
+		return nil
+	}
+	return ch
+}
+
+// pause waits up to d, or until a hotplug event arrives (returned) or ctx ends. A nil events
+// channel is a plain timed wait. Events that queued up behind the first are left for the next
+// pause; each pass of the loop re-checks presence anyway.
+func (c *PureASICamera) pause(ctx context.Context, events <-chan astrocam.HotplugEvent, d time.Duration) *astrocam.HotplugEvent {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-t.C:
+		return nil
+	case ev, ok := <-events:
+		if !ok {
+			return nil
+		}
+		return &ev
+	}
+}
+
+// detachedUs reports whether ev is the detach of the attachment the open handle belongs to,
+// which is certain knowledge that the handle is dead: no debounce applies. Without an
+// attachment id on either side the answer is no, and the presence poll decides.
+func (c *PureASICamera) detachedUs(ev *astrocam.HotplugEvent) bool {
+	if ev.Attached || ev.Attachment == 0 {
+		return false
+	}
+	c.mu.Lock()
+	att := c.attachment
+	c.mu.Unlock()
+	return att != 0 && ev.Attachment == att
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) {

@@ -64,6 +64,7 @@ func newStubStack(t *testing.T, sd *stubDev) (base, mgmt string) {
 	dev := NewPureASICamera(0, "")
 	dev.openDev = sd.open
 	dev.aliveFn = sd.isPresent
+	dev.hotplugFn = nil // the stub has no bus; the polling path is what these tests exercise
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -616,6 +617,7 @@ func TestSetupFormGenerated(t *testing.T) {
 	dev := NewPureASICamera(0, "")
 	dev.openDev = sd.open
 	dev.aliveFn = sd.isPresent
+	dev.hotplugFn = nil // the stub has no bus; the polling path is what these tests exercise
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	if err := dev.Open(ctx); err != nil {

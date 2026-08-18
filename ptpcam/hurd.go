@@ -72,6 +72,7 @@ func init() {
 			// A liveness probe that sent PTP traffic would compete with an
 			// exposure in flight, so presence is read off the USB registry.
 			d.AliveFn = NewAliveProbe(cfg.Vendor, cfg.Serial, d)
+			d.HotplugFn = usb.Hotplug
 			if cfg.SensorWidth > 0 {
 				d.SetGeometry(cfg.SensorWidth, cfg.SensorHeight)
 			}

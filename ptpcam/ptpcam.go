@@ -53,6 +53,7 @@ package ptpcam
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"image/jpeg"
@@ -68,6 +69,7 @@ import (
 	"github.com/mikefsq/goalpaca/alpaca"
 	alpacadev "github.com/mikefsq/goalpaca/server"
 	"github.com/mikefsq/ptp"
+	"github.com/mikefsq/ptp/usb"
 )
 
 // Camera is a PTP stills body presented as an Alpaca camera.
@@ -106,6 +108,11 @@ type Camera struct {
 	// it. cmd/ptpcam supplies a probe over the OS USB registry; tests override
 	// it. See Camera.alive.
 	AliveFn func() bool
+
+	// HotplugFn subscribes to the OS's USB attach and detach notifications,
+	// the interrupt the supervisor selects on beside its poll; usb.Hotplug in
+	// the registered driver, nil in tests (polling path). See manageHardware.
+	HotplugFn func(context.Context) (<-chan usb.HotplugEvent, error)
 
 	// CardOnly runs the capture -> skip -> delete path: the shutter fires, the
 	// frame is deleted from the camera's buffer, and its bytes never cross USB.

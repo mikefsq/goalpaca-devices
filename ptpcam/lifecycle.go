@@ -62,15 +62,38 @@ func (c *Camera) Close(ctx context.Context) error {
 
 // manageHardware acquires, monitors and re-acquires the camera for the process
 // lifetime.
+//
+// The OS's hotplug notification (HotplugFn, usb.Hotplug) is the interrupt: an
+// attach wakes the acquire attempt at once, a detach of the very attachment
+// the session holds tears down at once, and any other event brings the
+// presence probe forward. The polls stay as the fallback, slower when the
+// notifications are there.
 func (c *Camera) manageHardware(ctx context.Context) {
 	misses := 0
+	events := c.hotplug(ctx)
+	acquirePoll, probePoll := acquireInterval, probeInterval
+	if events != nil {
+		acquirePoll, probePoll = 10*time.Second, 10*time.Second
+	}
+	// eager counts quick retries left after an attach event or a teardown: the
+	// first-match notification lands while the OS is still configuring the
+	// body, so the first open can fail (and on macOS ptpcamerad may hold it
+	// for a moment), and a second later it succeeds.
+	eager := 0
 	for ctx.Err() == nil {
 		if !c.hwPresent.Load() {
 			if c.tryAcquire() {
 				misses = 0
 				log.Printf("ptpcam: camera %s acquired (%s)", c.ID, c.modelName())
-			} else {
-				sleepCtx(ctx, acquireInterval)
+				continue
+			}
+			wait := acquirePoll
+			if eager > 0 {
+				eager--
+				wait = time.Second
+			}
+			if ev := c.pause(ctx, events, wait); ev != nil && ev.Attached {
+				eager = 5
 			}
 			continue
 		}
@@ -88,18 +111,23 @@ func (c *Camera) manageHardware(ctx context.Context) {
 
 		if c.alive() {
 			misses = 0
-			sleepCtx(ctx, probeInterval)
+			if ev := c.pause(ctx, events, probePoll); ev != nil && c.detachedUs(ev) {
+				log.Printf("ptpcam: camera %s unplugged (detach notification); re-acquiring", c.ID)
+				c.teardown()
+				eager = 5
+			}
 			continue
 		}
 		if c.replaced.CompareAndSwap(true, false) {
 			log.Printf("ptpcam: camera %s replugged (new attachment); re-acquiring", c.ID)
 			c.teardown()
 			misses = 0
+			eager = 5
 			continue
 		}
 		misses++
 		if misses < maxMisses {
-			sleepCtx(ctx, probeInterval)
+			c.pause(ctx, events, probeInterval)
 			continue
 		}
 		log.Printf("ptpcam: camera %s is gone (x%d); re-acquiring", c.ID, misses)
@@ -248,6 +276,50 @@ func (c *Camera) Connect(ctx context.Context) error {
 // lifetime, and one client going away must not hand the camera back while
 // another is still shooting.
 func (c *Camera) Disconnect(ctx context.Context) error { return nil }
+
+// hotplug subscribes through HotplugFn, returning nil where there is none or
+// it fails (the loop then polls at the faster cadence).
+func (c *Camera) hotplug(ctx context.Context) <-chan usb.HotplugEvent {
+	if c.HotplugFn == nil {
+		return nil
+	}
+	ch, err := c.HotplugFn(ctx)
+	if err != nil {
+		log.Printf("ptpcam: camera %s: no hotplug notifications (%v); polling", c.ID, err)
+		return nil
+	}
+	return ch
+}
+
+// pause waits up to d, or until a hotplug event arrives (returned) or ctx
+// ends. A nil events channel is a plain timed wait.
+func (c *Camera) pause(ctx context.Context, events <-chan usb.HotplugEvent, d time.Duration) *usb.HotplugEvent {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return nil
+	case <-t.C:
+		return nil
+	case ev, ok := <-events:
+		if !ok {
+			return nil
+		}
+		return &ev
+	}
+}
+
+// detachedUs reports whether ev is the detach of the attachment the open
+// session was opened on: certain knowledge that the session is dead, so no
+// debounce applies. Without an attachment id on either side the answer is no
+// and the presence probe decides.
+func (c *Camera) detachedUs(ev *usb.HotplugEvent) bool {
+	if ev.Attached || ev.Attachment == 0 {
+		return false
+	}
+	att := c.Attachment()
+	return att != 0 && ev.Attachment == att
+}
 
 func sleepCtx(ctx context.Context, d time.Duration) {
 	t := time.NewTimer(d)
