@@ -10,18 +10,28 @@ import (
 // package.
 func init() {
 	registry.Register(registry.Driver{
-		Name:          "mgpbox",
-		Type:          alpacadev.ObservingConditionsType,
-		Description:   "Astromi.ch MGPBox weather + GPS box",
-		ConfigExample: `{ "driver": "mgpbox", "index": 0 }`,
+		Name:        "mgpbox",
+		Type:        alpacadev.ObservingConditionsType,
+		Description: "Astromi.ch MGPBox weather + GPS box",
+		ConfigExample: `{ "driver": "mgpbox", "index": 0, ` +
+			`"feed": [ { "addr": "10.0.1.5:11111", "type": "telescope", "device": 0 }, ` +
+			`{ "addr": "localhost:11130", "type": "switch", "device": 0 } ] }`,
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
 			var cfg struct {
 				Index  int    `json:"index,omitempty"`
 				Serial string `json:"serial,omitempty"`
 
-				// MountAddr feeds this box's GPS + weather readings into a tenmicron
-				// mount's Alpaca server: host:port of that server (its telescope is
-				// MountDevice, default 0).
+				// Feed lists the Alpaca devices this box pushes its GPS + weather
+				// snapshot to, via each one's setenvironment Action. A tenmicron
+				// telescope takes the pressure/temperature refraction datums plus the
+				// site and time; an SM Pro switch takes temperature, humidity and dew
+				// point for its dew heaters. Every consumer ignores what it does not
+				// understand, so one snapshot serves them all.
+				Feed []FeedTarget `json:"feed,omitempty"`
+
+				// MountAddr/MountDevice are the historical single-telescope spelling,
+				// kept so existing configs keep working. Equivalent to one Feed entry
+				// of type "telescope".
 				MountAddr   string `json:"mountAddr,omitempty"`
 				MountDevice int    `json:"mountDevice,omitempty"`
 			}
@@ -38,8 +48,12 @@ func init() {
 			if spec.Name != "" {
 				d.DevName = spec.Name
 			}
+			targets := cfg.Feed
 			if cfg.MountAddr != "" {
-				d.SetMountFeed(cfg.MountAddr, cfg.MountDevice)
+				targets = append(targets, FeedTarget{Addr: cfg.MountAddr, Type: "telescope", Device: cfg.MountDevice})
+			}
+			if err := d.SetFeedTargets(targets); err != nil {
+				return nil, err
 			}
 			return d, nil
 		},

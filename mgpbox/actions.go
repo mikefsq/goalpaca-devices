@@ -41,7 +41,10 @@ var mgpActions = []string{
 	"Pcal", "Tcal", "Hcal", "Calibration",
 	// GPS control
 	"GpsEnable", "RebootGps",
-	// mount environment feed (configure / trigger)
+	// environment feed: configure the target list, read each target's health, and push
+	// now. MountFeed/PushMount are the historical single-telescope spellings, kept for
+	// existing clients.
+	"Feed", "FeedStatus", "PushFeed",
 	"MountFeed", "PushMount",
 }
 
@@ -64,25 +67,47 @@ type gpsJSON struct {
 	VDOP       float64 `json:"vdop"`
 }
 
+// DeviceState contributes the feed's health to the Platform 7 DeviceState batch, so a
+// client polling devicestate learns that a consumer has stopped being fed without having
+// to know about this driver's custom Actions. FeedFailures is the total consecutive-
+// failure count across all targets: zero means every consumer is current.
+func (m *MGPBox) DeviceState() []alpacadev.StateValue {
+	targets := m.FeedTargets()
+	if len(targets) == 0 {
+		return nil // feed off: nothing to report
+	}
+	return []alpacadev.StateValue{
+		{Name: "FeedTargets", Value: len(targets)},
+		{Name: "FeedFailures", Value: m.feedFailures()},
+	}
+}
+
 // Action dispatches a device-specific Action by name (matched case-insensitively). Only
-// MountFeed and GpsEnable take a params value; every other action is a read-only getter or
-// a no-arg trigger and rejects params.
+// Feed, MountFeed and GpsEnable take a params value; every other action is a read-only
+// getter or a no-arg trigger and rejects params.
 func (m *MGPBox) Action(name, params string) (string, error) {
 	lname := strings.ToLower(strings.TrimSpace(name))
 
-	// MountFeed is the only action that takes a value (host:port to set, empty to read).
+	// Feed, MountFeed and GpsEnable are the only actions that take a value (empty = read).
 	// Everything else is a read-only getter or a no-arg trigger, so a params value is a
 	// client error (put/empty = read, per the goalpaca convention).
-	if strings.TrimSpace(params) != "" && lname != "mountfeed" && lname != "gpsenable" {
+	if strings.TrimSpace(params) != "" && lname != "feed" && lname != "mountfeed" && lname != "gpsenable" {
 		return "", alpacadev.NewError(alpacadev.ErrNumInvalidValue, "action takes no value")
 	}
 
 	// Feed configuration/trigger first — these don't require an attached device.
 	switch lname {
+	case "feed":
+		return m.actionFeed(params)
+	case "feedstatus":
+		b, err := json.Marshal(m.FeedHealth())
+		return string(b), err
+	case "pushfeed", "pushmount":
+		// Operator-triggered: ignore any backoff and try every target now, so someone
+		// who has just fixed a target does not have to wait out its retry delay.
+		return m.pushEnvironmentNow(context.Background())
 	case "mountfeed":
 		return m.actionMountFeed(params)
-	case "pushmount":
-		return m.pushEnvironment(context.Background())
 	}
 
 	dev, err := m.device()
@@ -103,7 +128,14 @@ func (m *MGPBox) Action(name, params string) (string, error) {
 	case "pressure":
 		return fnum(me.Pressure), nil
 	case "dewpoint":
-		return fnum(me.Dewpoint), nil
+		// Through the property, not the raw field: it derives a dew point when the
+		// box does not report one (see DewPoint), so the scalar action and the
+		// ObservingConditions property never disagree.
+		dp, err := m.DewPoint()
+		if err != nil {
+			return "", err
+		}
+		return fnum(dp), nil
 
 	// --- dew heater ---
 	case "dewoffset":
@@ -191,21 +223,58 @@ func parseOnOff(s string) bool {
 	return false
 }
 
-// actionMountFeed reads or sets the environment-feed target. params: empty reads it
-// (returns "host:port (telescope N)" or "off"); "off"/"none"/"disable" turns it off;
-// otherwise "host:port" (optionally "host:port/N" for the telescope device number) enables
-// it. The feed loop picks up the change on its next tick.
+// actionFeed reads or sets the whole environment-feed target list. params: empty reads it
+// (a comma-separated "host:port/type/device" list, or "off"); "off"/"none"/"disable"
+// turns the feed off; otherwise a comma-separated target list, each
+// "host:port[/type[/device]]" — e.g.
+//
+//	10.0.1.5:11111/telescope/0,localhost:11130/switch/0
+//
+// The list is replaced as a unit, and an invalid entry rejects the whole set rather than
+// silently dropping one consumer. The feed loop picks up the change on its next tick.
+func (m *MGPBox) actionFeed(params string) (string, error) {
+	p := strings.TrimSpace(params)
+	switch strings.ToLower(p) {
+	case "":
+		targets := m.FeedTargets()
+		if len(targets) == 0 {
+			return "off", nil
+		}
+		out := make([]string, len(targets))
+		for i, t := range targets {
+			out[i] = t.String()
+		}
+		return strings.Join(out, ","), nil
+	case "off", "none", "disable":
+		_ = m.SetFeedTargets(nil)
+		return "ok", nil
+	default:
+		targets, err := ParseFeedTargets(p)
+		if err != nil {
+			return "", alpacadev.NewError(alpacadev.ErrNumInvalidValue, err.Error())
+		}
+		if err := m.SetFeedTargets(targets); err != nil {
+			return "", alpacadev.NewError(alpacadev.ErrNumInvalidValue, err.Error())
+		}
+		return "ok", nil
+	}
+}
+
+// actionMountFeed is the historical single-telescope spelling of the feed, kept so
+// existing clients and configs keep working. params: empty reads the first telescope
+// target (as "host:port (telescope N)") or "off"; "off" disables the whole feed;
+// otherwise "host:port[/N]" sets the feed to that one mount — replacing any other
+// targets, which is what the old single-target action always did.
 func (m *MGPBox) actionMountFeed(params string) (string, error) {
 	p := strings.TrimSpace(params)
 	switch strings.ToLower(p) {
 	case "":
-		m.mu.Lock()
-		addr, device := m.mountAddr, m.mountDevice
-		m.mu.Unlock()
-		if addr == "" {
-			return "off", nil
+		for _, t := range m.FeedTargets() {
+			if t.Type == "telescope" {
+				return fmt.Sprintf("%s (telescope %d)", t.Addr, t.Device), nil
+			}
 		}
-		return fmt.Sprintf("%s (telescope %d)", addr, device), nil
+		return "off", nil
 	case "off", "none", "disable":
 		m.SetMountFeed("", 0)
 		return "ok", nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"math"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -131,5 +132,38 @@ func TestUnsupportedSensors(t *testing.T) {
 	}
 	if d, err := m.SensorDescription("pressure"); err != nil || d == "" {
 		t.Errorf("SensorDescription(pressure) = %q, %v", d, err)
+	}
+}
+
+// A box with no dew-point transducer must not report the unreported 0 °C: a client
+// cannot tell that from a real freezing dew point on a mild night. Derive it from the
+// temperature and humidity the box does report. ASCOM links DewPoint, Humidity and
+// Temperature, so NotImplemented is not an option once the other two exist.
+//
+// The fixture is the standard meteo line with the dew-point transducer zeroed. Our
+// derivation lands at 13.65 °C where that transducer, when present, reads 13.6 — so the
+// Magnus estimate is checked against the box's own measurement, not just against itself.
+func TestDewPointDerivedWhenBoxReportsNone(t *testing.T) {
+	const s = "$PXDR,P,101531.0,P,0,C,23.5,C,1,H,54.0,P,2,C,0.0,C,3,1.1*36\n"
+	m, cancel := acquire(t, func() (*mgpbox.MGPBox, error) {
+		return mgpbox.New(newFakeT(s), mgpbox.DeviceInfo{Port: "fake"}), nil
+	})
+	defer cancel()
+
+	dp, err := m.DewPoint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(dp-13.65) > 0.1 {
+		t.Errorf("DewPoint() = %v, want ~13.65 (derived, not the unreported 0)", dp)
+	}
+	// The scalar Action must agree with the property.
+	got, err := m.Action("DewPoint", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := strconv.ParseFloat(got, 64)
+	if err != nil || math.Abs(v-dp) > 1e-9 {
+		t.Errorf("dewpoint action = %q, want the same value as the property (%v)", got, dp)
 	}
 }

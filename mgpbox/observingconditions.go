@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -43,25 +44,62 @@ type MGPBox struct {
 	index  int
 	serial string // FTDI USB-bridge serial to bind to; "" = discover
 
-	mu          sync.Mutex
-	dev         *mgpbox.MGPBox // open handle; nil when no box is attached
-	mountAddr   string         // host:port of a tenmicron mount Alpaca server to feed; "" = off
-	mountDevice int            // that server's telescope device number (usually 0)
-	feedTxn     uint32         // ClientTransactionID counter for feed requests
-	gpsEnabled  bool           // last-commanded GPS power state (the box can't report it); the GpsEnable read returns this
+	mu  sync.Mutex
+	dev *mgpbox.MGPBox // open handle; nil when no box is attached
+	// feedTargets are the Alpaca devices the environment snapshot is pushed to —
+	// typically a mount (refraction datums + site + time) and a dew controller
+	// (temperature, humidity, dew point). Empty = feed off.
+	feedTargets []FeedTarget
+	// feedState is each failing target's retry bookkeeping, keyed by FeedTarget.String().
+	// A target with no entry is healthy; entries are dropped on success and pruned when
+	// the target list changes.
+	feedState  map[string]*feedState
+	feedTxn    uint32 // ClientTransactionID counter for feed requests
+	gpsEnabled bool   // last-commanded GPS power state (the box can't report it); the GpsEnable read returns this
 
 	openDev func() (*mgpbox.MGPBox, error) // injectable for tests
+	now     func() time.Time               // clock, so tests can run backoff without sleeping
 }
 
-// SetMountFeed configures the environment feed: when addr is a non-empty host:port of a
-// tenmicron mount's Alpaca server, the driver periodically pushes its GPS + weather
-// snapshot to that mount's setenvironment Action (device is the mount's telescope number,
-// usually 0). Empty addr disables the feed.
-func (m *MGPBox) SetMountFeed(addr string, device int) {
+// SetFeedTargets replaces the environment-feed target list. Each target is an Alpaca
+// device that accepts a setenvironment Action; the driver pushes the box's GPS + weather
+// snapshot to every one of them on each cycle. An empty list disables the feed. Invalid
+// targets are rejected as a group, so a typo cannot silently drop one consumer.
+func (m *MGPBox) SetFeedTargets(targets []FeedTarget) error {
+	norm := make([]FeedTarget, 0, len(targets))
+	for _, t := range targets {
+		n, err := t.normalize()
+		if err != nil {
+			return err
+		}
+		norm = append(norm, n)
+	}
 	m.mu.Lock()
-	m.mountAddr = strings.TrimSpace(addr)
-	m.mountDevice = device
+	m.feedTargets = norm
+	// Reconfiguring the feed clears every target's backoff: an operator changing the
+	// list is saying "use this now", and should not have to wait out a retry delay
+	// accumulated against the old one.
+	m.feedState = make(map[string]*feedState, len(norm))
 	m.mu.Unlock()
+	return nil
+}
+
+// FeedTargets returns the current environment-feed target list.
+func (m *MGPBox) FeedTargets() []FeedTarget {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]FeedTarget(nil), m.feedTargets...)
+}
+
+// SetMountFeed configures a single telescope feed target, the historical one-mount
+// spelling. Empty addr disables the feed entirely. Prefer SetFeedTargets, which can
+// also feed a dew controller.
+func (m *MGPBox) SetMountFeed(addr string, device int) {
+	if strings.TrimSpace(addr) == "" {
+		_ = m.SetFeedTargets(nil)
+		return
+	}
+	_ = m.SetFeedTargets([]FeedTarget{{Addr: addr, Type: "telescope", Device: device}})
 }
 
 // NewMGPBox creates the driver for the MGPBox at the given discovery index. Prefer
@@ -93,6 +131,8 @@ func (m *MGPBox) init() {
 	m.Info = "mgpbox — Astromi.ch MGPBox Alpaca ObservingConditions driver over Go mikefsq/astromi.ch"
 	m.IfaceVer = alpacadev.InterfaceVersionObservingConditions
 	m.gpsEnabled = true // the box powers its GPS at boot
+	m.feedState = make(map[string]*feedState)
+	m.now = time.Now
 }
 
 // --- Hardware lifecycle (mirrors the sibling unihedron device) ---
@@ -248,10 +288,58 @@ func (m *MGPBox) Pressure() (float64, error) {
 	return me.Pressure, err
 }
 
-// DewPoint returns the dew-point temperature, °C.
+// magnusA/magnusB are the Magnus-formula coefficients (Sonntag, over water).
+const magnusA, magnusB = 17.62, 243.12
+
+// dewPointFrom computes the dew point (°C) from an air temperature (°C) and a
+// relative humidity (%).
+func dewPointFrom(tempC, humidity float64) float64 {
+	if humidity <= 0 {
+		humidity = 0.001 // ln(0) is -Inf
+	}
+	if humidity > 100 {
+		humidity = 100
+	}
+	gamma := math.Log(humidity/100) + magnusA*tempC/(magnusB+tempC)
+	return magnusB * gamma / (magnusA - gamma)
+}
+
+// resolveDewpoint returns this box's dew point: its own transducer reading when it
+// has one, otherwise a value derived from the temperature and humidity it does
+// report (Magnus). ok is false only when neither is possible — no transducer and
+// no humidity to derive from — in which case there is genuinely no dew point to
+// publish, and callers must omit it rather than publish a zero.
+//
+// It is the single source of truth for every dew-point surface this driver has
+// (the ObservingConditions property, the scalar Action, and the environment feed),
+// so they cannot disagree about the same sample.
+func resolveDewpoint(me mgpbox.Meteo) (float64, bool) {
+	if me.Dewpoint != 0 {
+		return me.Dewpoint, true
+	}
+	if me.Humidity <= 0 {
+		return 0, false
+	}
+	return dewPointFrom(me.Temperature, me.Humidity), true
+}
+
+// DewPoint returns the dew-point temperature, °C. Not every MGPBox carries the
+// dew-point transducer; when the box reports none the value is derived from the
+// temperature and humidity it does report.
+//
+// Deriving is the right answer rather than ErrNotImplemented: ASCOM links
+// DewPoint, Humidity and Temperature — a driver implements all three or none —
+// and this box implements the other two. Returning the unreported 0 would be worse
+// than either, since a client cannot tell it from a real freezing dew point on a
+// mild night, and anything steering dew heaters off it would read the margin as
+// the whole air temperature and stay idle.
 func (m *MGPBox) DewPoint() (float64, error) {
 	me, err := m.meteo()
-	return me.Dewpoint, err
+	if err != nil {
+		return 0, err
+	}
+	dp, _ := resolveDewpoint(me) // no humidity and no transducer: 0 is all there is
+	return dp, nil
 }
 
 // Refresh is a no-op: the MGPBox streams continuously, so reads are always served from the
@@ -294,7 +382,7 @@ func (m *MGPBox) SensorDescription(name string) (string, error) {
 	case "pressure":
 		return "Astromi.ch MGPBox barometric pressure (hPa)", nil
 	case "dewpoint":
-		return "Astromi.ch MGPBox dew point (°C)", nil
+		return "Astromi.ch MGPBox dew point (°C; derived from temperature and humidity when the box reports none)", nil
 	}
 	return "", alpacadev.ErrNotImplemented
 }

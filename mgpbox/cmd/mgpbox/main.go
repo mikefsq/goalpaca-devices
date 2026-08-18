@@ -18,8 +18,11 @@ func main() {
 	port := flag.Int("port", 11125, "Alpaca HTTP port")
 	index := flag.Int("device", 0, "MGPBox discovery index (when -serial is unset)")
 	serial := flag.String("serial", "", "bind to the MGPBox with this FTDI USB-bridge serial (stable across replug); overrides -device")
-	mount := flag.String("mount", "", "host:port of a tenmicron mount Alpaca server to feed GPS+weather to (empty = off)")
-	mountDev := flag.Int("mount-device", 0, "the mount server's telescope device number")
+	feed := flag.String("feed", "", "comma-separated Alpaca endpoints to push GPS+weather to, each\n"+
+		"host:port[/type[/device]] — type is telescope (default) or switch, e.g.\n"+
+		"10.0.1.5:11111/telescope/0,localhost:11130/switch/0  (empty = off)")
+	mount := flag.String("mount", "", "host:port of a tenmicron mount Alpaca server to feed (deprecated: use -feed)")
+	mountDev := flag.Int("mount-device", 0, "the mount server's telescope device number (with -mount)")
 	dmode := flag.String("discovery", "direct", "discovery mode: direct | register | off")
 	dsrv := flag.String("discovery-server", "localhost:32227", "discovery proxy for register mode")
 	ipv6 := flag.Bool("ipv6", false, "also answer IPv6 multicast discovery")
@@ -31,8 +34,21 @@ func main() {
 	} else {
 		oc = driver.NewMGPBox(*index)
 	}
+
+	// -feed is the general form; -mount is the historical single-telescope flag. Given
+	// both, -feed wins and -mount is appended, so an old command line keeps working.
+	targets, err := driver.ParseFeedTargets(*feed)
+	if err != nil {
+		log.Fatalf("mgpbox: -feed: %v", err)
+	}
 	if a := strings.TrimSpace(*mount); a != "" {
-		oc.SetMountFeed(a, *mountDev)
+		targets = append(targets, driver.FeedTarget{Addr: a, Type: "telescope", Device: *mountDev})
+	}
+	if err := oc.SetFeedTargets(targets); err != nil {
+		log.Fatalf("mgpbox: feed: %v", err)
+	}
+	for _, t := range targets {
+		log.Printf("mgpbox: feeding environment to %s", t)
 	}
 
 	srv := alpacadev.New(alpacadev.Config{AlpacaPort: *port, Discovery: discovery(*dmode, *dsrv, *ipv6), ServerName: "mgpbox", Manufacturer: "mikefsq"})
