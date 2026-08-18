@@ -1,10 +1,11 @@
 // Command ptpcam runs a Fujifilm or Sony stills camera as a standalone ASCOM
 // Alpaca camera server, over PTP with no vendor SDK.
 //
-// The vendor packages are imported for their side effects as well as their
-// constructors: importing ptp/fuji is what makes Fujifilm bodies visible to USB
-// enumeration at all, because a vendor registers itself from an init function.
-// Matching a camera this build cannot drive would help nobody.
+// Camera selection (the opener and the liveness probe) lives in the driver
+// package, which this shares with the alpacahurd registry entry so the two
+// cannot drift. Importing it also pulls in ptp/fuji and ptp/sony, whose init
+// functions register the vendors — that registration is what makes their bodies
+// visible to USB enumeration at all.
 //
 // It serves Alpaca and nothing else: one port, no side channels. An earlier
 // revision exposed the untouched camera file and the live preview on plain HTTP
@@ -13,7 +14,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -23,9 +23,6 @@ import (
 
 	driver "github.com/mikefsq/goalpaca-devices/ptpcam"
 	alpacadev "github.com/mikefsq/goalpaca/server"
-	"github.com/mikefsq/ptp"
-	"github.com/mikefsq/ptp/fuji"
-	"github.com/mikefsq/ptp/sony"
 	"github.com/mikefsq/ptp/usb"
 )
 
@@ -48,11 +45,11 @@ func main() {
 		return
 	}
 
-	cam := driver.New("ptpcam-0", "PTP Camera", opener(*vendor, *serial))
+	cam := driver.New("ptpcam-0", "PTP Camera", driver.NewOpener(*vendor, *serial))
 	// The liveness probe reads the OS USB registry and never touches the open
 	// camera — a probe that sent PTP traffic would compete with an exposure in
 	// flight, which on a body mid-capture is exactly the wrong moment.
-	cam.AliveFn = aliveFn(*vendor, *serial)
+	cam.AliveFn = driver.NewAliveProbe(*vendor, *serial)
 	if *size != "" {
 		w, h, err := parseWxH(*size)
 		if err != nil {
@@ -84,76 +81,6 @@ func main() {
 	if err := srv.Run(ctx); err != nil {
 		log.Fatalf("ptpcam: %v", err)
 	}
-}
-
-// opener chooses the vendor. In auto mode it enumerates and takes the first
-// body it has a driver for, which is the common case of one camera attached.
-func opener(vendor, serial string) func() (ptp.Camera, error) {
-	return func() (ptp.Camera, error) {
-		switch strings.ToLower(vendor) {
-		case "fuji", "fujifilm":
-			return fuji.Open(serial)
-		case "sony":
-			return sony.Open(serial)
-		}
-		devs, err := usb.Enumerate()
-		if err != nil {
-			return nil, err
-		}
-		for _, d := range devs {
-			if serial != "" && d.Serial != serial {
-				continue
-			}
-			switch ptp.VendorID(d.VID) {
-			case ptp.Fujifilm:
-				return fuji.Open(d.Serial)
-			case ptp.Sony:
-				return sony.Open(d.Serial)
-			}
-		}
-		if serial != "" {
-			return nil, fmt.Errorf("no camera with serial %q is attached", serial)
-		}
-		return nil, errors.New("no supported camera found (is it powered on, and in " +
-			"tethered/PC-Remote USB mode?)")
-	}
-}
-
-// aliveFn reports whether a camera matching the filter is still enumerated.
-//
-// It answers the question "is the body still on the bus", not "is the session
-// healthy" — a camera that has stopped answering is still enumerated, and that
-// case is caught by ptp.ErrNotResponding instead.
-func aliveFn(vendor, serial string) func() bool {
-	return func() bool {
-		devs, err := usb.Enumerate()
-		if err != nil {
-			// An enumeration failure is not evidence of absence. Reporting the
-			// camera gone here would tear down a healthy session because the
-			// host's USB registry hiccuped.
-			return true
-		}
-		for _, d := range devs {
-			if serial != "" && d.Serial != serial {
-				continue
-			}
-			if !wantVendor(vendor, ptp.VendorID(d.VID)) {
-				continue
-			}
-			return true
-		}
-		return false
-	}
-}
-
-func wantVendor(vendor string, id ptp.VendorID) bool {
-	switch strings.ToLower(vendor) {
-	case "fuji", "fujifilm":
-		return id == ptp.Fujifilm
-	case "sony":
-		return id == ptp.Sony
-	}
-	return id == ptp.Fujifilm || id == ptp.Sony
 }
 
 func listCameras() error {

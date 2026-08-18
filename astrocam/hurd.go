@@ -14,10 +14,10 @@ import (
 // available to any host that compiles this driver in.
 func init() {
 	registry.Register(registry.Driver{
-		Name:          "asicam",
+		Name:          "astrocam",
 		Type:          alpacadev.CameraType,
 		Description:   "ZWO ASI camera (pure-Go USB driver)",
-		ConfigExample: `{ "driver": "asicam", "serial": "1a2b3c4d", "name": "Main camera" }`,
+		ConfigExample: `{ "driver": "astrocam", "serial": "1a2b3c4d", "name": "Main camera" }`,
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
 			var cfg struct {
 				Index      int    `json:"index,omitempty"`

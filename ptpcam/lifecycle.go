@@ -164,8 +164,9 @@ func (c *Camera) teardown() {
 
 // alive reports whether the camera is still on the bus.
 //
-// AliveFn is a seam: the library has no USB knowledge, so cmd/ptpcam supplies a
-// probe over the OS registry and tests override it. With no probe there is
+// AliveFn is a seam: the core driver has no USB knowledge, so a probe over the
+// OS registry is supplied from outside (NewAliveProbe, used by cmd/ptpcam and by
+// the registry entry in hurd.go) and tests override it. With no probe there is
 // nothing non-perturbing to ask, so presence is assumed and a loss is caught by
 // needsReconnect instead — later, but without inventing traffic.
 func (c *Camera) alive() bool {
