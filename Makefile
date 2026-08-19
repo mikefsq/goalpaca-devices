@@ -5,7 +5,8 @@
 #   make help         list the targets
 #   make <name>       build one (e.g. make tenmicron)
 #   make sdk          build the cgo ZWO-SDK drivers (needs libASICamera2)
-#   make all          build + sdk
+#   make pi           cross-compile the Raspberry Pi drivers into ./bin/linux_arm64
+#   make all          build + sdk + pi
 #   make sim          build the coupled guide sim (mount + camera, one shared sky)
 #   make alpacasim    run goalpaca's one-of-every-type protocol sim (not guidable)
 #   make vet          go vet every module
@@ -20,9 +21,15 @@ DRIVERS := tenmicron asiam5 rst onstep astrocam asieaf asiefw \
 # cgo drivers that link the ZWO SDK (libASICamera2) — opt-in, not in the default build.
 SDK_DRIVERS := asiccd asicaa
 
+# Raspberry Pi drivers — the hardware exists only on a Pi (smpro: I2C/SPI/UART
+# hats; asiair: the ASIAIR's own switch), so they cross-compile to linux/arm64
+# under bin/linux_arm64/ with their plain names, ready to copy to a Pi's
+# /usr/local/bin where alpacahurd resolves drivers by name.
+PI_DRIVERS := smpro asiair
+
 BIN := bin
 
-.PHONY: build help all sdk alpacasim vet tidy clean $(DRIVERS) $(SDK_DRIVERS)
+.PHONY: build help all sdk pi alpacasim vet tidy clean $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS)
 
 build: $(DRIVERS) ## build every pure-Go driver into ./bin (default)
 
@@ -35,8 +42,9 @@ help: ## list the targets
 	@echo "  make <name>   build one driver (e.g. make tenmicron)"
 	@echo
 	@echo "Drivers: $(DRIVERS)"
+	@echo "Pi drivers (linux/arm64): $(PI_DRIVERS)"
 
-all: build sdk ## build + the cgo ZWO-SDK drivers
+all: build sdk pi ## build + the cgo ZWO-SDK drivers + the Pi drivers
 
 $(DRIVERS): | $(BIN)
 	@echo "building $@"
@@ -47,6 +55,13 @@ sdk: $(SDK_DRIVERS) ## build the cgo ZWO-SDK drivers (needs libASICamera2)
 $(SDK_DRIVERS): | $(BIN)
 	@echo "building $@ (cgo + ZWO SDK)"
 	@cd $@ && CGO_ENABLED=1 go build -o ../$(BIN)/$@ ./cmd/$@
+
+pi: $(PI_DRIVERS) ## cross-compile the Raspberry Pi drivers (linux/arm64) into ./bin/linux_arm64
+
+$(PI_DRIVERS): | $(BIN)
+	@echo "building $@ (linux/arm64)"
+	@mkdir -p $(BIN)/linux_arm64
+	@cd $@ && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o ../$(BIN)/linux_arm64/$@ ./cmd/$@
 
 # sim (in DRIVERS above) builds bin/sim: the coupled mount + guide-camera pair on one
 # shared simulated sky, so PHD2 can calibrate and guide a closed loop with no hardware.
@@ -60,10 +75,11 @@ $(BIN):
 
 vet: ## go vet every module
 	@for d in $(DRIVERS) $(SDK_DRIVERS); do echo "vet $$d"; (cd $$d && go vet ./...) || exit 1; done
+	@for d in $(PI_DRIVERS); do echo "vet $$d (linux/arm64)"; (cd $$d && GOOS=linux GOARCH=arm64 go vet ./...) || exit 1; done
 
 tidy: ## go mod tidy every module
-	@for d in $(DRIVERS) $(SDK_DRIVERS); do echo "tidy $$d"; (cd $$d && go mod tidy) || exit 1; done
+	@for d in $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS); do echo "tidy $$d"; (cd $$d && go mod tidy) || exit 1; done
 
 clean: ## remove ./bin and any per-cmd build outputs
 	@rm -rf $(BIN)
-	@rm -f $(foreach d,$(DRIVERS) $(SDK_DRIVERS),$(d)/cmd/$(d)/$(d))
+	@rm -f $(foreach d,$(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS),$(d)/cmd/$(d)/$(d))

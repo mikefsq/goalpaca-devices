@@ -1,12 +1,25 @@
 package driver
 
 import (
+	"encoding/json"
+
 	_ "github.com/mikefsq/astrocam/sensors" // registers the PID -> sensor profile table
 
 	"github.com/mikefsq/goalpaca/registry"
 	alpacadev "github.com/mikefsq/goalpaca/server"
 	"github.com/mikefsq/goindi/ccd"
 )
+
+// rawHasKey reports whether the entry sets the key, distinguishing an explicit
+// zero ("index": 0) from an absent one.
+func rawHasKey(raw json.RawMessage, key string) bool {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(raw, &m) != nil {
+		return false
+	}
+	_, ok := m[key]
+	return ok
+}
 
 // init registers this driver in the goalpaca driver registry, so a composed
 // host (alpacahurd) can construct it from a config entry by importing this
@@ -24,9 +37,13 @@ type Config struct {
 
 func init() {
 	registry.Register(registry.Driver{
-		Name:          "astrocam",
-		Type:          alpacadev.CameraType,
-		Description:   "ZWO ASI camera (pure-Go USB driver)",
+		Name:        "astrocam",
+		Type:        alpacadev.CameraType,
+		Description: "ZWO ASI camera (pure-Go USB driver)",
+		// One entry may carry a "cameras" array — one block per Alpaca camera
+		// device on the port, in order — which a host expands to one Spec per
+		// block. A flat entry stays one camera.
+		MultiKey:      "cameras",
 		ConfigExample: `{ "driver": "astrocam", "serial": "1a2b3c4d", "name": "Main camera" }`,
 		Config:        func() any { return &Config{} },
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
@@ -34,7 +51,13 @@ func init() {
 			if err := spec.Decode(&cfg); err != nil {
 				return nil, err
 			}
-			d := NewPureASICamera(cfg.Index, cfg.Serial)
+			idx := cfg.Index
+			if cfg.Serial == "" && !rawHasKey(spec.Raw, "index") {
+				// No binding at all: default to the device number, so the
+				// blocks of a "cameras" entry bind their array positions.
+				idx = spec.Device
+			}
+			d := NewPureASICamera(idx, cfg.Serial)
 			d.Instance = spec.Instance      // the host's name for this camera, for log lines
 			d.SetFixDefects(cfg.FixDefects) // "fixdefects": true → factory hot-pixel correction
 			if cfg.FpsPercent != 0 {
