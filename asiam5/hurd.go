@@ -24,6 +24,8 @@ func init() {
 		Description:   "ZWO AM-series harmonic mount (USB serial or TCP)",
 		ConfigExample: `{ "driver": "asiam5", "serial": "0123456789ABCDEF" }`,
 		Config:        func() any { return &Config{} },
+		// 'G': the AM series track as German-style equatorials ('A' for alt-az installs).
+		FrontEnd:      lx200FrontEnd('G', "ZWO AM"),
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
 			var cfg Config
 			if err := spec.Decode(&cfg); err != nil {

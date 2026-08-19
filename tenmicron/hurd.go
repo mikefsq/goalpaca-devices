@@ -24,6 +24,8 @@ func init() {
 		Description:   "10Micron GM-series mount (TCP)",
 		ConfigExample: `{ "driver": "tenmicron", "addr": "10.0.1.51:3492", "aperture": 200, "focalLength": 1600 }`,
 		Config:        func() any { return &Config{} },
+		// 'G': the GM series are German equatorials.
+		FrontEnd:      lx200FrontEnd('G', "10micron"),
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
 			var cfg Config
 			if err := spec.Decode(&cfg); err != nil {

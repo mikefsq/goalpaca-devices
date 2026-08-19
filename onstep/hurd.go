@@ -24,6 +24,8 @@ func init() {
 		Description:   "OnStep telescope controller (USB serial or TCP)",
 		ConfigExample: `{ "driver": "onstep", "addr": "192.168.0.1:9999" }`,
 		Config:        func() any { return &Config{} },
+		// 'G': OnStep controllers most commonly drive German equatorials.
+		FrontEnd:      lx200FrontEnd('G', "OnStep"),
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
 			var cfg Config
 			if err := spec.Decode(&cfg); err != nil {

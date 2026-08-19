@@ -3,9 +3,9 @@
 // libASICamera2 SDK. The USB transport is IOKit (macOS) / usbfs (Linux) / WinUSB (Windows).
 //
 // One process serves one Alpaca port with one camera device per entry of the
-// config file's "cameras" array (device 0, 1, … in array order), which is what
-// keeps every camera reachable through a single discovered server for clients
-// that stop at the first one. The array defaults to two entries. -config takes
+// config file's "cameras" array (device 0, 1, … in array order), so every
+// camera stays reachable through a single discovered server for clients that
+// stop at the first one. The array defaults to two entries. -config takes
 // the same device file an orchestrator keeps in devices.d, so the binary runs
 // identically by hand and under `alpacahurd -launch` (which passes
 // `-discovery register -config <file>`); the -serial flag remains the file-less
