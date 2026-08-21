@@ -1,0 +1,164 @@
+name: Debian Packages
+
+# MANUAL ONLY for a release, as in mikefsq/alpacahurd. A run that publishes
+# produces packages the fleet installs on its next `apt upgrade`. Start it from
+# the Actions tab, or:
+#
+#     gh workflow run build-deb.yml --repo mikefsq/goalpaca-devices -f version=1.2.3
+#
+# One .deb per driver, all sharing the run's version: the modules carry no
+# version of their own, and a herd assembled from one commit is easier to reason
+# about than fourteen independent version lines.
+#
+# The packages reach users through mikefsq/apt, which is also manual. Publishing
+# is two deliberate steps: release here, then run Publish archive there.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version without a leading v, e.g. 1.2.3'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as a prerelease. The apt archive resolves /releases/latest, which skips these.'
+        required: false
+        type: boolean
+        default: false
+  pull_request:
+
+concurrency:
+  group: build-deb-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-deb:
+    name: build
+    runs-on: ubuntu-latest
+    # Every driver is pure Go built with CGO_ENABLED=0, so both architectures
+    # cross-compile on one x86 runner and one package per architecture installs
+    # on every Debian and Ubuntu release.
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        # build/build-deb derives the version from `git describe` when none is
+        # passed, which needs the tags and the commit's history.
+        fetch-depth: 0
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      with:
+        go-version-file: tenmicron/go.mod
+        cache: false
+
+    - name: Build packages
+      # go.work is gitignored and absent here, and build-deb sets GOWORK=off, so
+      # every module resolves from its own committed go.mod. A driver that only
+      # builds inside the developer's workspace fails here, by design.
+      run: build/build-deb ${{ inputs.version && format('-v {0}', inputs.version) || '' }}
+
+    - name: Upload packages
+      uses: actions/upload-artifact@v6
+      with:
+        name: alpacahurd-drivers-deb
+        path: dist/*.deb
+        if-no-files-found: error
+
+  install-test:
+    name: install test
+    needs: build-deb
+    runs-on: ubuntu-latest
+    # The packages are only useful if alpacahurd resolves them, and that is a
+    # property of two packages together: the driver binary has to land where the
+    # orchestrator looks, and the seeded device file has to name a driver it can
+    # launch. Neither build step can tell you that, so the orchestrator is
+    # installed from its own latest release and asked.
+    steps:
+    - name: Download the driver packages
+      uses: actions/download-artifact@v6
+      with:
+        name: alpacahurd-drivers-deb
+        path: dist
+
+    - name: Download alpacahurd
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh release download --repo mikefsq/alpacahurd \
+          --pattern 'alpacahurd_*_amd64.deb' --dir orchestrator \
+          || { echo "::error::mikefsq/alpacahurd has no release carrying an amd64 .deb yet"; exit 1; }
+
+    - name: Install
+      run: sudo apt-get install -y ./orchestrator/alpacahurd_*_amd64.deb ./dist/alpacahurd-*_amd64.deb
+
+    - name: Every driver seeded a device file
+      run: |
+        rc=0
+        for deb in dist/alpacahurd-*_amd64.deb; do
+          driver=$(basename "$deb" | sed 's/^alpacahurd-//; s/_.*//')
+          if [ -f "/etc/alpacahurd/devices.d/$driver.json" ]; then
+            echo "  ok    $driver"
+          else
+            echo "  FAIL  $driver seeded no /etc/alpacahurd/devices.d/$driver.json"; rc=1
+          fi
+        done
+        exit $rc
+
+    - name: Every driver resolves to its installed binary
+      # A seeded entry is disabled, and -check reports a disabled entry without
+      # resolving it. Enabling each one is what exercises the resolution path
+      # that matters: driver name -> binary beside alpacahurd.
+      run: |
+        for f in /etc/alpacahurd/devices.d/*.json; do
+          driver=$(basename "$f" .json)
+          printf '{ "driver": "%s", "enable": true }\n' "$driver" | sudo tee "$f" >/dev/null
+        done
+        sudo alpacahurd -check -config /etc/alpacahurd/hurd.json | tee check.out
+        if grep -q 'no binary was found' check.out; then
+          echo "::error::a driver package installed a binary alpacahurd cannot resolve"
+          exit 1
+        fi
+
+    - name: Purge
+      run: |
+        sudo apt-get purge -y 'alpacahurd-*' alpacahurd
+        test ! -e /etc/alpacahurd
+        test -z "$(ls /usr/bin | grep -E '^(tenmicron|astrocam|rst|onstep)$' || true)"
+
+  release:
+    name: release
+    needs: [build-deb, install-test]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - name: Download packages
+      uses: actions/download-artifact@v6
+      with:
+        name: alpacahurd-drivers-deb
+        path: dist
+
+    - name: Create the release and attach the packages
+      # No --clobber, and the release must not already exist. mikefsq/apt pulls
+      # these assets by name, so replacing one would change what an installed
+      # machine gets without the version changing with it.
+      env:
+        GH_TOKEN: ${{ github.token }}
+        TAG: v${{ inputs.version }}
+      run: |
+        if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          echo "::error::$TAG already exists — release a new version rather than replacing it"
+          exit 1
+        fi
+        gh release create "$TAG" dist/*.deb \
+          --repo "$GITHUB_REPOSITORY" \
+          --target "$GITHUB_SHA" \
+          --title "$TAG" \
+          --generate-notes \
+          ${{ inputs.prerelease && '--prerelease' || '' }}
+        echo "Released $TAG with $(ls dist/*.deb | wc -l) packages." >> "$GITHUB_STEP_SUMMARY"
+        echo "Run 'Publish archive' in mikefsq/apt to reach the fleet." >> "$GITHUB_STEP_SUMMARY"

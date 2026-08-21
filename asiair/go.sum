@@ -1,4 +1,6 @@
 github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab h1:o/B43bPe5hkYyf6+QevcP6BpqxKdnVKTh13+4FGiYJ0=
 github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goasi/asiair v0.0.0-20260821215032-7011c101a08c h1:X4Tlh8kieS+Pfa4vvNzMv4PmrDfBsXE9bTKPX1AKGYI=
+github.com/mikefsq/goasi/asiair v0.0.0-20260821215032-7011c101a08c/go.mod h1:C96FaubJEpBLd9Ck82n81vZLbIYFZPS4/0Ek0p65vOg=
 golang.org/x/sys v0.19.0 h1:q5f1RH2jigJ1MoAWp2KTp3gm5zAGFUTarQZ5U386+4o=
 golang.org/x/sys v0.19.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
