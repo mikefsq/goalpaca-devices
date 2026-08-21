@@ -24,7 +24,6 @@ astrocam/astrocam
 asiefw/cmd/asiefw/asiefw
 rst/cmd/rst/rst
 asiair/asiair
-build/
 unihedron/unihedron
 
 # Packages built by build/build-deb.
