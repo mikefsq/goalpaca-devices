@@ -51,6 +51,12 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
+        # One module stands in for all of them, because setup-go takes a single
+        # file. That works only while every module declares the same go
+        # directive: setup-go pins GOTOOLCHAIN=local, so a module asking for a
+        # higher version is not silently upgraded, it fails to build while the
+        # rest succeed. Keep the directives in step, or raise this file's
+        # module to the highest of them.
         go-version-file: tenmicron/go.mod
         cache: false
 
