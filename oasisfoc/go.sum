@@ -1,4 +1,8 @@
 github.com/mikefsq/goalpaca v0.3.1 h1:tzoC1z5CVYSX/H6TmBR/TakPmqDEOjQ3EAkOrEqFaJo=
 github.com/mikefsq/goalpaca v0.3.1/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab h1:o/B43bPe5hkYyf6+QevcP6BpqxKdnVKTh13+4FGiYJ0=
+github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/oasis-astro v0.0.0-20260613070221-c6e70b94291f h1:q7rcdXdFy97/x25BY1/+lpL1bVPQCWTvBaIpkSZT2eI=
 github.com/mikefsq/oasis-astro v0.0.0-20260613070221-c6e70b94291f/go.mod h1:O+T/QVLQitfQdqn5ajAWFTotZHEN18xBkCy/PVdzszU=
+github.com/mikefsq/oasis-astro v0.0.0-20260817201104-00ec21705131 h1:9gim/0NyjXrH1/sEy3RTFdypSsGuFvZTCOQbBbvPNVc=
+github.com/mikefsq/oasis-astro v0.0.0-20260817201104-00ec21705131/go.mod h1:O+T/QVLQitfQdqn5ajAWFTotZHEN18xBkCy/PVdzszU=

@@ -1,7 +1,11 @@
 github.com/mikefsq/goalpaca v0.3.1 h1:tzoC1z5CVYSX/H6TmBR/TakPmqDEOjQ3EAkOrEqFaJo=
 github.com/mikefsq/goalpaca v0.3.1/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab h1:o/B43bPe5hkYyf6+QevcP6BpqxKdnVKTh13+4FGiYJ0=
+github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/unihedron v0.1.0 h1:srpRFFI2N6k+BlPp3EVxGLZRCGXnONULmM/rvL2Bhns=
 github.com/mikefsq/unihedron v0.1.0/go.mod h1:6UUn+xcszDq4xPTRVJKpE9NGBNev6f27hJjFuWqaUvY=
+github.com/mikefsq/unihedron v0.1.1-0.20260817201224-d396e3ebd27e h1:MZ2zlDeovZklIR1sE8QlYV2T01QrIl9DUGoGlHHCXTY=
+github.com/mikefsq/unihedron v0.1.1-0.20260817201224-d396e3ebd27e/go.mod h1:6UUn+xcszDq4xPTRVJKpE9NGBNev6f27hJjFuWqaUvY=
 go.bug.st/serial v1.7.1 h1:5aP8wYL0UjEYOVs3oPAGscjaSfRQLHtCvBFXNN/rwtc=
 go.bug.st/serial v1.7.1/go.mod h1:d0MmS16Qt9b1m06yoYRNUXhRRTJV5Qg2S5EKqQtnayQ=
 golang.org/x/sys v0.43.0 h1:Rlag2XtaFTxp19wS8MXlJwTvoh8ArU6ezoyFsMyCTNI=

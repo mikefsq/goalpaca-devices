@@ -23,3 +23,6 @@ asiefw/asiefw
 astrocam/astrocam
 asiefw/cmd/asiefw/asiefw
 rst/cmd/rst/rst
+
+# Packages built by build/build-deb.
+/dist

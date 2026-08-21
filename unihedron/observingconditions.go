@@ -24,10 +24,17 @@ import (
 
 var _ alpacadev.ObservingConditions = (*SQM)(nil)
 
-// cacheTTL bounds how long one device reading is reused. A client's Refresh() +
-// several property GETs (SkyQuality, Temperature, TimeSinceLastUpdate) then share a
-// single serial round-trip.
-const cacheTTL = 2 * time.Second
+// pollInterval is how often manageHardware reads the meter. That read doubles as the
+// liveness check and as the refresh behind the cache, so it is the only serial traffic
+// this driver generates at rest, no matter how many clients are polling.
+const pollInterval = 5 * time.Second
+
+// cacheTTL bounds how long one device reading is reused. It is deliberately longer than
+// pollInterval so the background read always renews the cache before it expires: client
+// property GETs (SkyQuality, Temperature, TimeSinceLastUpdate) are then served from
+// memory and never block on serial I/O. Clients wanting a guaranteed-fresh sample call
+// Refresh(), which forces a read regardless.
+const cacheTTL = 10 * time.Second
 
 // SQM adapts a mikefsq/unihedron Sky Quality Meter to the alpacadev.ObservingConditions
 // + Hardware interfaces.
@@ -116,7 +123,8 @@ func (s *SQM) Connected() bool {
 func (s *SQM) Disconnect(ctx context.Context) error { return nil }
 
 // manageHardware owns the meter for the process lifetime: it acquires the device, then
-// health-checks it with a lightweight reading and re-acquires on loss.
+// reads it once per pollInterval — serving as both the liveness check and the cache
+// refresh — and re-acquires on loss.
 func (s *SQM) manageHardware(ctx context.Context) {
 	for ctx.Err() == nil {
 		s.mu.Lock()
@@ -130,18 +138,19 @@ func (s *SQM) manageHardware(ctx context.Context) {
 			}
 			continue
 		}
-		s.mu.Lock()
-		var err error
-		if s.dev != nil {
-			_, err = s.dev.Reading()
+		// Force a read rather than probing the device directly: this is the liveness
+		// check and the cache refresh in one round-trip, so a healthy meter is polled
+		// exactly once per pollInterval and client GETs are served from the cache.
+		if _, err := s.reading(true); err != nil {
+			s.mu.Lock()
+			if s.dev != nil { // still ours — a concurrent Close may have cleared it
+				log.Printf("unihedron: SQM %s lost (%v); re-acquiring", s.ID, err)
+				s.dev.Close()
+				s.dev = nil
+			}
+			s.mu.Unlock()
 		}
-		if err != nil {
-			log.Printf("unihedron: SQM %s lost (%v); re-acquiring", s.ID, err)
-			s.dev.Close()
-			s.dev = nil
-		}
-		s.mu.Unlock()
-		sleepCtx(ctx, 5*time.Second)
+		sleepCtx(ctx, pollInterval)
 	}
 }
 

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mikefsq/asiair"
+	"github.com/mikefsq/goasi/asiair"
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 

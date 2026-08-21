@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/mikefsq/asiair"
+	"github.com/mikefsq/goasi/asiair"
 	"github.com/mikefsq/goalpaca/client"
 	"github.com/mikefsq/goalpaca/conformance"
 	alpacadev "github.com/mikefsq/goalpaca/server"

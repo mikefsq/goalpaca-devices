@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mikefsq/asiair"
-	"github.com/mikefsq/asiair/ads1015"
-	"github.com/mikefsq/asiair/bus"
+	"github.com/mikefsq/goasi/asiair"
+	"github.com/mikefsq/goasi/asiair/ads1015"
+	"github.com/mikefsq/goasi/asiair/bus"
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 

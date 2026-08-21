@@ -29,7 +29,7 @@ PI_DRIVERS := smpro asiair
 
 BIN := bin
 
-.PHONY: build help all sdk pi alpacasim vet tidy clean $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS)
+.PHONY: build help all sdk pi deb head alpacasim vet tidy clean $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS)
 
 build: $(DRIVERS) ## build every pure-Go driver into ./bin (default)
 
@@ -73,13 +73,44 @@ alpacasim: ## run goalpaca's one-of-every-type protocol sim (not guidable)
 $(BIN):
 	@mkdir -p $(BIN)
 
+# One .deb per driver, alpacahurd-<driver>, into ./dist. Each holds the driver
+# binary and seeds a disabled entry in /etc/alpacahurd/devices.d/. build-deb
+# builds from each module's committed go.mod, not from the workspace, so a
+# driver that needs a sibling checkout fails here as it would in CI.
+deb: ## build one .deb per driver into ./dist (amd64 + arm64)
+	@build/build-deb
+
 vet: ## go vet every module
 	@for d in $(DRIVERS) $(SDK_DRIVERS); do echo "vet $$d"; (cd $$d && go vet ./...) || exit 1; done
 	@for d in $(PI_DRIVERS); do echo "vet $$d (linux/arm64)"; (cd $$d && GOOS=linux GOARCH=arm64 go vet ./...) || exit 1; done
 
+# head repoints every github.com/mikefsq dependency at its branch head, so a
+# plain clone builds what the sibling repos hold right now. Go has no way to
+# say "track this branch" in a go.mod, and a pseudo-version is what it writes
+# instead, so this is what tagging every library would otherwise buy: run it
+# when a sibling gains a commit these modules need.
+#
+# asiair is skipped. It requires github.com/mikefsq/asiair, which is not a
+# fetchable repository, and an unresolvable require blocks the module graph
+# and with it `go get` itself.
+head: ## repoint every mikefsq dependency at its branch head
+	@for d in $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS); do \
+		[ "$$d" = asiair ] && { echo "skip $$d (github.com/mikefsq/asiair is unfetchable)"; continue; }; \
+		echo "head $$d"; \
+		( cd $$d && \
+		  for r in $$(grep -oE '^replace github.com/mikefsq/[a-z0-9./-]+' go.mod | awk '{print $$2}'); do \
+			GOWORK=off go mod edit -dropreplace=$$r; \
+		  done; \
+		  for m in $$(grep -oE 'github.com/mikefsq/[a-z0-9./-]+' go.mod | grep -v goalpaca-devices | sort -u); do \
+			GOWORK=off GOFLAGS=-mod=mod go get $$m@main > /dev/null 2>&1 || echo "  could not reach $$m@main"; \
+		  done; \
+		  GOWORK=off GOFLAGS=-mod=mod go mod download all > /dev/null 2>&1 ) || exit 1; \
+	done
+	@echo "run 'make deb' to confirm every module still builds from its go.mod"
+
 tidy: ## go mod tidy every module
 	@for d in $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS); do echo "tidy $$d"; (cd $$d && go mod tidy) || exit 1; done
 
-clean: ## remove ./bin and any per-cmd build outputs
-	@rm -rf $(BIN)
+clean: ## remove ./bin, ./dist and any per-cmd build outputs
+	@rm -rf $(BIN) dist
 	@rm -f $(foreach d,$(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS),$(d)/cmd/$(d)/$(d))

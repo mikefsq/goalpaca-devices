@@ -10,7 +10,7 @@ package driver
 import (
 	"sync"
 
-	"github.com/mikefsq/asiair"
+	"github.com/mikefsq/goasi/asiair"
 	"github.com/mikefsq/goalpaca/registry"
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )

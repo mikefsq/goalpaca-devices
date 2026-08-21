@@ -1,7 +1,11 @@
 github.com/mikefsq/goalpaca v0.3.1 h1:tzoC1z5CVYSX/H6TmBR/TakPmqDEOjQ3EAkOrEqFaJo=
 github.com/mikefsq/goalpaca v0.3.1/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab h1:o/B43bPe5hkYyf6+QevcP6BpqxKdnVKTh13+4FGiYJ0=
+github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/pegasus-astro v0.0.0-20260610070031-afd43eb66e1d h1:x/56ZdCOmsSGeF02cD3vQe4idIkw+IMxcAkRcs1LoFk=
 github.com/mikefsq/pegasus-astro v0.0.0-20260610070031-afd43eb66e1d/go.mod h1:E8S8NyhcFwabgbl+JYkwvmKswCVpl9Z/2vxhBjs+XEU=
+github.com/mikefsq/pegasus-astro v0.0.0-20260713175352-7c8746528e1c h1:DXCyjeRC6bcyVWfVmw86Q2NUukf3pCIxZXvHzeyiYCs=
+github.com/mikefsq/pegasus-astro v0.0.0-20260713175352-7c8746528e1c/go.mod h1:E8S8NyhcFwabgbl+JYkwvmKswCVpl9Z/2vxhBjs+XEU=
 go.bug.st/serial v1.7.1 h1:5aP8wYL0UjEYOVs3oPAGscjaSfRQLHtCvBFXNN/rwtc=
 go.bug.st/serial v1.7.1/go.mod h1:d0MmS16Qt9b1m06yoYRNUXhRRTJV5Qg2S5EKqQtnayQ=
 golang.org/x/sys v0.43.0 h1:Rlag2XtaFTxp19wS8MXlJwTvoh8ArU6ezoyFsMyCTNI=

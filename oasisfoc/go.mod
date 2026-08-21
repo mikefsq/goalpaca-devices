@@ -3,6 +3,6 @@ module github.com/mikefsq/goalpaca-devices/oasisfoc
 go 1.25.0
 
 require (
-	github.com/mikefsq/goalpaca v0.3.1
-	github.com/mikefsq/oasis-astro v0.0.0-20260613070221-c6e70b94291f
+	github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab
+	github.com/mikefsq/oasis-astro v0.0.0-20260817201104-00ec21705131
 )

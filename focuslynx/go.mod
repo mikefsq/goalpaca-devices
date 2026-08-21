@@ -3,8 +3,8 @@ module github.com/mikefsq/goalpaca-devices/focuslynx
 go 1.25.0
 
 require (
-	github.com/mikefsq/goalpaca v0.3.1
-	github.com/mikefsq/optec v0.0.0-20260707021816-df3786ba6eb4
+	github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab
+	github.com/mikefsq/optec v0.0.0-20260713175428-9a276b61f41e
 )
 
 require (
