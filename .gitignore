@@ -25,8 +25,8 @@ asiefw/cmd/asiefw/asiefw
 rst/cmd/rst/rst
 asiair/asiair
 unihedron/unihedron
-smpro/cmd/smpro-focuser/
-smpro/cmd/smpro-switch/
+smpro/smpro-focuser
+smpro/smpro-switch
 
 # Packages built by build/build-deb.
 /dist
