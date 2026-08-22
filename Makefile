@@ -21,11 +21,22 @@ DRIVERS := tenmicron asiam5 rst onstep astrocam asieaf asiefw \
 # cgo drivers that link the ZWO SDK (libASICamera2) — opt-in, not in the default build.
 SDK_DRIVERS := asiccd asicaa
 
-# Raspberry Pi drivers — the hardware exists only on a Pi (smpro: I2C/SPI/UART
-# hats; asiair: the ASIAIR's own switch), so they cross-compile to linux/arm64
-# under bin/linux_arm64/ with their plain names, ready to copy to a Pi's
-# /usr/local/bin where alpacahurd resolves drivers by name.
-PI_DRIVERS := smpro asiair
+# Raspberry Pi drivers — the hardware exists only on a Pi (the SM Pro board's
+# I2C/SPI/UART hats; asiair: the ASIAIR's own switch), so they cross-compile to
+# linux/arm64 under bin/linux_arm64/ named for the driver they register, ready
+# to copy to a Pi's /usr/local/bin where alpacahurd resolves drivers by name.
+#
+# The SM Pro is one module serving two ASCOM device types over hardware that
+# shares nothing — the Switch has the I2C expander, DAC, ADC and dew PWM, the
+# Focuser has the TMC2209 on its own UART — so it builds a binary per device and
+# the two run as separate processes. PI_MODULES is the directories behind them,
+# which is what a per-module command (vet, tidy) iterates.
+PI_DRIVERS := smpro-switch smpro-focuser asiair
+PI_MODULES := smpro asiair
+
+# moduledir is the directory a driver is built from, which is the driver's own
+# name unless a module produces several binaries.
+moduledir = $(if $(filter smpro-switch smpro-focuser,$(1)),smpro,$(1))
 
 BIN := bin
 
@@ -61,7 +72,7 @@ pi: $(PI_DRIVERS) ## cross-compile the Raspberry Pi drivers (linux/arm64) into .
 $(PI_DRIVERS): | $(BIN)
 	@echo "building $@ (linux/arm64)"
 	@mkdir -p $(BIN)/linux_arm64
-	@cd $@ && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o ../$(BIN)/linux_arm64/$@ ./cmd/$@
+	@cd $(call moduledir,$@) && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o ../$(BIN)/linux_arm64/$@ ./cmd/$@
 
 # sim (in DRIVERS above) builds bin/sim: the coupled mount + guide-camera pair on one
 # shared simulated sky, so PHD2 can calibrate and guide a closed loop with no hardware.
@@ -82,7 +93,7 @@ deb: ## build one .deb per driver into ./dist (amd64 + arm64)
 
 vet: ## go vet every module
 	@for d in $(DRIVERS) $(SDK_DRIVERS); do echo "vet $$d"; (cd $$d && go vet ./...) || exit 1; done
-	@for d in $(PI_DRIVERS); do echo "vet $$d (linux/arm64)"; (cd $$d && GOOS=linux GOARCH=arm64 go vet ./...) || exit 1; done
+	@for d in $(PI_MODULES); do echo "vet $$d (linux/arm64)"; (cd $$d && GOOS=linux GOARCH=arm64 go vet ./...) || exit 1; done
 
 # head repoints every github.com/mikefsq dependency at its branch head, so a
 # plain clone builds what the sibling repos hold right now. Go has no way to
@@ -94,7 +105,7 @@ vet: ## go vet every module
 # fetchable repository, and an unresolvable require blocks the module graph
 # and with it `go get` itself.
 head: ## repoint every mikefsq dependency at its branch head
-	@for d in $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS); do \
+	@for d in $(DRIVERS) $(SDK_DRIVERS) $(PI_MODULES); do \
 		[ "$$d" = asiair ] && { echo "skip $$d (github.com/mikefsq/asiair is unfetchable)"; continue; }; \
 		echo "head $$d"; \
 		( cd $$d && \
@@ -109,8 +120,8 @@ head: ## repoint every mikefsq dependency at its branch head
 	@echo "run 'make deb' to confirm every module still builds from its go.mod"
 
 tidy: ## go mod tidy every module
-	@for d in $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS); do echo "tidy $$d"; (cd $$d && go mod tidy) || exit 1; done
+	@for d in $(DRIVERS) $(SDK_DRIVERS) $(PI_MODULES); do echo "tidy $$d"; (cd $$d && go mod tidy) || exit 1; done
 
 clean: ## remove ./bin, ./dist and any per-cmd build outputs
 	@rm -rf $(BIN) dist
-	@rm -f $(foreach d,$(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS),$(d)/cmd/$(d)/$(d))
+	@rm -f $(foreach d,$(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS),$(call moduledir,$(d))/cmd/$(d)/$(d))

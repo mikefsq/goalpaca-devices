@@ -15,11 +15,13 @@ import (
 	"github.com/mikefsq/stellarmate"
 )
 
-// Hub owns the single stellarmate.Board both Alpaca devices drive. Opening two
-// Boards on the same hardware would double-drive the I2C expander and the
-// stepper UART, so the Switch and Focuser share one handle; Open/Close are
-// refcounted because the goalpaca server runs the Hardware lifecycle once per
-// registered device.
+// Hub owns the stellarmate.Board an Alpaca device drives, over the subsystems
+// that device needs. The board's two device types drive disjoint hardware — the
+// Switch has the I2C expander, the DAC, the SPI ADC and the dew PWM, the Focuser
+// has the TMC2209 on its own UART — so each opens only its own and the two never
+// contend, whether they run in one process or two. Open/Close are refcounted
+// because the goalpaca server runs the Hardware lifecycle once per registered
+// device.
 type Hub struct {
 	mu    sync.Mutex
 	board *stellarmate.Board
@@ -30,10 +32,13 @@ type Hub struct {
 	openBoard func() (*stellarmate.Board, []error, error)
 }
 
-// NewHub creates the shared board owner for the given stellarmate config.
-func NewHub(cfg stellarmate.Config) *Hub {
+// NewHub creates a board owner for the given config, opening only subs.
+// stellarmate.SubsystemsSwitch and SubsystemsFocuser are the two device sets;
+// SubsystemsAll opens the whole board, which is what a binary serving both from
+// one handle wants.
+func NewHub(cfg stellarmate.Config, subs stellarmate.Subsystem) *Hub {
 	return &Hub{openBoard: func() (*stellarmate.Board, []error, error) {
-		return stellarmate.Open(cfg)
+		return stellarmate.OpenSubsystems(cfg, subs)
 	}}
 }
 

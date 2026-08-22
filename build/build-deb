@@ -41,15 +41,6 @@ HOMEPAGE=https://github.com/mikefsq/goalpaca-devices
 #   sim     the simulators are compiled into alpacahurd itself, so a separate
 #           binary would serve a second copy of devices the orchestrator
 #           already has. It is also not on devicemain, so it takes no -config.
-#   smpro   not on devicemain either, so it takes no -config and alpacahurd
-#           cannot launch it as a supervised device. It is not a one-line
-#           port: smpro registers two drivers, smpro-switch and
-#           smpro-focuser, which must share one Hub, because two Boards on
-#           the same hardware double-drive the I2C expander and the stepper
-#           UART. devicemain.RunWith serves a single driver, so two binaries
-#           would mean two processes and two Hubs. Packaging it needs
-#           devicemain to serve several drivers from one process first; its
-#           alias entry below is ready for when that lands.
 #   asicaa  cgo against the ZWO SDK (libASICamera2), which is proprietary and
 #   asiccd  not redistributable. These need their own job and their own
 #           licence terms; they are not part of this set.
@@ -67,6 +58,8 @@ DRIVERS="
     onstep
     ptpcam
     rst
+    smpro-focuser
+    smpro-switch
     tenmicron
     unihedron
 "
@@ -76,13 +69,12 @@ DRIVERS="
 # called exactly that. One line per module: the module name, then the names it
 # registers that its binary is not already called.
 ALIASES="
-    smpro smpro-switch smpro-focuser
     asiair asiair-switch
 "
 
 # Drivers whose hardware exists only on a Raspberry Pi: I2C/SPI/UART hats for
 # smpro, the ASIAIR's own switch for asiair. Their packages are arm64 only.
-ARM64_ONLY="smpro asiair"
+ARM64_ONLY="smpro-switch smpro-focuser asiair"
 
 arches="amd64 arm64"
 outdir=$SRC_DIR/dist
@@ -135,6 +127,23 @@ goarch () {
 }
 
 # aliases_for prints the extra driver names a module registers, or nothing.
+# Drivers whose module directory is not their own name. The SM Pro board is one
+# Go module serving two ASCOM device types, with a binary for each: the two open
+# disjoint hardware (I2C/SPI/PWM against the stepper UART), so they run as
+# separate processes.
+MODULE_DIRS="
+    smpro-switch smpro
+    smpro-focuser smpro
+"
+
+# module_for prints the module directory a driver is built from, defaulting to
+# the driver's own name.
+module_for () {
+    local m
+    m=$(echo "$MODULE_DIRS" | awk -v d="$1" '$1 == d { print $2; exit }')
+    echo "${m:-$1}"
+}
+
 aliases_for () {
     echo "$ALIASES" | awk -v m="$1" '$1 == m { $1 = ""; print; exit }'
 }
@@ -183,11 +192,12 @@ check_package () {
 }
 
 build_one () {
-    local driver=$1 arch=$2 pair ga gm root bin size
+    local driver=$1 arch=$2 pair ga gm root bin size dir
     pair=$(goarch "$arch") || { echo "build-deb: unknown architecture '$arch'" >&2; return 1; }
     read -r ga gm <<<"$pair"
 
-    [[ -d $SRC_DIR/$driver ]] || { echo "build-deb: no module directory '$driver'" >&2; return 1; }
+    dir=$(module_for "$driver")
+    [[ -d $SRC_DIR/$dir ]] || { echo "build-deb: no module directory '$dir'" >&2; return 1; }
 
     root=$(mktemp -d) || return 1
     chmod 0755 "$root"
@@ -197,7 +207,7 @@ build_one () {
     # GOWORK=off builds from the module's committed go.mod, so a package can only
     # be built from dependencies a plain clone resolves. A driver that needs a
     # sibling checkout fails here rather than on a runner.
-    if ! ( cd "$SRC_DIR/$driver" && CGO_ENABLED=0 GOOS=linux GOARCH="$ga" GOARM="$gm" \
+    if ! ( cd "$SRC_DIR/$dir" && CGO_ENABLED=0 GOOS=linux GOARCH="$ga" GOARM="$gm" \
         GOFLAGS=-mod=readonly GOWORK=off \
         go build -trimpath -ldflags "-s -w" -o "$bin" "./cmd/$driver" ); then
         rm -rf "$root"

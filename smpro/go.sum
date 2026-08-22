@@ -2,5 +2,7 @@ github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab h1:o/B43bPe5hkY
 github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/stellarmate v0.0.0-20260818013323-354611c4be17 h1:mNiv3J/DbvMu6yvQY3o9HgxaWD7nMdEkG1d3rYmPmE0=
 github.com/mikefsq/stellarmate v0.0.0-20260818013323-354611c4be17/go.mod h1:poMiJ3c6UXsJmHVn3AiFJ3kpMBnldEsNoVROUWH1jCs=
+github.com/mikefsq/stellarmate v0.0.0-20260821231638-f0de4fc3e094 h1:/HeOTnUzJBMW2OI3mNxfoxtNVevsLb+te2p4Jvh5UMs=
+github.com/mikefsq/stellarmate v0.0.0-20260821231638-f0de4fc3e094/go.mod h1:poMiJ3c6UXsJmHVn3AiFJ3kpMBnldEsNoVROUWH1jCs=
 golang.org/x/sys v0.19.0 h1:q5f1RH2jigJ1MoAWp2KTp3gm5zAGFUTarQZ5U386+4o=
 golang.org/x/sys v0.19.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
