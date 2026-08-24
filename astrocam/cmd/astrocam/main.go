@@ -196,7 +196,10 @@ func main() {
 				cam.Instance = instance + "/" + strconv.Itoa(i)
 			}
 		}
-		cam.SetFixDefects(b.FixDefects)
+		// On by default (NewPureASICamera); the block overrides only if it names the key.
+		if _, has := blockKeys[i]["fixdefects"]; has {
+			cam.SetFixDefects(b.FixDefects)
+		}
 		if b.FpsPercent != 0 {
 			cam.SetFPSPercent(b.FpsPercent)
 		}
@@ -352,7 +355,7 @@ const commentedSchema = `{
     {
       // "serial": "",          // factory serial (hex); stable across replug, recommended
       // "index": 0,            // bind the Nth attached camera when no serial (default: the block's position)
-      // "fixdefects": false,   // apply the factory hot-pixel map to full-frame RAW16
+      // "fixdefects": false,   // disable factory hot-pixel correction (default: true; full-frame RAW16 only)
       // "fpsPercent": 0,       // 40..100 readout throttle; 0 keeps the link default
       // "enable": false,       // set false to skip this device number (later blocks keep theirs)
       "name": ""               // display name for device 0
@@ -360,7 +363,7 @@ const commentedSchema = `{
     {
       // "serial": "",          // factory serial (hex); stable across replug, recommended
       // "index": 1,            // bind the Nth attached camera when no serial (default: the block's position)
-      // "fixdefects": false,   // apply the factory hot-pixel map to full-frame RAW16
+      // "fixdefects": false,   // disable factory hot-pixel correction (default: true; full-frame RAW16 only)
       // "fpsPercent": 0,       // 40..100 readout throttle; 0 keeps the link default
       // "enable": false,       // set false to skip this device number (later blocks keep theirs)
       "name": ""               // display name for device 1

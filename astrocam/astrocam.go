@@ -94,9 +94,13 @@ type PureASICamera struct {
 	startX, startY int
 	numX, numY     int
 
-	// Factory hot-pixel correction. Off by default; enabled by the host "fixdefects" spec field
-	// via SetFixDefects. The per-unit defect map is read once from SPI flash and applied to
-	// full-frame RAW16 frames in runExposure.
+	// Factory hot-pixel correction. ON by default — the camera ships knowing which of its own
+	// pixels are bad, and correcting them is what the operator wants unless they say otherwise.
+	// The default is set in NewPureASICamera, so a host that never mentions "fixdefects" gets it;
+	// a host that names the key overrides it either way via SetFixDefects.
+	//
+	// The per-unit defect map is read once from SPI flash and applied to full-frame RAW16 frames
+	// in runExposure. It is a no-op for any other geometry or format.
 	fixDefects bool
 	defectMap  *astrocam.DefectMap
 
@@ -140,7 +144,10 @@ type PureASICamera struct {
 // if serial is "", by enumeration index. The UniqueID is known up front from the serial, so
 // the device registers with a stable identity before the camera is plugged in.
 func NewPureASICamera(index int, serial string) *PureASICamera {
-	c := &PureASICamera{index: index, wantSerial: strings.ToLower(serial)}
+	// fixDefects defaults ON here rather than at the call sites, so it lives with the field it
+	// defaults and a future constructor cannot forget it. A host overrides it only when its config
+	// actually names the key — see hurd.go and cmd/astrocam/main.go.
+	c := &PureASICamera{index: index, wantSerial: strings.ToLower(serial), fixDefects: true}
 	c.openDev = c.openReal
 	c.aliveFn = c.stillPresent
 	c.hotplugFn = astrocam.Hotplug

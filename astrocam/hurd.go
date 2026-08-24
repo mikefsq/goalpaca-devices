@@ -31,7 +31,7 @@ func rawHasKey(raw json.RawMessage, key string) bool {
 type Config struct {
 	Index      int    `json:"index,omitempty"      alpaca:"label=Enumeration index,min=0,when=start,help=Bind the Nth attached camera; prefer Serial"`
 	Serial     string `json:"serial,omitempty"     alpaca:"label=Serial,when=start,help=Factory serial (hex); stable across replug and start-before-plug"`
-	FixDefects bool   `json:"fixdefects,omitempty" alpaca:"label=Hot-pixel correction,help=Apply the factory defect map from SPI flash to full-frame RAW16"`
+	FixDefects bool   `json:"fixdefects,omitempty" alpaca:"label=Hot-pixel correction,help=Apply the factory defect map from SPI flash to full-frame RAW16. On unless the config sets it false"`
 	FpsPercent int    `json:"fpsPercent,omitempty" alpaca:"label=FPS percent,min=40,max=100,help=Readout throttle for a constrained USB link; 0 keeps the link default"`
 }
 
@@ -58,8 +58,13 @@ func init() {
 				idx = spec.Device
 			}
 			d := NewPureASICamera(idx, cfg.Serial)
-			d.Instance = spec.Instance      // the host's name for this camera, for log lines
-			d.SetFixDefects(cfg.FixDefects) // "fixdefects": true → factory hot-pixel correction
+			d.Instance = spec.Instance // the host's name for this camera, for log lines
+			// Hot-pixel correction is on by default (see NewPureASICamera). Override it only when
+			// the entry names the key: a bool cannot tell "absent" from "explicitly false", so
+			// presence is what distinguishes them — the same test used for "index" above.
+			if rawHasKey(spec.Raw, "fixdefects") {
+				d.SetFixDefects(cfg.FixDefects)
+			}
 			if cfg.FpsPercent != 0 {
 				d.SetFPSPercent(cfg.FpsPercent) // stored; applied on acquire
 			}
