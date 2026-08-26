@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mikefsq/goalpaca/registry"
 	alpacadev "github.com/mikefsq/goalpaca/server"
 	lx200 "github.com/mikefsq/lx200"
 	"github.com/mikefsq/lx200/rst"
@@ -52,11 +51,6 @@ type Telescope struct {
 
 	serial string // USB bridge serial to bind; empty = ask every candidate and take the one that answers
 
-	// state is this device's persisted-values handle, used to remember which USB bridges were
-	// asked and turned out not to be a mount. Zero when the host keeps no file for it, in which
-	// case nothing is remembered and every start re-probes — correct, just less polite.
-	state registry.Spec
-
 	mu   sync.Mutex
 	m    *rst.Mount // nil ⇔ not connected
 	snap snapshot
@@ -70,27 +64,23 @@ type Telescope struct {
 	optics alpacadev.OpticsStore
 }
 
-// NewTelescope builds the driver. An empty serial auto-detects: every FTDI 0403:6001 port is asked
-// in turn, and the one that answers as an RST is bound.
+// NewTelescope builds the driver. Since FTDI 0403:6001 is common we have to validate the device is an RST.
 func NewTelescope(serial string) *Telescope {
 	t := &Telescope{serial: serial, trackingRate: alpacadev.DriveSidereal, optics: &localOptics{}}
 	t.IfaceVer = alpacadev.InterfaceVersionTelescope
+	t.Version = "0.1.0"
+	t.Info = "rst — Rainbow Astro RST Alpaca telescope driver over mikefsq/lx200"
 	return t
 }
 
+// dial finds and opens the mount.
 func (t *Telescope) dial() (*rst.Mount, error) {
-	m, rep, err := rst.FindMatching(rst.Filter{Serial: t.serial, Exclude: t.state.RejectedSerials()})
-	// Recorded whether or not the dial succeeded: a port that answered nothing is not a mount
-	// regardless of how the rest of the scan went. The error is dropped on purpose — this is a
-	// cache of what the scan already worked out, and failing to write it must never be able to
-	// stop the mount connecting.
-	if added, err := t.state.RememberRejected(rep.Rejected); err != nil {
-		log.Printf("rst: could not record rejected serials: %v", err)
-	} else if added {
-		log.Printf("rst: %v is not an RST mount; it will not be opened again", rep.Rejected)
-	}
+	m, rep, err := rst.FindMatching(rst.Filter{Serial: t.serial})
 	if err != nil {
 		return nil, err
+	}
+	if rep.Serial != "" {
+		log.Printf("rst: mount found on USB bridge %s", rep.Serial)
 	}
 	return m, nil
 }
@@ -740,7 +730,11 @@ func (t *Telescope) AbortSlew() error {
 	if m == nil {
 		return alpacadev.ErrNotConnected
 	}
-	return m.Halt()
+	// A home seek is the one thing this cannot stop: :Q# interrupts the firmware routine that
+	// clears the mount's homing guard, and on the development mount that left the guard set
+	// until a power cycle, with :Ch# a silent no-op in the meantime. The driver refuses rather
+	// than sending it; the seek ends on its own.
+	return ascomErr(m.Halt())
 }
 
 // SlewToCoordinatesAsync starts an asynchronous goto to the given RA/Dec, returning
@@ -837,6 +831,10 @@ func ascomErr(err error) error {
 	switch {
 	case err == nil:
 		return nil
+	case errors.Is(err, rst.ErrHoming):
+		// The request was well formed and the mount declined it in its current state, which is
+		// what InvalidOperation means. Not Parked, and not a fault.
+		return alpacadev.NewError(alpacadev.ErrNumInvalidOperation, err.Error())
 	case errors.Is(err, rst.ErrParked):
 		return alpacadev.NewError(alpacadev.ErrNumParked, err.Error())
 	case errors.Is(err, rst.ErrNotImplemented):
@@ -905,9 +903,7 @@ func (t *Telescope) Park() error {
 	return ascomErr(m.AlpacaPark())
 }
 
-// Unpark clears the parked state and re-enables tracking. It does NOT move the telescope — the
-// tube stays on the polar axis until the next slew — so AtPark goes false on the state change
-// alone. Unpark() completes when AtPark becomes false.
+// Unpark clears the parked state and does not move the telescope or enable tracking.
 func (t *Telescope) Unpark() error {
 	m := t.mount()
 	if m == nil {
@@ -916,12 +912,7 @@ func (t *Telescope) Unpark() error {
 	return ascomErr(m.AlpacaUnpark())
 }
 
-// FindHome seeks the mount's mechanical home — on the RST, the West horizon.
-//
-// The seek runs at a fixed rate the slew presets do not affect, and the mount stops publishing
-// position while it runs: coordinates read as the STARTING position until it finishes (38 s
-// from the pole, measured). Clients must poll Slewing rather than watching coordinates, or a
-// working home seek looks stuck.
+// FindHome zeros the encoders, for rst-135e at the west horizon.
 func (t *Telescope) FindHome() error {
 	m := t.mount()
 	if m == nil {
@@ -931,10 +922,7 @@ func (t *Telescope) FindHome() error {
 		return err
 	}
 	// The mount keeps answering :GR#/:GD#/:GZ#/:GA# with its STARTING position for the whole
-	// seek, so the cache would otherwise hold a plausible, wrong, unchanging fix for 38
-	// seconds. Zero it: an obviously meaningless position is safer than a convincing one,
-	// because a client cannot tell the difference and may act on it. The first read after the
-	// :CHO# token replaces it with the real home coordinates.
+	// seek, so the cache would otherwise hold a plausible, wrong, unchanging fix.
 	t.zeroPosition()
 	return nil
 }

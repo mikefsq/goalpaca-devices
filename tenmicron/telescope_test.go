@@ -712,3 +712,16 @@ func TestMoveAxisExactRate(t *testing.T) {
 		}
 	}
 }
+
+// ASCOM requires DriverInfo and DriverVersion to be non-empty; ConformU fails a device that
+// returns "" for either. They come from BaseDevice fields, so the only thing that can go wrong
+// is forgetting to set them in the constructor.
+func TestDriverInfoAndVersionAreSet(t *testing.T) {
+	tel := NewTelescope("")
+	if tel.DriverVersion() == "" {
+		t.Error("DriverVersion is empty")
+	}
+	if tel.DriverInfo() == "" {
+		t.Error("DriverInfo is empty")
+	}
+}

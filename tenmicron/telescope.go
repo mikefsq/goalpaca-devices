@@ -89,6 +89,8 @@ type envApplied struct {
 func NewTelescope(addr string) *Telescope {
 	t := &Telescope{addr: addr, trackingRate: alpacadev.DriveSidereal, optics: &localOptics{}, maxSlewRate: defaultMaxAxisRate}
 	t.IfaceVer = alpacadev.InterfaceVersionTelescope
+	t.Version = "0.1.0"
+	t.Info = "tenmicron — 10 Micron Alpaca telescope driver over mikefsq/lx200"
 	return t
 }
 

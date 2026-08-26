@@ -119,12 +119,7 @@ func TestDriveRateMapping(t *testing.T) {
 	}
 }
 
-// UTCDate must report the MOUNT's clock or nothing. The ASCOM property has no error to return,
-// so a failed read used to fall back to the host clock — which is the most dangerous answer
-// available, because it is plausible and wrong. That substitution is what concealed a mount
-// running three hours fast: a 45 degree hour-angle error, with this member reporting the host's
-// correct time so nothing downstream could notice. An empty string cannot be parsed as a
-// timestamp, so a client cannot act on it by mistake.
+// UTCDate must report the MOUNT's clock or nothing
 func TestUTCDateIsEmptyRatherThanHostTimeWhenTheMountCannotBeRead(t *testing.T) {
 	tel := NewTelescope("") // no mount attached
 	got := tel.UTCDate()
@@ -134,5 +129,16 @@ func TestUTCDateIsEmptyRatherThanHostTimeWhenTheMountCannotBeRead(t *testing.T) 
 	t.Errorf("UTCDate = %q with no mount; want an empty string", got)
 	if _, err := time.Parse(utcLayout, got); err == nil {
 		t.Error("...and it parses as a timestamp, so a client would treat it as the mount's clock")
+	}
+}
+
+// ASCOM requires DriverInfo and DriverVersion to be non-empty
+func TestDriverInfoAndVersionAreSet(t *testing.T) {
+	tel := NewTelescope("")
+	if tel.DriverVersion() == "" {
+		t.Error("DriverVersion is empty")
+	}
+	if tel.DriverInfo() == "" {
+		t.Error("DriverInfo is empty")
 	}
 }

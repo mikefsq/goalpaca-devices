@@ -33,7 +33,6 @@ func init() {
 				id = "auto"
 			}
 			d := NewTelescope(cfg.Serial)
-			d.state = spec // for remembering which bridges are not this mount
 			d.ID = "rst-" + id
 			d.DevName = "Rainbow Astro RST"
 			if spec.Name != "" {
