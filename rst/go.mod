@@ -11,3 +11,8 @@ require (
 	go.bug.st/serial v1.7.1 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 )
+
+// Local development: step 1 (rst probing) and step 2 (Spec.StatePath) are unpublished.
+replace github.com/mikefsq/lx200 => /home/pi/github/lx200
+
+replace github.com/mikefsq/goalpaca => /home/pi/github/goalpaca

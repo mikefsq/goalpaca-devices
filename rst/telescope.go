@@ -5,18 +5,23 @@ package driver
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/mikefsq/goalpaca/registry"
 	alpacadev "github.com/mikefsq/goalpaca/server"
 	lx200 "github.com/mikefsq/lx200"
 	"github.com/mikefsq/lx200/rst"
 )
 
 const (
-	maxAxisRate = 6.0 // advertised MoveAxis ceiling (deg/s); snapped to a preset
+	maxAxisRate = rst.AxisRateMax  // advertised MoveAxis ceiling (deg/s) — the vendor's fastest
+	minAxisRate = rst.AxisRateSlow // advertised floor — sidereal; zero is "stop", not a rate
 	slewTimeout = 3 * time.Minute
 	acquirePoll = 3 * time.Second
 	monitorPoll = 2 * time.Second
@@ -45,7 +50,12 @@ type Telescope struct {
 	stopLoop func(time.Duration)
 	alpacadev.BaseTelescope
 
-	serial string // USB-serial port; empty = auto-detect the first RST
+	serial string // USB bridge serial to bind; empty = ask every candidate and take the one that answers
+
+	// state is this device's persisted-values handle, used to remember which USB bridges were
+	// asked and turned out not to be a mount. Zero when the host keeps no file for it, in which
+	// case nothing is remembered and every start re-probes — correct, just less polite.
+	state registry.Spec
 
 	mu   sync.Mutex
 	m    *rst.Mount // nil ⇔ not connected
@@ -60,7 +70,8 @@ type Telescope struct {
 	optics alpacadev.OpticsStore
 }
 
-// NewTelescope builds the driver. An empty serial auto-detects the first RST.
+// NewTelescope builds the driver. An empty serial auto-detects: every FTDI 0403:6001 port is asked
+// in turn, and the one that answers as an RST is bound.
 func NewTelescope(serial string) *Telescope {
 	t := &Telescope{serial: serial, trackingRate: alpacadev.DriveSidereal, optics: &localOptics{}}
 	t.IfaceVer = alpacadev.InterfaceVersionTelescope
@@ -68,10 +79,20 @@ func NewTelescope(serial string) *Telescope {
 }
 
 func (t *Telescope) dial() (*rst.Mount, error) {
-	if t.serial != "" {
-		return rst.Open(t.serial)
+	m, rep, err := rst.FindMatching(rst.Filter{Serial: t.serial, Exclude: t.state.RejectedSerials()})
+	// Recorded whether or not the dial succeeded: a port that answered nothing is not a mount
+	// regardless of how the rest of the scan went. The error is dropped on purpose — this is a
+	// cache of what the scan already worked out, and failing to write it must never be able to
+	// stop the mount connecting.
+	if added, err := t.state.RememberRejected(rep.Rejected); err != nil {
+		log.Printf("rst: could not record rejected serials: %v", err)
+	} else if added {
+		log.Printf("rst: %v is not an RST mount; it will not be opened again", rep.Rejected)
 	}
-	return rst.Find()
+	if err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 // --- Hardware lifecycle + connection model ----------------------------------
@@ -231,13 +252,13 @@ func (t *Telescope) CanSync() bool { return true }
 func (t *Telescope) CanSetTracking() bool { return true }
 
 // CanPark reports that the mount can park.
-func (t *Telescope) CanPark() bool { return true }
+func (t *Telescope) CanPark() bool { return (&rst.Mount{}).AlpacaCanPark() }
 
 // CanUnpark reports that the mount can unpark.
-func (t *Telescope) CanUnpark() bool { return true }
+func (t *Telescope) CanUnpark() bool { return (&rst.Mount{}).AlpacaCanUnpark() }
 
 // CanFindHome reports that the mount can seek its mechanical home.
-func (t *Telescope) CanFindHome() bool { return true }
+func (t *Telescope) CanFindHome() bool { return (&rst.Mount{}).AlpacaCanFindHome() }
 
 // CanPulseGuide reports that the mount supports pulse guiding.
 func (t *Telescope) CanPulseGuide() bool { return true }
@@ -321,20 +342,36 @@ func (t *Telescope) Tracking() bool {
 	return t.getB(&t.snap.tracking)
 }
 
-// AtPark reports whether the mount is parked.
+// AtPark reports whether the mount is parked at the polar axis, and stopped.
+//
+// The driver reads the mount's MECHANICAL axis angles (:CY#) rather than its position on the
+// sky: the polar-axis park and a plain goto to the celestial pole point at the same place, so
+// only the RA-axis rotation distinguishes the intended stow from a mount lying on its side.
+// Reading the mount rather than a latch also means reconnecting to a mount someone else parked
+// still reports parked. Unpark does not move the telescope, so this goes false on the state
+// change while the tube stays where it is.
 func (t *Telescope) AtPark() bool {
 	if m := t.mount(); m != nil {
-		if v, err := m.AtPark(); err == nil {
+		if v, err := m.AlpacaAtPark(); err == nil {
 			return t.setB(&t.snap.atPark, v)
 		}
 	}
 	return t.getB(&t.snap.atPark)
 }
 
-// AtHome reports whether the mount is at its home position.
+// AtHome reports whether the mount is physically at its home position, and stopped, by reading
+// the mechanical axis angles (:CY#) and requiring both at zero.
+//
+// Not the horizon coordinates: those are derived from the mount's pointing model, which reports
+// a plausible position even when its mechanical reference is stale. Observed on hardware as
+// Az 270.0 / Alt 0.0 — exactly home — with the RA axis nowhere near it.
+//
+// Deliberately not the mount's :AH#, which reports whether a home seek is RUNNING and reads
+// false immediately after one succeeds. AtHome is also distinct from HomeFound, the latch that
+// gates gotos.
 func (t *Telescope) AtHome() bool {
 	if m := t.mount(); m != nil {
-		if v, err := m.AtHome(); err == nil {
+		if v, err := m.AlpacaAtHome(); err == nil {
 			return t.setB(&t.snap.atHome, v)
 		}
 	}
@@ -402,11 +439,43 @@ func (t *Telescope) SiteElevation() float64 { t.mu.Lock(); defer t.mu.Unlock(); 
 // SlewSettleTime returns the configured post-slew settle time in seconds.
 func (t *Telescope) SlewSettleTime() int { t.mu.Lock(); defer t.mu.Unlock(); return t.slewSettleSec }
 
-// TrackingRate returns the current tracking rate (sidereal/lunar/solar).
+// TrackingRate returns the current tracking rate (sidereal/lunar/solar), read from the mount.
+//
+// It used to return only what this driver had last been told to set, which meant a rate changed
+// from the handset, or any reconnect, reported sidereal regardless of what the mount was doing.
+// The mount answers :Ct?#, so there is no reason to guess.
+//
+// The mount has a fourth mode, custom (:CT3), with no ASCOM DriveRate to map it to. In that
+// case the last known value is returned rather than a wrong one: DriveRates is an enum with no
+// "other" member, so there is nothing truthful to say.
 func (t *Telescope) TrackingRate() alpacadev.DriveRate {
+	if m := t.mount(); m != nil {
+		if tm, err := m.TrackMode(); err == nil {
+			if r, ok := driveRateOf(tm); ok {
+				t.mu.Lock()
+				t.trackingRate = r
+				t.mu.Unlock()
+				return r
+			}
+		}
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.trackingRate
+}
+
+// driveRateOf maps the mount's tracking mode onto an ASCOM DriveRate. ok is false for the
+// mount's custom rate, which ASCOM cannot express.
+func driveRateOf(tm rst.TrackMode) (alpacadev.DriveRate, bool) {
+	switch tm {
+	case rst.TrackModeSidereal:
+		return alpacadev.DriveSidereal, true
+	case rst.TrackModeSolar:
+		return alpacadev.DriveSolar, true
+	case rst.TrackModeLunar:
+		return alpacadev.DriveLunar, true
+	}
+	return 0, false // TrackModeCustom
 }
 
 // TrackingRates returns the tracking rates the RST supports.
@@ -414,15 +483,104 @@ func (t *Telescope) TrackingRates() []alpacadev.DriveRate {
 	return []alpacadev.DriveRate{alpacadev.DriveSidereal, alpacadev.DriveLunar, alpacadev.DriveSolar}
 }
 
-// UTCDate returns the current UTC time as an ISO-8601 string (the host clock; the RST
-// has no clock-read command).
-func (t *Telescope) UTCDate() string { return time.Now().UTC().Format("2006-01-02T15:04:05.000Z") }
+// UTCDate returns the MOUNT's UTC time as an ISO-8601 string, reconstructed from its local
+// clock (:GL#), its date (:GC#) and its UTC offset (:GG#).
+//
+// This used to return the host clock, on the belief that the RST had no clock-read command.
+// It has three, and the difference is not academic: a mount whose clock is wrong computes a
+// wrong hour angle and points somewhere else entirely. The development mount was found three
+// hours fast — a 45 degree pointing error — while this member cheerfully reported the host's
+// correct time, so nothing downstream could notice.
+//
+// If the mount cannot be read this returns an EMPTY STRING rather than falling back to the host
+// clock. The ASCOM property has no error to return — a client that cannot be told "this read
+// failed" is better served by a value it cannot parse than by a plausible one that is not the
+// mount's. Host time is the more dangerous answer precisely because it looks right: it is the
+// same substitution that hid the three-hour error, differing only in which code path produces
+// it. An empty string cannot be mistaken for a timestamp.
+func (t *Telescope) UTCDate() string {
+	m := t.mount()
+	if m == nil {
+		return ""
+	}
+	s, err := mountUTC(m)
+	if err != nil {
+		return ""
+	}
+	return s
+}
+
+const utcLayout = "2006-01-02T15:04:05.000Z"
+
+// mountUTC assembles the mount's own UTC time. :GC# gives MM/DD/YY, :GL# the local time as
+// hours since midnight, and :GG# the offset to ADD to local to reach UTC (LX200 convention,
+// so a Pacific mount reports +7).
+//
+// :GC# is the LOCAL date, not the UTC one, and the two disagree for part of every day. Observed
+// on hardware: at 00:02 UTC the mount reported 08/25/26 with a local time of 17:03, because it
+// was still the 25th in PDT. Adding the offset to local midnight carries the day correctly;
+// treating :GC# as a UTC date would put the result 24 hours out for those hours.
+//
+// The century is assumed to be 2000+yy — the mount sends two digits and never says.
+func mountUTC(m *rst.Mount) (string, error) {
+	date, err := m.Date() // "MM/DD/YY"
+	if err != nil {
+		return "", err
+	}
+	local, err := m.LocalTime() // hours since midnight
+	if err != nil {
+		return "", err
+	}
+	off, err := m.UTCOffset() // hours to add to local for UTC
+	if err != nil {
+		return "", err
+	}
+	var mm, dd, yy int
+	if _, err := fmt.Sscanf(date, "%d/%d/%d", &mm, &dd, &yy); err != nil {
+		return "", fmt.Errorf("rst: cannot parse the mount date %q: %w", date, err)
+	}
+	midnight := time.Date(2000+yy, time.Month(mm), dd, 0, 0, 0, 0, time.UTC)
+	utc := midnight.
+		Add(time.Duration(local * float64(time.Hour))).
+		Add(time.Duration(off * float64(time.Hour)))
+	return utc.Format(utcLayout), nil
+}
 
 // --- Setters ----------------------------------------------------------------
-// RST exposes no clock command, so SetUTCDate stays BaseTelescope (not implemented).
+
+// SetUTCDate sets the mount's clock from an ISO-8601 UTC timestamp.
+//
+// The mount's UTC offset is left alone — the handset owns the site's civil time, and rewriting
+// it from a client's timezone would silently move it. So the timestamp is converted through the
+// offset the mount already holds and written as local time (:SL#).
+//
+// The DATE is written only if the mount's differs from the one implied by the timestamp. :SC#
+// triggers a planetary-data recompute, so a routine clock sync — where the date is already
+// right — costs one extra :GC# read and sends nothing. But a mount on the wrong date has no
+// other way to be corrected over the wire, and the date feeds sidereal time: an hour angle
+// computed from the wrong day is a pointing error with no symptom.
+func (t *Telescope) SetUTCDate(iso string) error {
+	m := t.mount()
+	if m == nil {
+		return alpacadev.ErrNotConnected
+	}
+	utc, err := time.Parse(time.RFC3339, iso)
+	if err != nil {
+		if utc, err = time.Parse(utcLayout, iso); err != nil {
+			return alpacadev.NewError(alpacadev.ErrNumInvalidValue, "UTCDate must be an ISO-8601 timestamp")
+		}
+	}
+	return m.SetUTC(utc.UTC())
+}
 
 // SetTracking turns tracking on or off.
 func (t *Telescope) SetTracking(on bool) error {
+	// Only turning tracking ON is motion; a parked mount must still be able to stop tracking.
+	if on {
+		if err := t.refuseIfParked("Tracking = true"); err != nil {
+			return err
+		}
+	}
 	m := t.mount()
 	if m == nil {
 		return alpacadev.ErrNotConnected
@@ -563,6 +721,19 @@ func (t *Telescope) SetSlewSettleTime(seconds int) error {
 
 // --- Motion -----------------------------------------------------------------
 
+// refuseIfParked returns a Parked error when the mount is parked, naming the member.
+//
+// The Alpaca HTTP layer already gates every motion member this way, so over the network this
+// changes nothing. It exists for the callers that do NOT go through HTTP — alpacahurd holds
+// this Telescope directly and calls these methods as Go functions, which bypasses the gate
+// entirely. A guarantee that only holds on one of two call paths is not a guarantee.
+func (t *Telescope) refuseIfParked(member string) error {
+	if t.AtPark() {
+		return alpacadev.NewError(alpacadev.ErrNumParked, member+" is not valid while the mount is parked")
+	}
+	return nil
+}
+
 // AbortSlew immediately stops any slew or continuous move.
 func (t *Telescope) AbortSlew() error {
 	m := t.mount()
@@ -575,6 +746,9 @@ func (t *Telescope) AbortSlew() error {
 // SlewToCoordinatesAsync starts an asynchronous goto to the given RA/Dec, returning
 // immediately.
 func (t *Telescope) SlewToCoordinatesAsync(ra, dec float64) error {
+	if err := t.refuseIfParked("SlewToCoordinatesAsync"); err != nil {
+		return err
+	}
 	if err := t.SetTargetRightAscension(ra); err != nil {
 		return err
 	}
@@ -582,6 +756,45 @@ func (t *Telescope) SlewToCoordinatesAsync(ra, dec float64) error {
 		return err
 	}
 	return t.startSlew()
+}
+
+// CanSlewAltAz and CanSlewAltAzAsync report that the mount can goto horizontal coordinates.
+// It can, and does: Park is an alt/az goto to the celestial pole. These previously reported
+// false, declining a capability the driver was already using internally.
+func (t *Telescope) CanSlewAltAz() bool      { return true }
+func (t *Telescope) CanSlewAltAzAsync() bool { return true }
+
+// SlewToAltAzAsync starts a goto to horizontal coordinates (:Sz#/:Sa# then :MA#).
+//
+// Like the equatorial goto this is gated on the mount having homed — the West-horizon
+// reference is what its pointing model is built from, and an un-homed alt/az goto is refused.
+func (t *Telescope) SlewToAltAzAsync(az, alt float64) error {
+	if err := t.refuseIfParked("SlewToAltAzAsync"); err != nil {
+		return err
+	}
+	m := t.mount()
+	if m == nil {
+		return alpacadev.ErrNotConnected
+	}
+	if az < 0 || az >= 360 {
+		return alpacadev.NewError(alpacadev.ErrNumInvalidValue, "azimuth must be in [0,360)")
+	}
+	if alt < -90 || alt > 90 {
+		return alpacadev.NewError(alpacadev.ErrNumInvalidValue, "altitude must be in [-90,90]")
+	}
+	if err := m.SlewToAltAz(az, alt); err != nil {
+		return err
+	}
+	t.setB(&t.snap.slewing, true)
+	return nil
+}
+
+// SlewToAltAz gotos horizontal coordinates and blocks until the slew completes.
+func (t *Telescope) SlewToAltAz(az, alt float64) error {
+	if err := t.SlewToAltAzAsync(az, alt); err != nil {
+		return err
+	}
+	return t.waitSlew()
 }
 
 // SlewToCoordinates gotos the given RA/Dec and blocks until the slew completes.
@@ -604,15 +817,41 @@ func (t *Telescope) SlewToTarget() error {
 }
 
 func (t *Telescope) startSlew() error {
+	if err := t.refuseIfParked("SlewToTarget"); err != nil {
+		return err
+	}
 	m := t.mount()
 	if m == nil {
 		return alpacadev.ErrNotConnected
 	}
-	return m.SlewToTarget()
+	return ascomErr(m.SlewToTarget())
+}
+
+// ascomErr gives the mount's own refusals a specific ASCOM error number. Left alone they fall
+// through to Unspecified (0x4FF), which tells a client nothing it can act on.
+//
+// A goto the mount refuses — answered with an "MSZZ#" frame — is an InvalidOperation: the
+// request was well formed, the mount declined it in its current state. A goto refused because
+// the mount has not homed is the same class. Parked is its own ASCOM number.
+func ascomErr(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, rst.ErrParked):
+		return alpacadev.NewError(alpacadev.ErrNumParked, err.Error())
+	case errors.Is(err, rst.ErrNotImplemented):
+		return alpacadev.NewError(alpacadev.ErrNumNotImplemented, err.Error())
+	case strings.Contains(err.Error(), "refused"), strings.Contains(err.Error(), "homed"):
+		return alpacadev.NewError(alpacadev.ErrNumInvalidOperation, err.Error())
+	}
+	return err
 }
 
 // SyncToCoordinates syncs the pointing model to the given RA/Dec.
 func (t *Telescope) SyncToCoordinates(ra, dec float64) error {
+	if err := t.refuseIfParked("SyncToCoordinates"); err != nil {
+		return err
+	}
 	if err := t.SetTargetRightAscension(ra); err != nil {
 		return err
 	}
@@ -624,6 +863,9 @@ func (t *Telescope) SyncToCoordinates(ra, dec float64) error {
 
 // SyncToTarget syncs the pointing model to the current target coordinates.
 func (t *Telescope) SyncToTarget() error {
+	if err := t.refuseIfParked("SyncToTarget"); err != nil {
+		return err
+	}
 	m := t.mount()
 	if m == nil {
 		return alpacadev.ErrNotConnected
@@ -632,35 +874,83 @@ func (t *Telescope) SyncToTarget() error {
 	return err
 }
 
-// Park sends the mount to its park position — the polar axis — with tracking off.
+// CanSetPark reports that the park position cannot be redefined.
+//
+// This mount has two mechanical positions and both are fixed: home is the West horizon, park is
+// the polar axis with the OTA along the RA axis. There is no arbitrary park to set.
+func (t *Telescope) CanSetPark() bool { return (&rst.Mount{}).AlpacaCanSetPark() }
+
+// SetPark is not supported — see CanSetPark.
+func (t *Telescope) SetPark() error {
+	m := t.mount()
+	if m == nil {
+		return alpacadev.ErrNotConnected
+	}
+	return ascomErr(m.AlpacaSetPark())
+}
+
+// Park sends the mount to its park position — the polar axis, OTA along the RA axis and the
+// tube on top — with tracking off.
+//
+// This is an EQUATORIAL goto, to an hour angle of +6h and a declination just short of 90. The
+// hour angle is what pins the RA axis: the pole is an RA singularity, so an alt/az goto to the
+// same sky position leaves the rotation wherever the path ended, tube out to one side. It runs
+// at the mount's slot-3 speed and reports intermediate positions, so Slewing and the
+// coordinates both track progress. Park() completes when AtPark becomes true.
 func (t *Telescope) Park() error {
 	m := t.mount()
 	if m == nil {
 		return alpacadev.ErrNotConnected
 	}
-	return m.Park()
+	return ascomErr(m.AlpacaPark())
 }
 
-// Unpark releases the park latch and re-enables tracking.
+// Unpark clears the parked state and re-enables tracking. It does NOT move the telescope — the
+// tube stays on the polar axis until the next slew — so AtPark goes false on the state change
+// alone. Unpark() completes when AtPark becomes false.
 func (t *Telescope) Unpark() error {
 	m := t.mount()
 	if m == nil {
 		return alpacadev.ErrNotConnected
 	}
-	return m.Unpark()
+	return ascomErr(m.AlpacaUnpark())
 }
 
 // FindHome seeks the mount's mechanical home — on the RST, the West horizon.
+//
+// The seek runs at a fixed rate the slew presets do not affect, and the mount stops publishing
+// position while it runs: coordinates read as the STARTING position until it finishes (38 s
+// from the pole, measured). Clients must poll Slewing rather than watching coordinates, or a
+// working home seek looks stuck.
 func (t *Telescope) FindHome() error {
 	m := t.mount()
 	if m == nil {
 		return alpacadev.ErrNotConnected
 	}
-	return m.FindHome()
+	if err := ascomErr(m.AlpacaFindHome()); err != nil {
+		return err
+	}
+	// The mount keeps answering :GR#/:GD#/:GZ#/:GA# with its STARTING position for the whole
+	// seek, so the cache would otherwise hold a plausible, wrong, unchanging fix for 38
+	// seconds. Zero it: an obviously meaningless position is safer than a convincing one,
+	// because a client cannot tell the difference and may act on it. The first read after the
+	// :CHO# token replaces it with the real home coordinates.
+	t.zeroPosition()
+	return nil
+}
+
+// zeroPosition clears the cached pointing. See FindHome for why.
+func (t *Telescope) zeroPosition() {
+	t.mu.Lock()
+	t.snap.ra, t.snap.dec, t.snap.alt, t.snap.az = 0, 0, 0, 0
+	t.mu.Unlock()
 }
 
 // PulseGuide issues a timed guide pulse in the given direction for ms milliseconds.
 func (t *Telescope) PulseGuide(dir alpacadev.GuideDirection, ms int) error {
+	if err := t.refuseIfParked("PulseGuide"); err != nil {
+		return err
+	}
 	if ms < 0 {
 		return alpacadev.ErrInvalidValue
 	}
@@ -727,15 +1017,25 @@ func (t *Telescope) setGuideRateDegPerSec(degPerSec float64) error {
 }
 
 // AxisRates returns the supported MoveAxis rate range (deg/s) for the given axis.
+//
+// The minimum is the sidereal rate, not zero. Zero is not a rate the mount can be asked to move
+// at — it is the stop command, always accepted and never advertised — and publishing a range
+// that starts at zero is a conformance error rather than a generosity.
 func (t *Telescope) AxisRates(axis alpacadev.TelescopeAxis) []alpacadev.AxisRate {
 	if axis != alpacadev.AxisPrimary && axis != alpacadev.AxisSecondary {
 		return []alpacadev.AxisRate{}
 	}
-	return []alpacadev.AxisRate{{Minimum: 0, Maximum: maxAxisRate}}
+	return []alpacadev.AxisRate{{Minimum: minAxisRate, Maximum: maxAxisRate}}
 }
 
 // MoveAxis starts a continuous slew on the given axis at rate deg/s (rate 0 stops it).
 func (t *Telescope) MoveAxis(axis alpacadev.TelescopeAxis, rate float64) error {
+	// Rate zero is a stop, and stopping a parked mount is not motion — it is always allowed.
+	if rate != 0 {
+		if err := t.refuseIfParked("MoveAxis"); err != nil {
+			return err
+		}
+	}
 	m := t.mount()
 	if m == nil {
 		return alpacadev.ErrNotConnected
@@ -750,7 +1050,10 @@ func (t *Telescope) MoveAxis(axis alpacadev.TelescopeAxis, rate float64) error {
 	if math.Abs(rate) > maxAxisRate {
 		return alpacadev.ErrInvalidValue
 	}
-	return m.MoveAxis(a, rate > 0, presetForRate(math.Abs(rate)))
+	// MoveAxisRate programs the mount's speed slot before selecting it. Snapping to a preset
+	// letter — which this used to do — only selects a slot, so a request for 2 deg/s was
+	// delivered at whatever that slot held (0.42 deg/s on the development mount).
+	return m.MoveAxisRate(a, rate > 0, math.Abs(rate))
 }
 
 // --- helpers ----------------------------------------------------------------
@@ -771,7 +1074,7 @@ func (t *Telescope) waitSlew() error {
 			// A movement-limit / error abort clears Slewing but leaves a fault; surface
 			// it so a blocked slew fails loudly instead of looking like it arrived.
 			if f := m.Fault(); f != "" {
-				return alpacadev.NewError(alpacadev.ErrNumUnspecified, "slew aborted at "+f)
+				return alpacadev.NewError(alpacadev.ErrNumInvalidOperation, "slew aborted at "+f)
 			}
 			return nil
 		}
@@ -804,19 +1107,6 @@ func axisOf(a alpacadev.TelescopeAxis) (lx200.Axis, bool) {
 		return lx200.AxisSecondary, true
 	}
 	return 0, false
-}
-
-func presetForRate(absRate float64) lx200.Rate {
-	switch {
-	case absRate <= 0.05:
-		return lx200.RateGuide
-	case absRate <= 0.5:
-		return lx200.RateCenter
-	case absRate <= 2.0:
-		return lx200.RateFind
-	default:
-		return lx200.RateMax
-	}
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) {

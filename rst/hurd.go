@@ -11,7 +11,7 @@ import (
 // Config is the entry's driver-owned keys. Every field selects the hardware
 // to bind and applies at the next start; the setup page shows them read-only.
 type Config struct {
-	Serial string `json:"serial,omitempty" alpaca:"label=Serial,when=start,help=Bind by serial (stable across replug and start-before-plug)"`
+	Serial string `json:"serial,omitempty" alpaca:"label=Serial,when=start,help=USB bridge serial to bind (stable across replug and port renumbering); empty asks every candidate"`
 }
 
 func init() {
@@ -22,7 +22,7 @@ func init() {
 		ConfigExample: `{ "driver": "rst" }`,
 		Config:        func() any { return &Config{} },
 		// 'G': the RST rides its RA/DEC axes as a German-style equatorial.
-		FrontEnd:      lx200FrontEnd('G', "RainbowAstro"),
+		FrontEnd: lx200FrontEnd('G', "RainbowAstro"),
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
 			var cfg Config
 			if err := spec.Decode(&cfg); err != nil {
@@ -33,6 +33,7 @@ func init() {
 				id = "auto"
 			}
 			d := NewTelescope(cfg.Serial)
+			d.state = spec // for remembering which bridges are not this mount
 			d.ID = "rst-" + id
 			d.DevName = "Rainbow Astro RST"
 			if spec.Name != "" {

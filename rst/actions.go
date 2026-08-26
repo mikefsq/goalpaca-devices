@@ -128,18 +128,22 @@ func (t *Telescope) actions() map[string]actionFn {
 			}
 			return f, nil
 		}),
-		"Voltage":    t.read(func(m *rst.Mount) (string, error) { v, err := m.Voltage(); return f(v, 1), err }),
-		"AutoResume": t.read(func(m *rst.Mount) (string, error) { v, err := m.AutoResume(); return strconv.FormatBool(v), err }),
-		"LocalTime":  t.read(func(m *rst.Mount) (string, error) { v, err := m.LocalTime(); return f(v, 5), err }),
-		"Date":       t.read(func(m *rst.Mount) (string, error) { return m.Date() }),
-		"UTCOffset":  t.read(func(m *rst.Mount) (string, error) { v, err := m.UTCOffset(); return f(v, 1), err }),
+		"Voltage": t.read(func(m *rst.Mount) (string, error) { v, err := m.Voltage(); return f(v, 1), err }),
+		"AutoResume": t.readWrite(
+			func(m *rst.Mount) (string, error) { v, err := m.AutoResume(); return strconv.FormatBool(v), err },
+			func(m *rst.Mount, p string) error {
+				return m.SetAutoResume(p == "on" || p == "1" || p == "true")
+			}),
+		"LocalTime": t.read(func(m *rst.Mount) (string, error) { v, err := m.LocalTime(); return f(v, 5), err }),
+		"Date":      t.read(func(m *rst.Mount) (string, error) { return m.Date() }),
+		"UTCOffset": t.read(func(m *rst.Mount) (string, error) { v, err := m.UTCOffset(); return f(v, 1), err }),
 		"MotorLoad": t.read(func(m *rst.Mount) (string, error) {
 			d, r, err := m.MotorLoad()
 			return fmt.Sprintf("dec=%.1f,ra=%.1f", d, r), err
 		}),
 		"SystemStatus": t.read(func(m *rst.Mount) (string, error) {
 			s, err := m.SystemStatus()
-			return fmt.Sprintf("tcs=%v,dec=%v,ra=%v", s.TCS, s.DecMotor, s.RAMotor), err
+			return fmt.Sprintf("tcs=%v,gps=%v,dec=%v,ra=%v", s.TCS, s.GPS, s.DecMotor, s.RAMotor), err
 		}),
 
 		// read/write config
@@ -153,14 +157,20 @@ func (t *Telescope) actions() map[string]actionFn {
 				return m.SetGuideRate(v)
 			}),
 
-		// set-only (the RST does not report the current force-flip state)
+		// read/write: :Af0#/:Af1# sets it, :AF# reads it back
 		"ForcePierFlip": func(params string) (string, error) {
 			m, err := t.live()
 			if err != nil {
 				return "", err
 			}
 			if params == "" {
-				return "", alpacadev.NewError(alpacadev.ErrNumInvalidValue, "pass on/off (the mount does not report the current setting)")
+				// The mount does report it, via :AF#. This used to reject an empty read
+				// because the reply command had not been identified.
+				on, err := m.ForcePierFlip()
+				if err != nil {
+					return "", err
+				}
+				return strconv.FormatBool(on), nil
 			}
 			on := params == "on" || params == "1" || params == "true"
 			if err := m.SetForcePierFlip(on); err != nil {
