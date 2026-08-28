@@ -573,9 +573,12 @@ func (c *PureASICamera) SetBinX(n int) error {
 	if err := c.cam.SetBinning(n); err != nil {
 		return fmt.Errorf("%w: %v", alpacadev.ErrInvalidValue, err)
 	}
+	// SetBinning has already stored the largest legal window for this factor: Max/bin is not
+	// always one (the IMX455 at bin 3 needs one row less), so read it back instead of recomputing.
+	_, _, w, h := c.cam.ROI()
 	c.mu.Lock()
 	c.startX, c.startY = 0, 0
-	c.numX, c.numY = c.cam.Info().MaxWidth/n, c.cam.Info().MaxHeight/n
+	c.numX, c.numY = w, h
 	c.mu.Unlock()
 	return nil
 }

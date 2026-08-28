@@ -469,6 +469,32 @@ func TestAlpacaBinning(t *testing.T) {
 		t.Errorf("numy after bin 2 = %v, want 3194 (6388/2)", v)
 	}
 
+	// bin 3: 6388/3 is 2129, an odd sensor extent the IMX455 refuses, so the full binned frame
+	// is one row shorter. Regression for a StartExposure that failed with InvalidValue because
+	// the subframe reset to Max/bin instead of the window SetBinning stored.
+	if r := put(t, base, "binx", "BinX=3"); r.ErrorNumber != 0 {
+		t.Fatalf("binx=3: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if v := value(t, base, "numx").(float64); v != 3192 {
+		t.Errorf("numx after bin 3 = %v, want 3192 (9576/3)", v)
+	}
+	if v := value(t, base, "numy").(float64); v != 2128 {
+		t.Errorf("numy after bin 3 = %v, want 2128 (6388/3 rounded down to even)", v)
+	}
+	if r := put(t, base, "startexposure", "Duration=0.01&Light=true"); r.ErrorNumber != 0 {
+		t.Errorf("startexposure at bin 3 full frame: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	bin3Done := time.Now().Add(20 * time.Second)
+	for value(t, base, "imageready") != true {
+		if time.Now().After(bin3Done) {
+			t.Fatal("imageready never became true at bin 3")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if r := put(t, base, "binx", "BinX=2"); r.ErrorNumber != 0 {
+		t.Fatalf("binx back to 2: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+
 	// A small binned crop captures at the binned byte size (numX·numY·2 + header).
 	const cw, ch = 256, 256
 	for member, v := range map[string]string{
