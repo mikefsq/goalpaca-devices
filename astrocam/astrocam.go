@@ -844,7 +844,9 @@ func (c *PureASICamera) stopVideoLocked() {
 // always has a fresh frame to hand out. A device-wedge ends the drain and signals a reset.
 func (c *PureASICamera) drainVideo(ctx context.Context, dur float64) {
 	defer c.vidWG.Done()
+	c.mu.Lock()
 	w, h := c.numX, c.numY
+	c.mu.Unlock()
 	bpp := c.cam.OutputDepth()
 	buf := make([]byte, c.cam.FrameBytes())
 	// A run of reads that all fail is indistinguishable from a stalled camera to the client: the
