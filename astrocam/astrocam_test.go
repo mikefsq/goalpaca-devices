@@ -50,7 +50,7 @@ func (s *stubDev) open() (*astrocam.Camera, astrocam.DeviceInfo, error) {
 		return nil, astrocam.DeviceInfo{}, errors.New("no device")
 	}
 	tr := astrocam.NewStubTransport()
-	tr.Serial = s.serial
+	tr.Serial = []byte(s.serial)
 	cam, err := astrocam.Open(tr, astrocam.ZWO.VID, s.pid)
 	if err != nil {
 		return nil, astrocam.DeviceInfo{}, err
@@ -60,8 +60,15 @@ func (s *stubDev) open() (*astrocam.Camera, astrocam.DeviceInfo, error) {
 
 // newStubStack wires a stub-backed camera into a real Alpaca server behind httptest.
 func newStubStack(t *testing.T, sd *stubDev) (base, mgmt string) {
+	base, mgmt, _ = newStubStackDev(t, sd)
+	return base, mgmt
+}
+
+// newStubStackDev is newStubStack with the driver object as well, for a test whose subject is
+// driver-side state that no Alpaca member reports.
+func newStubStackDev(t *testing.T, sd *stubDev) (base, mgmt string, dev *PureASICamera) {
 	t.Helper()
-	dev := NewPureASICamera(0, "")
+	dev = NewPureASICamera(0, "")
 	dev.openDev = sd.open
 	dev.aliveFn = sd.isPresent
 	dev.hotplugFn = nil // the stub has no bus; the polling path is what these tests exercise
@@ -83,7 +90,7 @@ func newStubStack(t *testing.T, sd *stubDev) (base, mgmt string) {
 	}
 	ts := httptest.NewServer(http.HandlerFunc(srv.ServeHTTP))
 	t.Cleanup(ts.Close)
-	return ts.URL + "/api/v1/camera/0/", ts.URL + "/management/v1/"
+	return ts.URL + "/api/v1/camera/0/", ts.URL + "/management/v1/", dev
 }
 
 // --- HTTP helpers (same shape as asiefw_test.go) ---
@@ -156,7 +163,7 @@ func waitConnected(t *testing.T, base string, want bool) {
 // TestAlpacaCamera6200 covers metadata, connection, geometry, ranges, and cooling end-to-end
 // against a stub-backed cooled color camera.
 func TestAlpacaCamera6200(t *testing.T) {
-	sd := &stubDev{pid: pid6200, present: true, serial: astrocam.Serial{0x06, 0x11, 0x8f, 0x06, 0x1f, 0x09, 0x09, 0x00}}
+	sd := &stubDev{pid: pid6200, present: true, serial: astrocam.Serial(string([]byte{0x06, 0x11, 0x8f, 0x06, 0x1f, 0x09, 0x09, 0x00}))}
 	base, mgmt := newStubStack(t, sd)
 	waitConnected(t, base, true)
 
@@ -266,7 +273,7 @@ func TestAlpacaCamera6200(t *testing.T) {
 
 // TestAlpacaGuiding290 checks the mono ST4 camera exposes guiding.
 func TestAlpacaGuiding290(t *testing.T) {
-	sd := &stubDev{pid: pid290, present: true, serial: astrocam.Serial{0x1d, 0x21, 0x04, 0x06, 0x22, 0x09, 0x09, 0x00}}
+	sd := &stubDev{pid: pid290, present: true, serial: astrocam.Serial(string([]byte{0x1d, 0x21, 0x04, 0x06, 0x22, 0x09, 0x09, 0x00}))}
 	base, _ := newStubStack(t, sd)
 	waitConnected(t, base, true)
 
@@ -299,7 +306,7 @@ func TestAlpacaGuiding290(t *testing.T) {
 // TestAlpacaFPSPercent exercises the "fpspercent" Action: advertised, query defaults to 100, a
 // valid value round-trips, and out-of-range / non-numeric inputs are rejected.
 func TestAlpacaFPSPercent(t *testing.T) {
-	sd := &stubDev{pid: pid290, present: true, serial: astrocam.Serial{0x1d, 0x21, 0x04, 0x06, 0x22, 0x09, 0x09, 0x01}}
+	sd := &stubDev{pid: pid290, present: true, serial: astrocam.Serial(string([]byte{0x1d, 0x21, 0x04, 0x06, 0x22, 0x09, 0x09, 0x01}))}
 	base, _ := newStubStack(t, sd)
 	waitConnected(t, base, true)
 
@@ -345,7 +352,7 @@ func TestAlpacaFPSPercent(t *testing.T) {
 // TestAlpacaCapture exercises the async exposure data plane end-to-end: StartExposure →
 // ImageReady → ImageBytes, against the stub (which serves a synthetic frame).
 func TestAlpacaCapture(t *testing.T) {
-	sd := &stubDev{pid: pid174, present: true, serial: astrocam.Serial{0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}}
+	sd := &stubDev{pid: pid174, present: true, serial: astrocam.Serial(string([]byte{0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09}))}
 	base, _ := newStubStack(t, sd)
 	waitConnected(t, base, true)
 
@@ -386,7 +393,7 @@ func TestAlpacaCapture(t *testing.T) {
 // — proving StartX/NumX → astrocam.SetROI → FrameBytes → ImageBytes all agree. It also checks
 // that an out-of-range window is rejected at StartExposure with ASCOM InvalidValue (0x401).
 func TestAlpacaCaptureSubFrame(t *testing.T) {
-	sd := &stubDev{pid: pid174, present: true, serial: astrocam.Serial{0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19}}
+	sd := &stubDev{pid: pid174, present: true, serial: astrocam.Serial(string([]byte{0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19}))}
 	base, _ := newStubStack(t, sd)
 	waitConnected(t, base, true)
 
@@ -441,7 +448,7 @@ func TestAlpacaCaptureSubFrame(t *testing.T) {
 // path): MaxBinX reflects the sensor caps, SetBinX rescopes the subframe to binned pixels, an
 // unsupported factor is rejected, and a small binned crop captures at the binned byte size.
 func TestAlpacaBinning(t *testing.T) {
-	sd := &stubDev{pid: pid6200, present: true, serial: astrocam.Serial{0x06, 0x11, 0x8f, 0x06, 0x1f, 0x09, 0x09, 0x00}}
+	sd := &stubDev{pid: pid6200, present: true, serial: astrocam.Serial(string([]byte{0x06, 0x11, 0x8f, 0x06, 0x1f, 0x09, 0x09, 0x00}))}
 	base, _ := newStubStack(t, sd)
 	waitConnected(t, base, true)
 
@@ -530,7 +537,7 @@ func TestAlpacaBinning(t *testing.T) {
 // TestAlpacaReadoutRAW8 drives the RAW8 readout mode end-to-end: select readoutmode 1 (RAW8),
 // expose, and assert ImageBytes is the 1-byte/pixel size (numX·numY·1 + header) and maxadu = 255.
 func TestAlpacaReadoutRAW8(t *testing.T) {
-	sd := &stubDev{pid: pid174, present: true, serial: astrocam.Serial{0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29}}
+	sd := &stubDev{pid: pid174, present: true, serial: astrocam.Serial(string([]byte{0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29}))}
 	base, _ := newStubStack(t, sd)
 	waitConnected(t, base, true)
 
@@ -592,7 +599,7 @@ func TestAlpacaNotConnected(t *testing.T) {
 
 // TestAlpacaReEnumeration: an unplug flips connected to false; a replug re-acquires.
 func TestAlpacaReEnumeration(t *testing.T) {
-	sd := &stubDev{pid: pid6200, present: true, serial: astrocam.Serial{0x06, 0x11, 0x8f, 0x06, 0x1f, 0x09, 0x09, 0x00}}
+	sd := &stubDev{pid: pid6200, present: true, serial: astrocam.Serial(string([]byte{0x06, 0x11, 0x8f, 0x06, 0x1f, 0x09, 0x09, 0x00}))}
 	base, _ := newStubStack(t, sd)
 	waitConnected(t, base, true)
 
@@ -639,7 +646,7 @@ func TestAlpacaHardware(t *testing.T) {
 // FpsPercent through that form reaches the camera, which the fpspercent Action
 // then reports.
 func TestSetupFormGenerated(t *testing.T) {
-	sd := &stubDev{pid: pid290, present: true, serial: astrocam.Serial{0x1d, 0x21, 0x04, 0x06, 0x22, 0x09, 0x09, 0x01}}
+	sd := &stubDev{pid: pid290, present: true, serial: astrocam.Serial(string([]byte{0x1d, 0x21, 0x04, 0x06, 0x22, 0x09, 0x09, 0x01}))}
 	dev := NewPureASICamera(0, "")
 	dev.openDev = sd.open
 	dev.aliveFn = sd.isPresent
@@ -738,5 +745,154 @@ func TestAttachmentPresent(t *testing.T) {
 		if p != tc.present || r != tc.replaced {
 			t.Errorf("%s: present %v replaced %v, want %v %v", tc.name, p, r, tc.present, tc.replaced)
 		}
+	}
+}
+
+// imageBytesLen exposes one exposure's ImageBytes payload length, which is the only place the
+// geometry the client actually receives can be observed.
+func imageBytesLen(t *testing.T, base string) int {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for value(t, base, "imageready") != true {
+		if time.Now().After(deadline) {
+			t.Fatal("imageready never became true")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	req, _ := http.NewRequest(http.MethodGet, base+"imagearray?"+txQ, nil)
+	req.Header.Set("Accept", "application/imagebytes")
+	r, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	body, _ := io.ReadAll(r.Body)
+	return len(body)
+}
+
+// TestVideoModeFollowsAnROIChange: a running free-run stream is armed at one geometry and its
+// drain reads that many bytes, so an ROI set while video mode is on has to re-arm the stream.
+// Comparing only the exposure made the re-arm a no-op, and the client then read back the new
+// window while every frame it received was still the old one.
+func TestVideoModeFollowsAnROIChange(t *testing.T) {
+	sd := &stubDev{pid: pid174, present: true, serial: astrocam.Serial(string([]byte{0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29}))}
+	base, _ := newStubStack(t, sd)
+	waitConnected(t, base, true)
+
+	const imageBytesHeader = 44
+	if r := put(t, base, "action", "Action=videomode&Parameters=on"); r.ErrorNumber != 0 {
+		t.Fatalf("videomode on: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	w := int(value(t, base, "numx").(float64))
+	h := int(value(t, base, "numy").(float64))
+	if r := put(t, base, "startexposure", "Duration=0.05&Light=true"); r.ErrorNumber != 0 {
+		t.Fatalf("startexposure: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if got, want := imageBytesLen(t, base), w*h*2+imageBytesHeader; got != want {
+		t.Fatalf("full-frame video ImageBytes = %d bytes, want %d (%dx%d)", got, want, w, h)
+	}
+
+	// Same exposure, smaller window: only the geometry changes.
+	cw, ch := w/2&^7, h/2&^1
+	for _, s := range []string{fmt.Sprintf("NumX=%d", cw), fmt.Sprintf("NumY=%d", ch)} {
+		member := "numx"
+		if strings.HasPrefix(s, "NumY") {
+			member = "numy"
+		}
+		if r := put(t, base, member, s); r.ErrorNumber != 0 {
+			t.Fatalf("set %s: err %d (%s)", member, r.ErrorNumber, r.ErrorMessage)
+		}
+	}
+	if r := put(t, base, "startexposure", "Duration=0.05&Light=true"); r.ErrorNumber != 0 {
+		t.Fatalf("startexposure after the ROI change: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if got, want := imageBytesLen(t, base), cw*ch*2+imageBytesHeader; got != want {
+		t.Errorf("video ImageBytes after the ROI change = %d bytes, want %d (%dx%d); the stream kept serving the geometry it was armed with",
+			got, want, cw, ch)
+	}
+}
+
+// TestVideoModeDoesNotRearmOnAnUnchangedROI: the camera aligns the window start more coarsely
+// than an ASCOM client does — an ASI to 4 or 8 sensor pixels, a client to 2 — so the window it
+// programs is not the window it was asked for. Comparing a later request against the PROGRAMMED
+// window therefore reports a change on every exposure and re-arms the stream for each frame,
+// which costs a full stop/start per frame and drops the first read of each one.
+func TestVideoModeDoesNotRearmOnAnUnchangedROI(t *testing.T) {
+	sd := &stubDev{pid: pid174, present: true, serial: astrocam.Serial(string([]byte{0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39}))}
+	base, _, dev := newStubStackDev(t, sd)
+	waitConnected(t, base, true)
+
+	if r := put(t, base, "action", "Action=videomode&Parameters=on"); r.ErrorNumber != 0 {
+		t.Fatalf("videomode on: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	// An origin the camera cannot honour exactly: the IMX174 aligns the window start to 4.
+	setROI := func() {
+		for member, form := range map[string]string{
+			"numx": "NumX=640", "numy": "NumY=480", "startx": "StartX=10", "starty": "StartY=10",
+		} {
+			if r := put(t, base, member, form); r.ErrorNumber != 0 {
+				t.Fatalf("set %s: err %d (%s)", member, r.ErrorNumber, r.ErrorMessage)
+			}
+		}
+	}
+	for i := 0; i < 3; i++ {
+		setROI()
+		if r := put(t, base, "startexposure", "Duration=0.05&Light=true"); r.ErrorNumber != 0 {
+			t.Fatalf("startexposure %d: err %d (%s)", i, r.ErrorNumber, r.ErrorMessage)
+		}
+		imageBytesLen(t, base)
+	}
+	dev.mu.Lock()
+	arms := dev.vidArms
+	dev.mu.Unlock()
+	if arms != 2 { // one for "videomode on", one for the first ROI
+		t.Errorf("stream armed %d times over three exposures of one ROI, want 2", arms)
+	}
+}
+
+// TestVideoFramesDoNotShareABuffer pins an invariant rather than a fix: ImageFrame hands the
+// caller the driver's own slice, so that slice must never be written again. A host reading it
+// in-process — debayer, statistics, stretch, upload — holds it for tens of milliseconds, while a
+// small ROI in video mode delivers a frame every few. Refilling one buffer under that reader would
+// produce an image assembled from several frames: right size, plausible statistics, content in
+// bands, and no error anywhere.
+//
+// TWO things currently guarantee it — waitVideoFrame allocates per publish, and StartExposure
+// releases the previous frame — which is why this passes against either one alone. It is here so
+// that removing both is caught. Checked as identity, not by racing: consecutive frames must not
+// share backing memory.
+func TestVideoFramesDoNotShareABuffer(t *testing.T) {
+	sd := &stubDev{pid: pid174, present: true, serial: astrocam.Serial(string([]byte{0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49}))}
+	base, _, dev := newStubStackDev(t, sd)
+	waitConnected(t, base, true)
+
+	if r := put(t, base, "action", "Action=videomode&Parameters=on"); r.ErrorNumber != 0 {
+		t.Fatalf("videomode on: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	grab := func(what string) []byte {
+		if r := put(t, base, "startexposure", "Duration=0.05&Light=true"); r.ErrorNumber != 0 {
+			t.Fatalf("%s startexposure: err %d (%s)", what, r.ErrorNumber, r.ErrorMessage)
+		}
+		deadline := time.Now().Add(15 * time.Second)
+		for value(t, base, "imageready") != true {
+			if time.Now().After(deadline) {
+				t.Fatalf("%s: imageready never became true", what)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		fr, err := dev.ImageFrame()
+		if err != nil {
+			t.Fatalf("%s ImageFrame: %v", what, err)
+		}
+		if len(fr.Pixels) == 0 {
+			t.Fatalf("%s: empty frame", what)
+		}
+		return fr.Pixels
+	}
+	first := grab("first")
+	second := grab("second")
+	if &first[0] == &second[0] {
+		t.Error("two video frames share one buffer: the second exposure overwrote the pixels the " +
+			"caller of the first is still reading")
 	}
 }

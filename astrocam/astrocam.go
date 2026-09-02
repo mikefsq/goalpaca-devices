@@ -66,8 +66,11 @@ type PureASICamera struct {
 
 	mu        sync.Mutex
 	hwPresent atomic.Bool // camera open; read lock-free by Connected()
-	exposeOp  alpacadev.Op
-	exposeWG  sync.WaitGroup // tracks the in-flight runExposure goroutine; teardown and AbortExposure join it
+	// readouts is the advertised ReadoutModes list, probed once at Connect (buildReadoutModes).
+	// Empty until then, when the depth-only fallback applies.
+	readouts []readoutMode
+	exposeOp alpacadev.Op
+	exposeWG sync.WaitGroup // tracks the in-flight runExposure goroutine; teardown and AbortExposure join it
 	// exposeMu serializes the StartExposure/AbortExposure lifecycle so AbortExposure's join
 	// (exposeWG.Wait) can never race a concurrent StartExposure's exposeWG.Add. Held only across
 	// those short sequences, never across a readout (which takes c.mu, not this).
@@ -135,9 +138,15 @@ type PureASICamera struct {
 	vidW, vidH, vidBpp int
 	vidSeq             uint64  // bumped each drained frame; StartExposure waits for seq > its snapshot
 	vidExp             float64 // exposure (s) the stream runs at; a change restarts it
-	// Geometry the stream was armed at — a change in exposure, ROI, or binning restarts it so the
-	// free-run stream always reflects the client's current settings (gain is live, no restart).
+	// The client REQUEST the running stream was armed from — a change in exposure, ROI, or binning
+	// restarts it so the free-run stream always reflects the client's current settings (gain is
+	// live, no restart). Held as requested rather than as programmed, so a camera that aligns the
+	// window more coarsely than the client does not read as a change on every exposure.
 	vidStartX, vidStartY, vidNumX, vidNumY, vidBin int
+	// vidArms counts how often the stream has been armed. It rides in the "video mode ON" line
+	// because a stream re-arming per frame — which a geometry comparison that never matches will
+	// do — otherwise reads as an ordinary ON/OFF pair repeating in the log.
+	vidArms uint64
 }
 
 // NewPureASICamera creates the driver for a camera selected by serial (preferred, stable) or,
@@ -152,7 +161,7 @@ func NewPureASICamera(index int, serial string) *PureASICamera {
 	c.aliveFn = c.stillPresent
 	c.hotplugFn = astrocam.Hotplug
 	c.Version = "0.1.0"
-	c.Info = "asicam-alpaca — ZWO ASI Alpaca driver over the Go asicam (no ZWO SDK)"
+	c.Info = "astrocam-alpaca — ZWO ASI and PlayerOne Alpaca driver over the Go astrocam (no vendor SDK)"
 	c.IfaceVer = alpacadev.InterfaceVersionCamera
 	c.setpoint = 0
 	if c.wantSerial != "" {
@@ -392,6 +401,9 @@ func (c *PureASICamera) tryAcquire() bool {
 	}
 	sn, _ := cam.SerialNumber()
 	c.configureOpened(cam, d, sn.String())
+	// The advertised ReadoutModes are probed against the live camera, so this runs after the
+	// handle is published and the camera is initialised.
+	c.buildReadoutModes()
 	return true
 }
 
@@ -463,7 +475,7 @@ func (c *PureASICamera) configureOpened(cam *astrocam.Camera, d astrocam.DeviceI
 	c.offsetMin, c.offsetMax, c.offsetOK = omin, omax, ook
 	c.expMinSec, c.expMaxSec = emin.Seconds(), emax.Seconds()
 	c.DevName = cam.Name()
-	c.Desc = fmt.Sprintf("ZWO %s (%dx%d, %.2fµm) [Go asicam]", cam.Name(), info.MaxWidth, info.MaxHeight, info.PixelUm)
+	c.Desc = fmt.Sprintf("%s %s (%dx%d, %.2fµm) [Go astrocam]", vendorName(d.VID), cam.Name(), info.MaxWidth, info.MaxHeight, info.PixelUm)
 	if c.wantSerial == "" && strings.Trim(serialHex, "0") != "" {
 		c.ID = "ASI-" + serialHex
 	}
@@ -747,19 +759,36 @@ func (c *PureASICamera) startVideo(dur float64) error {
 // startVideoLocked is the body of startVideo; the caller must hold exposeMu (e.g. actionFPSPercent,
 // which re-arms the stream under exposeMu so the throttle change and the re-arm are one atomic step).
 func (c *PureASICamera) startVideoLocked(dur float64) error {
+	// The armed GEOMETRY is part of what makes a running stream the one that was asked for, not
+	// just the exposure. drainVideo fixes its read size and the size it publishes when it starts,
+	// so a stream left running across an ROI or binning change keeps serving the window it was
+	// armed with while the client reads back the window it asked for. StartExposure detects the
+	// change and calls this to re-arm, and comparing only the exposure made that call a no-op.
+	curBin := c.cam.Binning()
 	c.mu.Lock()
-	already := c.videoOn && c.vidExp == dur
+	already := c.videoOn && c.vidExp == dur &&
+		c.startX == c.vidStartX && c.startY == c.vidStartY &&
+		c.numX == c.vidNumX && c.numY == c.vidNumY && curBin == c.vidBin
 	c.mu.Unlock()
 	if already {
 		return nil
 	}
 	c.stopVideoLocked() // stop a prior stream (e.g. exposure change) before re-arming
 	c.mu.Lock()
-	if err := c.cam.SetROI(c.startX, c.startY, c.numX, c.numY); err != nil {
+	// The REQUEST is what identifies this arm, not the window the camera settled on. The two
+	// differ whenever the camera's granularity is coarser than the client's — an ASI aligns the
+	// origin to 8, an ASCOM client to 2 — and comparing a later request against the programmed
+	// window then reports a change on every exposure and re-arms the stream for each frame.
+	reqX, reqY, reqW, reqH := c.startX, c.startY, c.numX, c.numY
+	// Clamped before programming, as in StartExposure: a binned full frame from a client is not
+	// necessarily a window the camera accepts, and the stream must not fail where a single shot
+	// of the same geometry succeeds.
+	cx, cy, cw, ch := c.cam.ClampROI(reqX, reqY, reqW, reqH)
+	if err := c.cam.SetROI(cx, cy, cw, ch); err != nil {
 		c.mu.Unlock()
 		return fmt.Errorf("%w: %v", alpacadev.ErrInvalidValue, err)
 	}
-	c.startX, c.startY, _, _ = c.cam.ROI() // the start the sensor aligned to (StartX/StartY report it)
+	c.startX, c.startY, c.numX, c.numY = c.cam.ROI() // what the sensor was actually given
 	if err := c.cam.SetExposure(time.Duration(dur * float64(time.Second))); err != nil {
 		c.mu.Unlock()
 		return err
@@ -773,12 +802,14 @@ func (c *PureASICamera) startVideoLocked(dur float64) error {
 	c.videoOn = true
 	c.vidExp = dur
 	c.vidSeq = 0
-	c.vidStartX, c.vidStartY, c.vidNumX, c.vidNumY = c.startX, c.startY, c.numX, c.numY
+	c.vidStartX, c.vidStartY, c.vidNumX, c.vidNumY = reqX, reqY, reqW, reqH
 	c.vidBin = c.cam.Binning() // snapshot the armed geometry for change detection
+	c.vidArms++
+	arms := c.vidArms
 	c.mu.Unlock()
 	c.vidWG.Add(1)
 	go c.drainVideo(ctx, dur)
-	log.Printf("asicam-alpaca: %s video mode ON (exp %.3fs)", c.Label(), dur)
+	log.Printf("asicam-alpaca: %s video mode ON (exp %.3fs, arm %d)", c.Label(), dur, arms)
 	return nil
 }
 
@@ -816,6 +847,18 @@ func (c *PureASICamera) drainVideo(ctx context.Context, dur float64) {
 	w, h := c.numX, c.numY
 	bpp := c.cam.OutputDepth()
 	buf := make([]byte, c.cam.FrameBytes())
+	// A run of reads that all fail is indistinguishable from a stalled camera to the client: the
+	// sequence never advances and StartExposure waits out its whole timeout with nothing logged.
+	// Report the first failure and then every hundredth, so a genuine transient stays quiet but a
+	// persistent one names itself.
+	bad := 0
+	note := func(what string, err error) {
+		bad++
+		if bad == 1 || bad%100 == 0 {
+			log.Printf("asicam-alpaca: %s video drain: %s (%d consecutive)", c.Label(), what, bad)
+			_ = err
+		}
+	}
 	for ctx.Err() == nil {
 		n, err := c.cam.ReadFrame(buf, false)
 		if err != nil {
@@ -823,11 +866,14 @@ func (c *PureASICamera) drainVideo(ctx context.Context, dur float64) {
 				c.needsReconnect.Store(true) // manageHardware re-acquires
 				return
 			}
+			note(err.Error(), err)
 			continue // transient short/stall — the next read recovers
 		}
 		if n < len(buf) {
+			note(fmt.Sprintf("short frame %d/%d bytes", n, len(buf)), nil)
 			continue
 		}
+		bad = 0
 		c.mu.Lock()
 		if cap(c.vidFrame) < n {
 			c.vidFrame = make([]byte, n)
@@ -850,12 +896,15 @@ func (c *PureASICamera) waitVideoFrame(want uint64, dur float64) {
 		c.mu.Lock()
 		seq, on := c.vidSeq, c.videoOn
 		if on && seq >= want {
-			n := len(c.vidFrame)
-			if cap(c.frame) < n {
-				c.frame = make([]byte, n)
-			}
-			c.frame = c.frame[:n]
-			copy(c.frame, c.vidFrame)
+			// A published frame is never written again. ImageFrame hands the caller THIS slice,
+			// and an in-process host holds it through debayer, statistics, stretch and upload —
+			// tens of milliseconds — while a small ROI delivers a frame every few. Refilling the
+			// buffer rewrites rows underneath that reader, and the result is an image built from
+			// several frames at once: right size, right statistics, content in bands. The
+			// single-shot path allocates per exposure for the same reason.
+			frame := make([]byte, len(c.vidFrame))
+			copy(frame, c.vidFrame)
+			c.frame = frame
 			c.frameW, c.frameH, c.frameBpp = c.vidW, c.vidH, c.vidBpp
 			c.mu.Unlock()
 			c.exposeOp.Complete()
@@ -909,14 +958,24 @@ func (c *PureASICamera) StartExposure(duration float64, light bool) error {
 		return nil
 	}
 	c.mu.Lock()
-	// Apply the ROI window now that all four of StartX/StartY/NumX/NumY are known. asicam
-	// validates the composite window against the sensor bounds; an out-of-range window is a
-	// client value error (ASCOM InvalidValue), not a driver fault.
-	if err := c.cam.SetROI(c.startX, c.startY, c.numX, c.numY); err != nil {
+	// Apply the ROI window now that all four of StartX/StartY/NumX/NumY are known, trimming it
+	// first to the largest window the camera accepts at this binning.
+	//
+	// ASCOM exposes no ROI-granularity property, so a client cannot know the rule and computes a
+	// full frame by dividing the sensor extent by the bin factor. That lands on a size the camera
+	// refuses whenever the extent does not divide cleanly — a 3856x2180 IMX585 gives an odd 1285
+	// columns at bin 3 and an odd 545 rows at bin 4 — and the rule is vendor policy, so no single
+	// value a client could hard-code is right for both makers. The driver trims instead and
+	// reports what it programmed, which is what an Alpaca client reads back.
+	//
+	// An out-of-range window is still a client value error (ASCOM InvalidValue): the clamp fits
+	// the size to the frame, so anything SetROI rejects after it is a real fault.
+	cx, cy, cw, ch := c.cam.ClampROI(c.startX, c.startY, c.numX, c.numY)
+	if err := c.cam.SetROI(cx, cy, cw, ch); err != nil {
 		c.mu.Unlock()
 		return fmt.Errorf("%w: %v", alpacadev.ErrInvalidValue, err)
 	}
-	c.startX, c.startY, _, _ = c.cam.ROI() // the start the sensor aligned to (StartX/StartY report it)
+	c.startX, c.startY, c.numX, c.numY = c.cam.ROI() // what the sensor was actually given
 	if err := c.cam.SetExposure(time.Duration(duration * float64(time.Second))); err != nil {
 		c.mu.Unlock()
 		return err
@@ -1149,26 +1208,113 @@ func (c *PureASICamera) ImageFrame() (alpacadev.ImageFrame, error) {
 	}, nil
 }
 
-// --- Readout modes: output bit depth (RAW16 / RAW8) ---
+// --- Readout modes: sample size crossed with the sensor's readout programme ---
+//
+// ASCOM has one indexed list for "how the sensor is read", and on this hardware that is two
+// independent axes: the sample size (RAW8 / RAW16) and, where the die offers it, the sensor mode
+// (Normal / HDR on the IMX585). The cross product is presented as one flat list — "RAW16",
+// "RAW8", "HDR RAW16" — because a client has one control.
+//
+// NOT every combination exists. HDR is a 16-bit-only mode: the driver refuses HDR at RAW8, and so
+// does the hardware — asked for that pair the vendor SDK returns success, then programs Normal
+// registers and delivers a flat dead frame. The list is therefore built by PROBING each candidate
+// once at connect and keeping the ones the driver accepts, rather than hard-coding which pairs
+// are legal: a die whose modes are not yet decoded then advertises only what it can actually
+// deliver, and a future mode needs no change here.
 
-func (c *PureASICamera) ReadoutModes() []string { return []string{"RAW16", "RAW8"} }
+// readoutMode is one entry in the advertised list.
+type readoutMode struct {
+	name       string
+	sensorMode int // index into the driver's SensorModes
+	bpp        int // 1 = RAW8, 2 = RAW16
+}
+
+// buildReadoutModes probes the cross product and keeps what the driver accepts, restoring the
+// camera's original mode and depth afterwards. Called once, from Connect, after Init.
+func (c *PureASICamera) buildReadoutModes() {
+	modes := c.cam.SensorModes()
+	if len(modes) == 0 {
+		modes = []astrocam.SensorModeInfo{{Name: ""}} // one unnamed programme
+	}
+	depths := []struct {
+		suffix string
+		bpp    int
+	}{{"RAW16", 2}, {"RAW8", 1}}
+
+	wasMode, wasDepth := c.cam.SensorMode(), c.cam.OutputDepth()
+	var out []readoutMode
+	for mi, m := range modes {
+		for _, d := range depths {
+			// Order matters: the sensor's mode block is indexed by mode AND sample size
+			// together, so the depth has to be in place before the mode is selected.
+			if err := c.cam.SetOutputDepth(d.bpp); err != nil {
+				continue
+			}
+			if len(c.cam.SensorModes()) > 0 {
+				if err := c.cam.SetSensorMode(mi); err != nil {
+					continue // this pair is not supported; leave it out of the list
+				}
+			}
+			name := d.suffix
+			if m.Name != "" && mi != 0 {
+				name = m.Name + " " + d.suffix
+			}
+			out = append(out, readoutMode{name: name, sensorMode: mi, bpp: d.bpp})
+		}
+	}
+	if len(c.cam.SensorModes()) > 0 {
+		_ = c.cam.SetSensorMode(wasMode)
+	}
+	_ = c.cam.SetOutputDepth(wasDepth)
+	c.readouts = out
+}
+
+func (c *PureASICamera) ReadoutModes() []string {
+	if len(c.readouts) == 0 {
+		return []string{"RAW16", "RAW8"} // not probed yet (disconnected)
+	}
+	names := make([]string, len(c.readouts))
+	for i, r := range c.readouts {
+		names[i] = r.name
+	}
+	return names
+}
 
 func (c *PureASICamera) ReadoutMode() int {
-	if c.cam.OutputDepth() == 1 {
-		return 1 // RAW8
+	mode, bpp := c.cam.SensorMode(), c.cam.OutputDepth()
+	for i, r := range c.readouts {
+		if r.sensorMode == mode && r.bpp == bpp {
+			return i
+		}
 	}
-	return 0 // RAW16
+	if bpp == 1 {
+		return 1 // RAW8, the un-probed fallback ordering
+	}
+	return 0
 }
 
 func (c *PureASICamera) SetReadoutMode(n int) error {
-	switch n {
-	case 0:
-		return c.cam.SetOutputDepth(2) // RAW16
-	case 1:
-		return c.cam.SetOutputDepth(1) // RAW8
-	default:
+	if len(c.readouts) == 0 { // not probed: the depth-only fallback
+		switch n {
+		case 0:
+			return c.cam.SetOutputDepth(2)
+		case 1:
+			return c.cam.SetOutputDepth(1)
+		}
 		return alpacadev.ErrInvalidValue
 	}
+	if n < 0 || n >= len(c.readouts) {
+		return alpacadev.ErrInvalidValue
+	}
+	r := c.readouts[n]
+	// Depth first, then the mode: the sensor block is indexed by both.
+	if err := c.cam.SetOutputDepth(r.bpp); err != nil {
+		return err
+	}
+	if len(c.cam.SensorModes()) > 0 {
+		return c.cam.SetSensorMode(r.sensorMode)
+	}
+	return nil
 }
 
 // --- Cooling ---
@@ -1277,4 +1423,13 @@ func (c *PureASICamera) PulseGuide(dir alpacadev.GuideDirection, durationMs int)
 		c.mu.Unlock()
 	}()
 	return nil
+}
+
+// vendorName labels a camera by its USB vendor id. The driver serves both makers, so hard-coding
+// one manufacturer mislabels the other — a PlayerOne body read as "ZWO Xena 585M".
+func vendorName(vid uint16) string {
+	if v, ok := astrocam.VendorOf(vid); ok {
+		return v.Name
+	}
+	return "Unknown"
 }
