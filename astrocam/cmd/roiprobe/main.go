@@ -72,7 +72,7 @@ func main() {
 	colorID := serColorID(dev)
 	if *out != "" {
 		var err error
-		if drv, err = newSER(*out, *w, *h, 16, colorID); err != nil {
+		if drv, err = newSER(*out, dev.NumX(), dev.NumY(), 16, colorID); err != nil {
 			log.Fatalf("driver ser: %v", err)
 		}
 	}
@@ -89,7 +89,7 @@ func main() {
 		defer ts.Close()
 		base = ts.URL + "/api/v1/camera/0/"
 		var err error
-		if wire, err = newSER(*wireOut, *w, *h, 16, colorID); err != nil {
+		if wire, err = newSER(*wireOut, dev.NumX(), dev.NumY(), 16, colorID); err != nil {
 			log.Fatalf("wire ser: %v", err)
 		}
 	}
@@ -97,6 +97,7 @@ func main() {
 		if *client {
 			// What an ASCOM client re-sends before every exposure: the whole geometry, then the
 			// gain and offset. All of it lands on a stream that is already running.
+			_ = dev.SetBinX(1) // a client re-sends the bin too, and that is the call that reprograms
 			_ = dev.SetStartX(0)
 			_ = dev.SetStartY(0)
 			_ = dev.SetNumX(*w)

@@ -147,6 +147,12 @@ type PureASICamera struct {
 	// because a stream re-arming per frame — which a geometry comparison that never matches will
 	// do — otherwise reads as an ordinary ON/OFF pair repeating in the log.
 	vidArms uint64
+	// vidWake is closed and replaced under mu each time a frame is published, so a waiter learns
+	// of it the instant it lands instead of on its next poll. Polling cost real time here: at a
+	// 10 ms exposure the frames arrive every 10 ms, and a 2 ms poll added an average of 1 ms to
+	// every one of them — 10% of the frame period, paid by the capture loop. nil when no stream
+	// is running; a waiter that finds it nil falls back to polling.
+	vidWake chan struct{}
 }
 
 // NewPureASICamera creates the driver for a camera selected by serial (preferred, stable) or,
@@ -803,7 +809,8 @@ func (c *PureASICamera) startVideoLocked(dur float64) error {
 	c.vidExp = dur
 	c.vidSeq = 0
 	c.vidStartX, c.vidStartY, c.vidNumX, c.vidNumY = reqX, reqY, reqW, reqH
-	c.vidBin = c.cam.Binning() // snapshot the armed geometry for change detection
+	c.vidBin = c.cam.Binning()      // snapshot the armed geometry for change detection
+	c.vidWake = make(chan struct{}) // waiters block on this until the drain publishes
 	c.vidArms++
 	arms := c.vidArms
 	c.mu.Unlock()
@@ -830,6 +837,10 @@ func (c *PureASICamera) stopVideoLocked() {
 	cancel := c.vidCancel
 	c.videoOn = false
 	c.vidCancel = nil
+	// Release any waiter now rather than leaving it to notice on its next re-check: the stream is
+	// over, and it has a frame that will never arrive.
+	c.wakeVideoWaitersLocked()
+	c.vidWake = nil
 	c.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -884,7 +895,22 @@ func (c *PureASICamera) drainVideo(ctx context.Context, dur float64) {
 		copy(c.vidFrame, buf[:n])
 		c.vidW, c.vidH, c.vidBpp = w, h, bpp
 		c.vidSeq++
+		c.wakeVideoWaitersLocked()
 		c.mu.Unlock()
+	}
+}
+
+// videoWaitRecheck is how often a blocked waiter comes back to test its deadline and whether the
+// stream is still running — conditions the wake channel says nothing about.
+const videoWaitRecheck = 50 * time.Millisecond
+
+// wakeVideoWaitersLocked releases everyone waiting on the current frame and arms the next wait.
+// Closing is what makes it a broadcast — every waiter holding this channel wakes, and a waiter
+// that arrives later takes the replacement. Caller holds mu.
+func (c *PureASICamera) wakeVideoWaitersLocked() {
+	if c.vidWake != nil {
+		close(c.vidWake)
+		c.vidWake = make(chan struct{})
 	}
 }
 
@@ -896,7 +922,7 @@ func (c *PureASICamera) waitVideoFrame(want uint64, dur float64) {
 	deadline := time.Now().Add(2*time.Duration(dur*float64(time.Second)) + readoutGrace)
 	for {
 		c.mu.Lock()
-		seq, on := c.vidSeq, c.videoOn
+		seq, on, wake := c.vidSeq, c.videoOn, c.vidWake
 		if on && seq >= want {
 			// A published frame is never written again. ImageFrame hands the caller THIS slice,
 			// and an in-process host holds it through debayer, statistics, stretch and upload —
@@ -921,7 +947,18 @@ func (c *PureASICamera) waitVideoFrame(want uint64, dur float64) {
 			c.exposeOp.Fail(fmt.Errorf("video stream delivered no frame within %s", time.Since(deadline)))
 			return
 		}
-		time.Sleep(2 * time.Millisecond)
+		if wake == nil { // no stream to wake us: poll, as before
+			time.Sleep(2 * time.Millisecond)
+			continue
+		}
+		// The timer is not the wait — it is what brings us back to re-check the deadline and the
+		// video-on flag, neither of which the channel reports.
+		t := time.NewTimer(videoWaitRecheck)
+		select {
+		case <-wake:
+		case <-t.C:
+		}
+		t.Stop()
 	}
 }
 
