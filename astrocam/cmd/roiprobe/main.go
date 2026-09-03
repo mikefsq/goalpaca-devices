@@ -93,6 +93,9 @@ func main() {
 			log.Fatalf("wire ser: %v", err)
 		}
 	}
+	// Timed from the FIRST frame, not from the start: opening and initialising the camera varies
+	// by seconds between runs, which swamps a per-frame figure and makes two runs incomparable.
+	var loopStart time.Time
 	for i := 0; i < *n; i++ {
 		if *client {
 			// What an ASCOM client re-sends before every exposure: the whole geometry, then the
@@ -141,9 +144,16 @@ func main() {
 				log.Fatalf("write wire frame %d: %v", i, err)
 			}
 		}
+		if i == 0 {
+			loopStart = time.Now()
+		}
 		head := fr.Pixels[:4]
 		fmt.Printf("frame %d: %dx%d %d bytes  head %02x%02x%02x%02x\n",
 			i, fr.Width, fr.Height, len(fr.Pixels), head[0], head[1], head[2], head[3])
+	}
+	if el := time.Since(loopStart); *n > 1 && el > 0 {
+		fmt.Printf("LOOP %d frames in %.3fs = %.1f fps (%.2f ms/frame)\n",
+			*n-1, el.Seconds(), float64(*n-1)/el.Seconds(), 1000*el.Seconds()/float64(*n-1))
 	}
 	_, _ = dev.Action("videomode", "off")
 	if drv != nil {

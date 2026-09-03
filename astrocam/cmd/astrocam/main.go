@@ -87,7 +87,7 @@ func main() {
 		fmt.Print(commentedSchema)
 		return
 	default:
-		log.Fatalf("asicam: -schema wants commented, got %q", *schema)
+		log.Fatalf("astrocam: -schema wants commented, got %q", *schema)
 	}
 	if *configPath != "" && strings.TrimSpace(*serial) != "" {
 		log.Fatal(`asicam: -config and -serial are exclusive: the file's "cameras" array names the serials`)
@@ -109,7 +109,7 @@ func main() {
 	if *configPath != "" {
 		entry, err := devicemain.ReadDeviceFile(*configPath)
 		if err != nil {
-			log.Fatalf("asicam: %v", err)
+			log.Fatalf("astrocam: %v", err)
 		}
 		if v, ok := entry["port"]; ok {
 			_ = json.Unmarshal(v, &portNum)
@@ -127,7 +127,7 @@ func main() {
 				dec.DisallowUnknownFields()
 				var b cameraBlock
 				if err := dec.Decode(&b); err != nil {
-					log.Fatalf("asicam: %s: cameras[%d]: %v", *configPath, i, err)
+					log.Fatalf("astrocam: %s: cameras[%d]: %v", *configPath, i, err)
 				}
 				var keys map[string]json.RawMessage
 				_ = json.Unmarshal(r, &keys)
@@ -142,7 +142,7 @@ func main() {
 			dec.DisallowUnknownFields()
 			var b cameraBlock
 			if err := dec.Decode(&b); err != nil {
-				log.Fatalf("asicam: %s: %v", *configPath, err)
+				log.Fatalf("astrocam: %s: %v", *configPath, err)
 			}
 			blocks, blockKeys = append(blocks, b), append(blockKeys, flat)
 		}
@@ -162,7 +162,7 @@ func main() {
 	} else {
 		devs, err := astrocam.Enumerate()
 		if err == nil && len(devs) > 0 {
-			log.Printf("asicam: %d ASI camera(s) attached", len(devs))
+			log.Printf("astrocam: %d ASI camera(s) attached", len(devs))
 			for i, d := range devs {
 				log.Printf("  device %d: %s", i, d)
 				blocks = append(blocks, cameraBlock{})
@@ -171,7 +171,7 @@ func main() {
 			}
 		}
 		if len(blocks) == 0 {
-			log.Printf("asicam: no cameras to serve yet (pass -serial s1,s2 or -config to advertise devices before plug-in)")
+			log.Printf("astrocam: no cameras to serve yet (pass -serial s1,s2 or -config to advertise devices before plug-in)")
 			blocks = append(blocks, cameraBlock{})
 			blockKeys = append(blockKeys, nil)
 		}
@@ -242,9 +242,9 @@ func main() {
 		// process to its devices.d entry.
 		disc = alpacadev.DiscoveryConfig{Mode: alpacadev.DiscoveryRegister, ServerAddr: *discoveryServer, Instance: instance}
 	default:
-		log.Fatalf("asicam: invalid -discovery %q (want direct|register|off)", *discoveryMode)
+		log.Fatalf("astrocam: invalid -discovery %q (want direct|register|off)", *discoveryMode)
 	}
-	log.Printf("asicam: discovery mode = %s", strings.ToLower(*discoveryMode))
+	log.Printf("astrocam: discovery mode = %s", strings.ToLower(*discoveryMode))
 
 	srv := alpacadev.New(alpacadev.Config{
 		AlpacaPort:          portNum,
@@ -257,11 +257,11 @@ func main() {
 	})
 	for i, cam := range cams {
 		if cam == nil {
-			log.Printf("asicam: camera device %d disabled in %s", i, *configPath)
+			log.Printf("astrocam: camera device %d disabled in %s", i, *configPath)
 			continue
 		}
 		if err := srv.Register(alpacadev.CameraType, i, cam); err != nil {
-			log.Fatalf("asicam: register camera device %d: %v", i, err)
+			log.Fatalf("astrocam: register camera device %d: %v", i, err)
 		}
 		// The setup form is generated from the driver's tagged Config, the same
 		// as under alpacahurd; keys the file (or -serial) set are the admin's
@@ -279,10 +279,10 @@ func main() {
 		}
 		sc, err := alpacadev.NewStructConfig(cam, func() any { return &driver.Config{} }, raw, pinned, "set in "+source)
 		if err != nil {
-			log.Fatalf("asicam: setup form for device %d: %v", i, err)
+			log.Fatalf("astrocam: setup form for device %d: %v", i, err)
 		}
 		if err := srv.RegisterConfigurable(alpacadev.CameraType, i, sc); err != nil {
-			log.Fatalf("asicam: setup form for device %d: %v", i, err)
+			log.Fatalf("astrocam: setup form for device %d: %v", i, err)
 		}
 		// Persist setup-page changes per device under the state directory,
 		// which the systemd device unit points at the orchestrator's.
@@ -327,17 +327,17 @@ func main() {
 				return newCam(i, b), nil, nil
 			})
 		}
-		log.Printf("asicam: registered camera device %d (%s)", i, cam.ID)
+		log.Printf("astrocam: registered camera device %d (%s)", i, cam.ID)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	log.Printf("asicam: serving Alpaca on :%d (Ctrl-C to stop)", portNum)
+	log.Printf("astrocam: serving Alpaca on :%d (Ctrl-C to stop)", portNum)
 	if err := srv.Run(ctx); err != nil {
-		log.Fatalf("asicam: %v", err)
+		log.Fatalf("astrocam: %v", err)
 	}
-	log.Printf("asicam: shut down")
+	log.Printf("astrocam: shut down")
 }
 
 // commentedSchema is the -schema commented output: a device file with the

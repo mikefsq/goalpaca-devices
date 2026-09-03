@@ -171,11 +171,11 @@ func NewPureASICamera(index int, serial string) *PureASICamera {
 	c.IfaceVer = alpacadev.InterfaceVersionCamera
 	c.setpoint = 0
 	if c.wantSerial != "" {
-		c.ID = "ASI-" + c.wantSerial
-		c.DevName = "ASI Camera " + c.wantSerial
+		c.ID = "CAM-" + c.wantSerial
+		c.DevName = "astrocam camera " + c.wantSerial
 	} else {
-		c.ID = fmt.Sprintf("ASI-cam%d", index)
-		c.DevName = fmt.Sprintf("ASI Camera %d", index)
+		c.ID = fmt.Sprintf("CAM-%d", index)
+		c.DevName = fmt.Sprintf("astrocam camera %d", index)
 	}
 	return c
 }
@@ -307,7 +307,7 @@ func (c *PureASICamera) manageHardware(ctx context.Context) {
 		if !c.hwPresent.Load() {
 			if c.tryAcquire() {
 				misses = 0
-				log.Printf("asicam-alpaca: %s acquired", c.Label())
+				log.Printf("astrocam: %s acquired", c.Label())
 				continue
 			}
 			wait := acquirePoll
@@ -324,7 +324,7 @@ func (c *PureASICamera) manageHardware(ctx context.Context) {
 		// isn't a physical absence, so the aliveFn probe below won't catch it; teardown joins the
 		// in-flight readout, then the loop re-opens by serial and re-Inits.
 		if c.needsReconnect.CompareAndSwap(true, false) {
-			log.Printf("asicam-alpaca: %s readout wedged — disconnect + re-acquire", c.Label())
+			log.Printf("astrocam: %s readout wedged — disconnect + re-acquire", c.Label())
 			c.teardown()
 			misses = 0
 			continue
@@ -334,14 +334,14 @@ func (c *PureASICamera) manageHardware(ctx context.Context) {
 		if c.aliveFn() {
 			misses = 0
 			if ev := c.pause(ctx, events, alivePoll); ev != nil && c.detachedUs(ev) {
-				log.Printf("asicam-alpaca: %s unplugged (detach notification); re-acquiring", c.Label())
+				log.Printf("astrocam: %s unplugged (detach notification); re-acquiring", c.Label())
 				c.teardown()
 				eager = 5
 			}
 			continue
 		}
 		if c.replaced.CompareAndSwap(true, false) {
-			log.Printf("asicam-alpaca: %s replugged (new attachment at the same port); re-acquiring", c.Label())
+			log.Printf("astrocam: %s replugged (new attachment at the same port); re-acquiring", c.Label())
 			c.teardown()
 			misses = 0
 			eager = 5
@@ -352,7 +352,7 @@ func (c *PureASICamera) manageHardware(ctx context.Context) {
 			c.pause(ctx, events, 2*time.Second)
 			continue
 		}
-		log.Printf("asicam-alpaca: %s unplugged (x%d); re-acquiring", c.Label(), misses)
+		log.Printf("astrocam: %s unplugged (x%d); re-acquiring", c.Label(), misses)
 		c.teardown()
 		misses = 0
 	}
@@ -459,10 +459,10 @@ func (c *PureASICamera) configureOpened(cam *astrocam.Camera, d astrocam.DeviceI
 	omin, omax, odef, ook := cam.OffsetRange()
 	if ook {
 		if err := cam.SetOffset(odef); err != nil {
-			log.Printf("asicam-alpaca: %s: set default offset %d: %v", c.Label(), odef, err)
+			log.Printf("astrocam: %s: set default offset %d: %v", c.Label(), odef, err)
 		}
 		if got := cam.Offset(); got != odef {
-			log.Printf("asicam-alpaca: %s: offset read back %d after setting %d", c.Label(), got, odef)
+			log.Printf("astrocam: %s: offset read back %d after setting %d", c.Label(), got, odef)
 		}
 	}
 
@@ -483,7 +483,7 @@ func (c *PureASICamera) configureOpened(cam *astrocam.Camera, d astrocam.DeviceI
 	c.DevName = cam.Name()
 	c.Desc = fmt.Sprintf("%s %s (%dx%d, %.2fµm) [Go astrocam]", vendorName(d.VID), cam.Name(), info.MaxWidth, info.MaxHeight, info.PixelUm)
 	if c.wantSerial == "" && strings.Trim(serialHex, "0") != "" {
-		c.ID = "ASI-" + serialHex
+		c.ID = "CAM-" + serialHex
 	}
 	c.hwPresent.Store(true)
 }
@@ -496,7 +496,7 @@ func (c *PureASICamera) hotplug(ctx context.Context) <-chan astrocam.HotplugEven
 	}
 	ch, err := c.hotplugFn(ctx)
 	if err != nil {
-		log.Printf("asicam-alpaca: %s: no hotplug notifications (%v); polling", c.Label(), err)
+		log.Printf("astrocam: %s: no hotplug notifications (%v); polling", c.Label(), err)
 		return nil
 	}
 	return ch
@@ -816,7 +816,7 @@ func (c *PureASICamera) startVideoLocked(dur float64) error {
 	c.mu.Unlock()
 	c.vidWG.Add(1)
 	go c.drainVideo(ctx, dur)
-	log.Printf("asicam-alpaca: %s video mode ON (exp %.3fs, arm %d)", c.Label(), dur, arms)
+	log.Printf("astrocam: %s video mode ON (exp %.3fs, arm %d)", c.Label(), dur, arms)
 	return nil
 }
 
@@ -847,7 +847,7 @@ func (c *PureASICamera) stopVideoLocked() {
 	}
 	c.vidWG.Wait()           // join the drain before touching the device again
 	_ = c.cam.StopExposure() // halt the sensor stream
-	log.Printf("asicam-alpaca: %s video mode OFF", c.Label())
+	log.Printf("astrocam: %s video mode OFF", c.Label())
 }
 
 // drainVideo runs for the lifetime of video mode: it reads every free-run frame back-to-back (no
@@ -868,7 +868,7 @@ func (c *PureASICamera) drainVideo(ctx context.Context, dur float64) {
 	note := func(what string, err error) {
 		bad++
 		if bad == 1 || bad%100 == 0 {
-			log.Printf("asicam-alpaca: %s video drain: %s (%d consecutive)", c.Label(), what, bad)
+			log.Printf("astrocam: %s video drain: %s (%d consecutive)", c.Label(), what, bad)
 			_ = err
 		}
 	}
@@ -1080,7 +1080,7 @@ func (c *PureASICamera) runExposure(light bool) {
 	n, err := c.cam.GetDataAfterExp(buf)
 	close(done)
 	if camDebug {
-		log.Printf("asicam-alpaca: %s exposure arm=%.0fms read=%.0fms total=%.0fms n=%d/%d",
+		log.Printf("astrocam: %s exposure arm=%.0fms read=%.0fms total=%.0fms n=%d/%d",
 			c.ID, ms(tArm.Sub(t0)), ms(time.Since(tArm)), ms(time.Since(t0)), n, c.cam.FrameBytes())
 	}
 
@@ -1125,7 +1125,7 @@ func (c *PureASICamera) applyDefects(frame []byte, w, h, sx, sy, bpp int) {
 		loaded, err := c.cam.LoadDefectMap(info.MaxWidth, info.MaxHeight)
 		if err != nil {
 			if camDebug {
-				log.Printf("asicam-alpaca: %s fixdefects: load map: %v (frame left raw)", c.Label(), err)
+				log.Printf("astrocam: %s fixdefects: load map: %v (frame left raw)", c.Label(), err)
 			}
 			return
 		}
@@ -1387,7 +1387,7 @@ func (c *PureASICamera) CoolerOn() bool {
 	if c.coolerOn && c.cam != nil && !c.cam.CoolerOn() {
 		c.coolerOn = false
 		if err := c.cam.CoolerFault(); err != nil {
-			log.Printf("asicam-alpaca: %s: cooling loop stopped: %v", c.Label(), err)
+			log.Printf("astrocam: %s: cooling loop stopped: %v", c.Label(), err)
 		}
 	}
 	return c.coolerOn
