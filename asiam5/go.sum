@@ -1,7 +1,11 @@
 github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab h1:o/B43bPe5hkYyf6+QevcP6BpqxKdnVKTh13+4FGiYJ0=
 github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.2-0.20260902054344-97b5d6c64d11 h1:P2s/e54wQzINnRab9hHiHqHOQ23S1MLWWfVeqjrIj2o=
+github.com/mikefsq/goalpaca v0.3.2-0.20260902054344-97b5d6c64d11/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/lx200 v0.2.2-0.20260817201024-34f2c2ad8403 h1:Z/Yt6bqHJr7/cKDLhEKYlBbm5wB/gI2Zvv5uMxIrCdM=
 github.com/mikefsq/lx200 v0.2.2-0.20260817201024-34f2c2ad8403/go.mod h1:Rag8s80nrhhCQLC3KjjAT/Lx6fahp0+R0abuXm62tKo=
+github.com/mikefsq/lx200 v0.2.2-0.20260828004623-148d3f4ede4b h1:Z1x6sqtv1TAW+6G8ANVbkI8W1rKbFHeuy6flSIxaDgk=
+github.com/mikefsq/lx200 v0.2.2-0.20260828004623-148d3f4ede4b/go.mod h1:Rag8s80nrhhCQLC3KjjAT/Lx6fahp0+R0abuXm62tKo=
 go.bug.st/serial v1.7.1 h1:5aP8wYL0UjEYOVs3oPAGscjaSfRQLHtCvBFXNN/rwtc=
 go.bug.st/serial v1.7.1/go.mod h1:d0MmS16Qt9b1m06yoYRNUXhRRTJV5Qg2S5EKqQtnayQ=
 golang.org/x/sys v0.43.0 h1:Rlag2XtaFTxp19wS8MXlJwTvoh8ArU6ezoyFsMyCTNI=

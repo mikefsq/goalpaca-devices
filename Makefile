@@ -11,6 +11,8 @@
 #   make alpacasim    run goalpaca's one-of-every-type protocol sim (not guidable)
 #   make vet          go vet every module
 #   make tidy         go mod tidy every module
+#   make install      install built drivers into $(PREFIX)/bin + seed device entries
+#   make uninstall    remove them again
 #   make clean        remove ./bin and any per-cmd build outputs
 
 # Pure-Go drivers — build anywhere, no vendor SDK. astrocam is the RE'd ZWO camera
@@ -40,7 +42,21 @@ moduledir = $(if $(filter smpro-switch smpro-focuser,$(1)),smpro,$(1))
 
 BIN := bin
 
-.PHONY: build help all sdk pi deb head alpacasim vet tidy clean $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS)
+.PHONY: build help all sdk pi deb head alpacasim vet tidy clean install uninstall $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS)
+
+# Install mirrors what the .deb does (build/build-deb), minus dpkg: the binary
+# by the name alpacahurd resolves, an alias symlink per extra registered name,
+# and a disabled entry seeded from the driver's own -schema. PREFIX defaults to
+# /usr/local because that is where a source build belongs; the packages use
+# /usr/bin. DESTDIR is honoured for staging.
+PREFIX ?= /usr/local
+DESTDIR ?=
+BINDIR := $(DESTDIR)$(PREFIX)/bin
+DEVICESDIR := $(DESTDIR)/etc/alpacahurd/devices.d
+
+# Extra names a module registers that its binary is not already called; must
+# match ALIASES in build/build-deb or alpacahurd cannot resolve the driver.
+ALIAS_asiair := asiair-switch
 
 build: $(DRIVERS) ## build every pure-Go driver into ./bin (default)
 
@@ -90,6 +106,46 @@ $(BIN):
 # driver that needs a sibling checkout fails here as it would in CI.
 deb: ## build one .deb per driver into ./dist (amd64 + arm64)
 	@build/build-deb
+
+# Installs whatever is in ./bin, so it covers exactly what you built (build,
+# and sdk if you ran it). linux_arm64/ is skipped: those are cross-compiled to
+# be copied to a Pi, not installed on the build host.
+install: ## install drivers from ./bin into $(PREFIX)/bin and seed disabled entries
+	@test -d $(BIN) || { echo "nothing built: run make first" >&2; exit 1; }
+	@install -d $(BINDIR) $(DEVICESDIR)
+	@for f in $(BIN)/*; do \
+		[ -f "$$f" ] || continue; \
+		n=$$(basename $$f); \
+		install -m 0755 "$$f" "$(BINDIR)/$$n"; \
+		echo "installed $(BINDIR)/$$n"; \
+		for a in $(ALIAS_asiair); do \
+			[ "$$n" = asiair ] || continue; \
+			ln -sf "$$n" "$(BINDIR)/$$a"; \
+			echo "  alias $(BINDIR)/$$a -> $$n"; \
+		done; \
+		e="$(DEVICESDIR)/$$n.json"; \
+		if [ "$$n" != sim ] && [ ! -f "$$e" ]; then \
+			if "$(BINDIR)/$$n" -schema commented > "$$e" 2>/dev/null; then \
+				chmod 0644 "$$e"; \
+				echo "  seeded $$e -- edit it and set \"enable\": true"; \
+			else \
+				rm -f "$$e"; \
+			fi; \
+		fi; \
+	done
+
+# Leaves /etc/alpacahurd/devices.d alone: those entries are edited config, and
+# throwing away a working hardware description on an uninstall is not ours to do.
+uninstall: ## remove installed drivers (device entries are kept)
+	@for f in $(BIN)/*; do \
+		[ -f "$$f" ] || continue; \
+		n=$$(basename $$f); \
+		rm -f "$(BINDIR)/$$n"; \
+		for a in $(ALIAS_asiair); do \
+			[ "$$n" = asiair ] && rm -f "$(BINDIR)/$$a"; \
+		done; \
+	done
+	@echo "removed drivers from $(BINDIR); $(DEVICESDIR) left intact"
 
 vet: ## go vet every module
 	@for d in $(DRIVERS) $(SDK_DRIVERS); do echo "vet $$d"; (cd $$d && go vet ./...) || exit 1; done

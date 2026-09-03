@@ -131,7 +131,13 @@ type PureASICamera struct {
 	// than the call instead of arming a single shot (~2× the rate). The continuous drain is
 	// mandatory: it keeps the FX3 from backing up (the wedge). All under mu unless noted; the drain
 	// goroutine's lifetime is owned by vidCancel/vidWG.
-	videoOn            bool
+	videoOn bool
+	// vidWanted is the CLIENT's intent — "keep exposing continuously" — which is all the
+	// videomode action says. It does not say how: below the die's trigger band that is a
+	// free-run stream, at or above it the sensor is parked by the FPGA for the integration and
+	// only a loop of single shots can deliver. videoOn tracks the mechanism, this the intent,
+	// so StartExposure can switch mechanism per exposure without the client losing its loop.
+	vidWanted          bool
 	vidCancel          context.CancelFunc
 	vidWG              sync.WaitGroup
 	vidFrame           []byte // latest free-run frame (raw little-endian)
@@ -171,7 +177,11 @@ func NewPureASICamera(index int, serial string) *PureASICamera {
 	c.IfaceVer = alpacadev.InterfaceVersionCamera
 	c.setpoint = 0
 	if c.wantSerial != "" {
-		c.ID = "CAM-" + c.wantSerial
+		// The UniqueID is the factory serial itself: it is already unique per
+		// camera, and a prefix only doubled up on PlayerOne, whose serials
+		// begin "CAM" ("CAM-camgf..."). Lowercased so the same camera keeps
+		// one identity whatever case the config used.
+		c.ID = c.wantSerial
 		c.DevName = "astrocam camera " + c.wantSerial
 	} else {
 		c.ID = fmt.Sprintf("CAM-%d", index)
@@ -483,7 +493,10 @@ func (c *PureASICamera) configureOpened(cam *astrocam.Camera, d astrocam.DeviceI
 	c.DevName = cam.Name()
 	c.Desc = fmt.Sprintf("%s %s (%dx%d, %.2fµm) [Go astrocam]", vendorName(d.VID), cam.Name(), info.MaxWidth, info.MaxHeight, info.PixelUm)
 	if c.wantSerial == "" && strings.Trim(serialHex, "0") != "" {
-		c.ID = "CAM-" + serialHex
+		// Same form as the configured path above, or a camera bound by index
+		// would answer with a different UniqueID than the same camera bound
+		// by serial.
+		c.ID = strings.ToLower(serialHex)
 	}
 	c.hwPresent.Store(true)
 }
@@ -686,21 +699,30 @@ func (c *PureASICamera) actionVideoMode(params string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(params)) {
 	case "": // empty params reads the current state (put/empty = read)
 		c.mu.Lock()
-		on := c.videoOn
+		on := c.vidWanted // the client asked for continuous capture; the mechanism is ours
 		c.mu.Unlock()
 		return strconv.FormatBool(on), nil
 	case "on", "true", "1", "start":
 		c.mu.Lock()
 		dur := c.lastDuration
+		c.vidWanted = true
 		c.mu.Unlock()
 		if dur <= 0 {
 			dur = 0.1 // default exposure if the client never set one
 		}
-		if err := c.startVideo(dur); err != nil {
-			return "", err
+		// Arm the stream only where free-run can actually deliver. In the trigger band the
+		// intent is still honoured — StartExposure serves each exposure as a single shot — so
+		// this is not an error, just a different mechanism for the same continuous capture.
+		if c.freeRunnable(dur) {
+			if err := c.startVideo(dur); err != nil {
+				return "", err
+			}
 		}
 		return "ok", nil
 	case "off", "false", "0", "stop":
+		c.mu.Lock()
+		c.vidWanted = false
+		c.mu.Unlock()
 		c.stopVideo()
 		return "ok", nil
 	default:
@@ -751,6 +773,17 @@ func (c *PureASICamera) actionFPSPercent(params string) (string, error) {
 		}
 	}
 	return strconv.Itoa(pct), nil
+}
+
+// freeRunnable reports whether a free-run stream can deliver this exposure. At or above the die's
+// trigger band the FPGA times the integration and parks the sensor, so the stream arms and then
+// yields nothing at all (measured on a Xena 585M: 950ms streams, 1000ms returns 0 of 16812160
+// bytes). The band comes from the camera because it is a property of the die and they differ —
+// 1s on the IMX178/290/455/462/571/585, 4s on the IMX174 — so a hard-coded number is wrong for
+// one camera or the other. A zero band means the die free-runs at any exposure.
+func (c *PureASICamera) freeRunnable(dur float64) bool {
+	band := c.cam.TriggerBand()
+	return band <= 0 || time.Duration(dur*float64(time.Second)) < band
 }
 
 // startVideo arms the sensor for free-run at the given exposure and launches the drain goroutine.
@@ -968,6 +1001,29 @@ func (c *PureASICamera) StartExposure(duration float64, light bool) error {
 	}
 	// Video mode: wait for the next free-running frame (one captured after this call) instead of
 	// arming a single shot. A changed exposure restarts the stream at the new rate.
+	// Serve this exposure by whichever mechanism can actually deliver it. The client asked for
+	// continuous capture, not for a stream: in the trigger band the stream is stopped and each
+	// exposure is a single shot, which is the same loop by other means. The intent (vidWanted)
+	// survives, so dropping back below the band re-arms the stream.
+	if !c.freeRunnable(duration) {
+		c.mu.Lock()
+		streaming := c.videoOn
+		c.mu.Unlock()
+		if streaming {
+			log.Printf("astrocam: %s exposure %.3fs is in the trigger band (>= %v): looping single shots",
+				c.Label(), duration, c.cam.TriggerBand())
+			c.stopVideo()
+		}
+	} else {
+		c.mu.Lock()
+		want, streaming := c.vidWanted, c.videoOn
+		c.mu.Unlock()
+		if want && !streaming { // back below the band: resume the stream the client asked for
+			if err := c.startVideo(duration); err != nil {
+				return err
+			}
+		}
+	}
 	curBin := c.cam.Binning()
 	c.mu.Lock()
 	vid := c.videoOn

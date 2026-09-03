@@ -3,16 +3,11 @@ module github.com/mikefsq/goalpaca-devices/rst
 go 1.25.0
 
 require (
-	github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab
-	github.com/mikefsq/lx200 v0.2.2-0.20260817201024-34f2c2ad8403
+	github.com/mikefsq/goalpaca v0.3.2-0.20260902054344-97b5d6c64d11
+	github.com/mikefsq/lx200 v0.2.2-0.20260828004623-148d3f4ede4b
 )
 
 require (
 	go.bug.st/serial v1.7.1 // indirect
 	golang.org/x/sys v0.43.0 // indirect
 )
-
-// Local development: step 1 (rst probing) and step 2 (Spec.StatePath) are unpublished.
-replace github.com/mikefsq/lx200 => /home/pi/github/lx200
-
-replace github.com/mikefsq/goalpaca => /home/pi/github/goalpaca

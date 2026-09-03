@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/mikefsq/astromi.ch v0.1.1-0.20260817194910-b02747c7688b
-	github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab
+	github.com/mikefsq/goalpaca v0.3.2-0.20260902054344-97b5d6c64d11
 )
 
 require (

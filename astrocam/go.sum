@@ -2,7 +2,15 @@ github.com/mikefsq/astrocam v0.0.0-20260819024536-1eaedc34b816 h1:hKP0XFId1pDOPr
 github.com/mikefsq/astrocam v0.0.0-20260819024536-1eaedc34b816/go.mod h1:sypVt4nGQJdOES5awMVX06WCTDATStWuzHhpIRSFvmM=
 github.com/mikefsq/astrocam v0.0.0-20260902191421-d670a2b31b12 h1:ETF8iXnNudxTI8YY18O2nh7NmQf+y8v2xU954Q0QoIc=
 github.com/mikefsq/astrocam v0.0.0-20260902191421-d670a2b31b12/go.mod h1:sypVt4nGQJdOES5awMVX06WCTDATStWuzHhpIRSFvmM=
+github.com/mikefsq/astrocam v0.0.0-20260903045701-2b8c3dd1ef6a h1:JTa1O2M2ibFyZ9eY/Xel7jL+1mNVeAl+2tgknO/9ngk=
+github.com/mikefsq/astrocam v0.0.0-20260903045701-2b8c3dd1ef6a/go.mod h1:sypVt4nGQJdOES5awMVX06WCTDATStWuzHhpIRSFvmM=
 github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab h1:o/B43bPe5hkYyf6+QevcP6BpqxKdnVKTh13+4FGiYJ0=
 github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.2-0.20260902054344-97b5d6c64d11 h1:P2s/e54wQzINnRab9hHiHqHOQ23S1MLWWfVeqjrIj2o=
+github.com/mikefsq/goalpaca v0.3.2-0.20260902054344-97b5d6c64d11/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/goindi v0.0.0-20260817200947-0d59a8758d6e h1:rMTvLf9xlBOts9ks5VsGwXHeMR7JqIhzqpb6UeFYCmA=
 github.com/mikefsq/goindi v0.0.0-20260817200947-0d59a8758d6e/go.mod h1:VfpBywDi5mzxwT3hyE6zbAiYxB0bDowDUjMkWXhaq8E=
+github.com/mikefsq/goindi v0.0.0-20260901234418-9cd32571539c h1:A9lU2URpuSL3xW3iuG4OwVcNVmZUpvookVVppTx9/dQ=
+github.com/mikefsq/goindi v0.0.0-20260901234418-9cd32571539c/go.mod h1:2+UJxuVG8YpjzKdOKkRY/xBfE3FM8riq68CwvyHZ1Qw=
+github.com/mikefsq/lx200 v0.2.2-0.20260828004623-148d3f4ede4b h1:Z1x6sqtv1TAW+6G8ANVbkI8W1rKbFHeuy6flSIxaDgk=
+github.com/mikefsq/lx200 v0.2.2-0.20260828004623-148d3f4ede4b/go.mod h1:Rag8s80nrhhCQLC3KjjAT/Lx6fahp0+R0abuXm62tKo=

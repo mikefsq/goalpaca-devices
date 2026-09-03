@@ -3,8 +3,8 @@ module github.com/mikefsq/goalpaca-devices/unihedron
 go 1.25.0
 
 require (
-	github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab
-	github.com/mikefsq/unihedron v0.1.1-0.20260817201224-d396e3ebd27e
+	github.com/mikefsq/goalpaca v0.3.2-0.20260902054344-97b5d6c64d11
+	github.com/mikefsq/unihedron v0.1.1-0.20260821215438-d164bf0a596c
 )
 
 require (
