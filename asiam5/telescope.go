@@ -32,9 +32,7 @@ type snapshot struct {
 
 // Telescope is the ZWO AM-series Alpaca Telescope device.
 type Telescope struct {
-	// stopLoop ends the loop Open started and waits for it. Close calls it
-	// before releasing the handle, so a reload's replacement opens the hardware
-	// with no old loop left to re-acquire it (server.RunLoop).
+	// stopLoop cancels acquisition and waits before releasing the handle.
 	stopLoop func(time.Duration)
 	alpacadev.BaseTelescope
 
@@ -62,8 +60,6 @@ func (t *Telescope) dial() (*am5.Mount, error) {
 	}
 	return am5.Open(t.serial)
 }
-
-// --- Hardware lifecycle + connection model ----------------------------------
 
 func (t *Telescope) Open(ctx context.Context) error {
 	t.stopLoop = alpacadev.RunLoop(ctx, t.ID, t.manage)
@@ -143,7 +139,6 @@ func (t *Telescope) LiveMount() (lx200.Mount, error) {
 	return nil, alpacadev.ErrNotConnected
 }
 
-// --- ASCOM Command* passthrough -------------------------------------------------
 // CommandBlind/String/Bool send a raw LX200 command not wrapped by the typed API,
 // mapping to the Blind/Get/Ack reply shapes. lx200.Frame adds ':'…'#' framing
 // unless raw.
@@ -172,8 +167,6 @@ func (t *Telescope) CommandBool(cmd string, raw bool) (bool, error) {
 	return m.Ack(lx200.Frame(cmd, raw))
 }
 
-// --- Capabilities (AM5: harmonic EQ; park, find-home, pulse-guide, move-axis) ---
-
 func (t *Telescope) CanSlew() bool        { return true }
 func (t *Telescope) CanSlewAsync() bool   { return true }
 func (t *Telescope) CanSync() bool        { return true }
@@ -185,8 +178,6 @@ func (t *Telescope) CanPulseGuide() bool  { return true }
 func (t *Telescope) CanMoveAxis(axis alpacadev.TelescopeAxis) bool {
 	return axis == alpacadev.AxisPrimary || axis == alpacadev.AxisSecondary
 }
-
-// --- Position / status getters ----------------------------------------------
 
 func (t *Telescope) RightAscension() float64 {
 	if m := t.mount(); m != nil {
@@ -302,8 +293,6 @@ func (t *Telescope) TrackingRates() []alpacadev.DriveRate {
 }
 
 func (t *Telescope) UTCDate() string { return time.Now().UTC().Format("2006-01-02T15:04:05.000Z") }
-
-// --- Setters ----------------------------------------------------------------
 
 func (t *Telescope) SetTracking(on bool) error {
 	m := t.mount()
@@ -447,8 +436,6 @@ func (t *Telescope) SetUTCDate(s string) error {
 	return m.SetUTC(tm)
 }
 
-// --- Motion -----------------------------------------------------------------
-
 func (t *Telescope) AbortSlew() error {
 	m := t.mount()
 	if m == nil {
@@ -573,8 +560,6 @@ func (t *Telescope) MoveAxis(axis alpacadev.TelescopeAxis, rate float64) error {
 	}
 	return m.MoveAxis(a, rate > 0, presetForRate(math.Abs(rate)))
 }
-
-// --- helpers ----------------------------------------------------------------
 
 func (t *Telescope) setF(p *float64, v float64) float64 { t.mu.Lock(); *p = v; t.mu.Unlock(); return v }
 func (t *Telescope) getF(p *float64) float64            { t.mu.Lock(); defer t.mu.Unlock(); return *p }

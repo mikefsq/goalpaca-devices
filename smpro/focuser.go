@@ -32,8 +32,6 @@ func NewFocuser(hub *Hub) *SMProFocuser {
 	return f
 }
 
-// --- Lifecycle (the board is the process's; the session is the client's) ---
-
 func (f *SMProFocuser) Open(ctx context.Context) error { return f.hub.Open(ctx) }
 
 func (f *SMProFocuser) Close(ctx context.Context) error {
@@ -65,8 +63,6 @@ func (f *SMProFocuser) board() (*stellarmate.Board, error) { return boardFor(&f.
 
 // Busy rejects mutating writes while a move is in flight (Halt stays exempt).
 func (f *SMProFocuser) Busy() bool { return f.IsMoving() }
-
-// --- IFocuserV4 ---
 
 func (f *SMProFocuser) Absolute() bool { return true }
 

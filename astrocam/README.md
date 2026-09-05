@@ -1,23 +1,23 @@
 # astrocam
 
-A standalone ASCOM **Alpaca Camera** server for various CMOS astrophotography cameras
-(e.g. ASI6200, ASI174MM) built on [`goalpaca`](https://github.com/mikefsq/goalpaca) and the **Go**
+A standalone ASCOM Alpaca Camera server for various CMOS astrophotography cameras
+(e.g. ASI6200, ASI174MM) built on [`goalpaca`](https://github.com/mikefsq/goalpaca) and the Go
 [`astrocam`](https://github.com/mikefsq/astrocam) camera library. One
 process serves one *or more* cameras, each as its own Alpaca device (0, 1, …) on the
 same port.
 
-The USB transport is implemented per-platform: **usbfs** on Linux and **WinUSB** on Windows,
-and **IOKit** on macOS. 
+The USB transport is implemented per-platform: usbfs on Linux and WinUSB on Windows,
+and IOKit on macOS.
 
 ## Build
 
 ```sh
 # macOS (Apple silicon) — cgo/IOKit
-CGO_ENABLED=1 GOOS=darwin  GOARCH=arm64 go build -o astrocam     .
+CGO_ENABLED=1 GOOS=darwin  GOARCH=arm64 go build -o astrocam ./cmd/astrocam
 # Linux / Raspberry Pi — Go, static
-CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -o astrocam     .
+CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -o astrocam ./cmd/astrocam
 # Windows — Go
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o astrocam.exe .
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o astrocam.exe ./cmd/astrocam
 ```
 
 ### Linux permissions (udev)
@@ -37,7 +37,7 @@ SUBSYSTEM=="usb", ATTRS{idVendor}=="a0a0", MODE="0660", TAG+="uaccess"   # Playe
 sudo udevadm control --reload && sudo udevadm trigger   # then replug the camera
 ```
 
-Windows vendor-USB is user-accessible — no driver install needed.
+On Windows, the camera must be accessible through WinUSB.
 
 ## Run
 
@@ -47,8 +47,8 @@ Windows vendor-USB is user-accessible — no driver install needed.
 ./astrocam -serial 1a2b3c4d5e6f7080,90a0b0c0d0e0  # two cameras → devices 0 and 1
 ```
 
-The service starts even with **no camera attached** and acquires it when it appears —
-bind by **serial** for start-before-plug and multi-camera setups. With no `-serial` and
+The service starts even with no camera attached and acquires it when it appears —
+bind by serial for start-before-plug and multi-camera setups. With no `-serial` and
 no camera present, it still advertises device 0, which binds the first camera to appear.
 
 | Flag | Default | Meaning |
@@ -61,26 +61,15 @@ no camera present, it still advertises device 0, which binds the first camera to
 
 `ASICAM_DEBUG=1` logs per-exposure arm/read/total timing.
 
-## Capabilities
+## Capture and cooling
 
-Standard ASCOM **ICameraV3** members, backed by the live sensor:
+Readout modes include RAW16 and RAW8, plus sensor-specific modes when supported.
+The driver trims ROI dimensions to hardware alignment requirements; read back
+the resulting dimensions after configuring a subframe.
 
-- **Exposure** — async `StartExposure` → `ImageReady` → `ImageArray`/`ImageBytes`, with
-  `AbortExposure`/`StopExposure`. `ExposureResolution` is 1 µs; `ExposureMin`/`Max` come
-  from the sensor.
-- **Frame** — full-frame `ROI` (`StartX`/`Y`, `NumX`/`Y`) and symmetric binning up to the
-  sensor's advertised max.
-- **Readout mode** — `RAW16` (default) and `RAW8`; `MaxADU` follows (65535 / 255).
-- **Gain / Offset** — over the sensor's live ranges.
-- **Cooling (cooled models)** — `CoolerOn`, `SetCCDTemperature` (setpoint), `CCDTemperature`,
-  `CoolerPower`. The driver owns the TEC for the process lifetime, so a client *disconnect*
-  is a logical no-op and never resets cooling.
-- **Guiding (ST4 models)** — `PulseGuide` / `IsPulseGuiding`.
-- **Color** — `SensorType` and Bayer offsets are reported for OSC sensors.
-
-The logical Alpaca **Connected** flag tracks hardware presence: one process owns the
-camera for its lifetime, with an acquire → monitor → re-acquire loop that survives
-unplug/replug (and a driver-confirmed device wedge) without dropping the Alpaca endpoint.
+Cooling continues across client disconnects. The driver reacquires the camera
+after unplugging or a recoverable device failure. `Connected` reports hardware
+availability.
 
 ### Device Actions
 
@@ -88,18 +77,21 @@ These device-specific Actions are supported (see `GET supportedactions`):
 
 | Action | Parameters | Effect |
 |---|---|---|
-| `VideoMode` | empty reads the current `true`/`false`; `on`/`off` (also `true`/`1`/`start`, `false`/`0`/`stop`) sets it | toggles continuous free-run streaming — for constant-exposure guiding at ~2× the single-shot rate. Frames still flow over the standard `ImageArray` path; only the acquisition engine changes. |
-| `FpsPercent` | empty to query, or an integer `40..100` to set | the FPS-percent / bandwidth-overload throttle the readout HMAX/line-time math derates by. Lower = slower readout (larger HMAX) to fit a constrained USB link; the query returns the live value (link-dependent default — 100 on USB3, 40 on USB2 — until set). |
-| `CoolerFault` | read-only (empty params) | the error the cooling loop stopped with, or empty. The driver zeroes the TEC and stops regulating after 15 consecutive thermal read/write failures; `CoolerOn` then reads `false` and this Action says why. Setting `CoolerOn` again starts a fresh loop. |
+| `VideoMode` | empty to read; `on` or `off` to set | enable continuous streaming |
+| `FpsPercent` | empty to read; `40..100` to set | reduce readout bandwidth for a constrained USB link |
+| `CoolerFault` | empty | read the cooling-loop error; enabling `CoolerOn` retries regulation |
 
-Factory **hot-pixel correction** (the per-unit defect map from SPI flash) is available via `SetFixDefects` or the `"fixdefects": true` config field.
+Factory hot-pixel correction is on by default for full-frame RAW16. Set
+`"fixdefects": false` in the config file to disable it.
 
 ## Testing
 
-End-to-end tests drive the **full stack** — Alpaca HTTP → server → this driver →
-`astrocam` → a stub USB transport (a synthetic frame source) — fake transport, or real-hardware.
+Tests use a simulated USB transport unless hardware testing is enabled.
 
 ```sh
 go test ./...                                                            # stub transport (no hardware, CI)
 ASICAM_HARDWARE=1 ASICAM_SERIAL=<hex> go test -run TestAlpacaHardware -v ./...  # real camera attached
 ```
+
+Use `-config` for a JSONC device file; `-schema commented` generates a
+sample with a `cameras` array. `-check` validates it without opening hardware.

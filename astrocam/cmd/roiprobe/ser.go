@@ -9,19 +9,7 @@ import (
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
-// Minimal SER v3 writer, so a probe run produces a file the same viewers open as gosnap's. The
-// layout is the SER header (178 bytes), every frame's pixels back to back, and no trailer.
-//
-//	[ 0:14]  FileID     "LUCAM-RECORDER"
-//	[14:18]  LuID       int32 (0)
-//	[18:22]  ColorID    int32 (0 = MONO)
-//	[22:26]  LittleEndian int32 (0, the de-facto convention for little-endian data)
-//	[26:30]  ImageWidth  int32
-//	[30:34]  ImageHeight int32
-//	[34:38]  PixelDepthPerPlane int32
-//	[38:42]  FrameCount int32 (patched on close)
-//	[42:162] Observer / Instrument / Telescope, char[40] each
-//	[162:178] DateTime, DateTimeUTC (.NET ticks)
+// SER v3 output for inspecting probe frames. Pixel data is little-endian.
 const serHeaderSize = 178
 
 const netEpochTicks = 621355968000000000

@@ -122,8 +122,7 @@ func TestCFASurvivesImageBytes(t *testing.T) {
 
 var _ = time.Second
 
-// The frame must alias the decoded samples rather than copy them: at 40 MP the
-// copy was 81.8 MB of allocation and a full memory pass per frame.
+// The returned frame must alias decoded samples to avoid a full-frame copy.
 func TestFrameAliasesTheSamples(t *testing.T) {
 	px := []uint16{0x0201, 0x0403, 0x0605}
 	b := samplesAsBytes(px)

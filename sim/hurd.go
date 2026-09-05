@@ -8,9 +8,7 @@ import (
 	"github.com/mikefsq/goalpaca/sim"
 )
 
-// simCameraConfig is the sim-camera entry's driver-owned keys. The geometry
-// defines the sensor the simulator renders, so every field applies at the next
-// start; the setup page shows them read-only.
+// simCameraConfig sets sensor dimensions and pixel size.
 type simCameraConfig struct {
 	PixelSizeX  float64 `json:"pixelSizeX,omitempty"  alpaca:"label=Pixel size X (µm),min=0,when=start"`
 	PixelSizeY  float64 `json:"pixelSizeY,omitempty"  alpaca:"label=Pixel size Y (µm),min=0,when=start"`
@@ -18,15 +16,6 @@ type simCameraConfig struct {
 	PixelCountY int     `json:"pixelCountY,omitempty" alpaca:"label=Sensor height (px),min=0,when=start"`
 }
 
-// init registers the simulated devices — one per ASCOM type — in the goalpaca driver
-// registry, so a composed host (alpacahurd) constructs them from config by importing
-// this package. Keep it always compiled in: a binary that can serve a full
-// no-hardware herd (see the sim config) is how installs stay verifiable.
-//
-// sim-telescope and sim-camera share one simulated sky (guideModel): the mount owns
-// the pointing error and the camera renders it, so PHD2 can calibrate and guide a
-// closed loop. Both also drive the INDI/LX200 front-ends via the seams in mount.go /
-// camera.go. The rest are standalone Alpaca sims from goalpaca/sim.
 func init() {
 	// Every sim decodes an empty driver-config so a stray driver-owned key in a sim
 	// entry is still reported as a typo (common keys are stripped by Decode first).

@@ -1,6 +1,6 @@
 # onstep
 
-A standalone ASCOM **Alpaca Telescope** server for OnStep / OnStepX controllers,
+A standalone ASCOM Alpaca Telescope server for OnStep / OnStepX controllers,
 built on [`goalpaca`](https://github.com/mikefsq/goalpaca) and the
 [`lx200/onstep`](https://github.com/mikefsq/lx200) protocol library. One process
 serves one mount as Alpaca device 0 on its own port.
@@ -8,7 +8,7 @@ serves one mount as Alpaca device 0 on its own port.
 ## Build
 
 ```sh
-go build .          # Go, no SDK
+go build -o onstep ./cmd/onstep
 ```
 
 ### Linux permissions
@@ -30,7 +30,7 @@ sudo usermod -aG dialout "$USER"    # then re-login
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `-port` | `11203` | Alpaca HTTP port |
+| `-port` | `11111` | Alpaca HTTP port |
 | `-serial` | "" | USB-serial port |
 | `-addr` | "" | WiFi/TCP address `host:port` (takes precedence over `-serial`) |
 | `-discovery` | `direct` | `direct` \| `register` \| `off` |
@@ -38,3 +38,6 @@ sudo usermod -aG dialout "$USER"    # then re-login
 | `-ipv6` | false | also answer IPv6 multicast discovery |
 
 Give either `-serial` or `-addr`.
+
+Use `-help` for all flags, or `-schema commented` to generate a JSONC device
+file. See the [shared configuration instructions](../README.md#configuration).

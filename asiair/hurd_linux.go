@@ -1,28 +1,15 @@
-// The _linux suffix is this driver's platform declaration: the GPIO character
-// devices and I2C ADCs it drives exist only on the ASIAIR's Linux SBC, so
-// registration compiles only there. On every other platform the package still
-// builds (a fat alpacahurd blank-imports it anywhere) but registers nothing,
-// so the driver is absent from that host's registry and a device entry naming
-// it degrades to the skipped-entry path. See alpacahurd's DRIVERS.md,
-// "Platform-specific drivers".
+// Registration is Linux-only; other platforms import the package without registering devices.
 package driver
 
 import (
 	"sync"
 
-	"github.com/mikefsq/goasi/asiair"
 	"github.com/mikefsq/goalpaca/registry"
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	"github.com/mikefsq/goasi/asiair"
 )
 
-// The ASIAIR presents one device today, but the hub cache is here for the same
-// reason smpro's is: two Boards on the same hardware would double-drive the GPIO
-// lines and the I2C ADCs, and — worse on this board — the second Open would fail
-// outright, because a GPIO character-device line request is exclusive. Whoever
-// gets there second finds ports 3 and 4 already claimed.
-//
-// So a composed host (alpacahurd), which constructs each device independently
-// from its own config entry, shares hubs through this cache, keyed by GPIO chip.
+// Share a board per GPIO chip to avoid competing exclusive line requests.
 var (
 	hubMu     sync.Mutex
 	hubByChip = map[string]*Hub{}
@@ -39,8 +26,6 @@ func sharedHub(cfg asiair.Config) *Hub {
 	return h
 }
 
-// init registers the ASIAIR device in the goalpaca driver registry, so a composed
-// host can construct it from a config entry by importing this package.
 func init() {
 	registry.Register(registry.Driver{
 		Name:          "asiair-switch",

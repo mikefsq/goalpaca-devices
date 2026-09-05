@@ -21,9 +21,7 @@ var _ alpacadev.Focuser = (*PegasusFocuser)(nil)
 // configured at startup. TempCompAvailable is false: the serial protocol has no
 // on-device temp-comp command (compensation is host-side).
 type PegasusFocuser struct {
-	// stopLoop ends the loop Open started and waits for it. Close calls it
-	// before releasing the handle, so a reload's replacement opens the hardware
-	// with no old loop left to re-acquire it (server.RunLoop).
+	// stopLoop cancels acquisition and waits before releasing the handle.
 	stopLoop func(time.Duration)
 	alpacadev.BaseFocuser
 
@@ -69,8 +67,6 @@ func NewPegasusFocuserBySerial(devNum int, serial string, maxStep int) *PegasusF
 func (f *PegasusFocuser) Absolute() bool    { return true }
 func (f *PegasusFocuser) MaxStep() int      { f.mu.Lock(); defer f.mu.Unlock(); return f.maxStep }
 func (f *PegasusFocuser) MaxIncrement() int { f.mu.Lock(); defer f.mu.Unlock(); return f.maxStep }
-
-// --- Hardware lifecycle ---
 
 func (f *PegasusFocuser) Open(ctx context.Context) error {
 	if f.openDev == nil {
@@ -165,8 +161,6 @@ func (f *PegasusFocuser) openByIndex() (*focuscube.FocusCube, error) {
 func (f *PegasusFocuser) openBySerial() (*focuscube.FocusCube, error) {
 	return focuscube.OpenBySerial(f.serial)
 }
-
-// --- Focuser members ---
 
 func (f *PegasusFocuser) IsMoving() bool {
 	f.mu.Lock()

@@ -12,20 +12,8 @@ import (
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
-// Every measurement the MGPBox makes is reachable as a scalar Action: the weather values
-// (also the standard ObservingConditions properties), the dew-heater state, the GPS fix
-// fields, and the calibration values. GPS and calibration additionally have a whole-object
-// JSON action ("gps", "calibration"). The GPS receiver and calibration data have no home in
-// ASCOM ObservingConditions, so the Action seam is the only route for them.
-//
-// Naming: SupportedActions advertises CamelCase names, but the dispatch matches
-// case-insensitively (it lowercases the incoming name before the switch), so a client may
-// send "Temperature", "temperature", or "TEMPERATURE". This is a driver choice, not an
-// Alpaca requirement — ASCOM action names are free-form strings. Getters reject a params
-// value (only MountFeed and GpsEnable take one) and return a plain string; "Gps"/
-// "Calibration" return JSON; RebootGps returns "ok". Unknown names return ActionNotImplemented.
-// mgpActions is advertised in CamelCase; the dispatch matches case-insensitively (it
-// lowercases the incoming name), so a client may send any casing.
+// Actions expose weather, GPS, calibration, and feed controls. Names are
+// case-insensitive; scalar queries return strings and grouped queries return JSON.
 var mgpActions = []string{
 	// Weather scalars (also exposed as the standard ObservingConditions properties;
 	// duplicated here so every measurement is reachable through a uniform scalar Action).
@@ -120,7 +108,6 @@ func (m *MGPBox) Action(name, params string) (string, error) {
 
 	switch lname {
 
-	// --- weather scalars (mirror the ObservingConditions properties) ---
 	case "temperature":
 		return fnum(me.Temperature), nil
 	case "humidity":
@@ -137,13 +124,11 @@ func (m *MGPBox) Action(name, params string) (string, error) {
 		}
 		return fnum(dp), nil
 
-	// --- dew heater ---
 	case "dewoffset":
 		return strconv.Itoa(me.DewOffset), nil
 	case "dewpwm":
 		return strconv.Itoa(me.DewPWM), nil
 
-	// --- GPS scalars ---
 	case "latitude":
 		return strconv.FormatFloat(fx.Latitude, 'f', 6, 64), nil
 	case "longitude":
@@ -170,7 +155,6 @@ func (m *MGPBox) Action(name, params string) (string, error) {
 	case "gps":
 		return marshalFix(fx)
 
-	// --- calibration scalars + JSON ---
 	case "pcal":
 		return strconv.Itoa(c.Pcal), nil
 	case "tcal":
@@ -181,7 +165,6 @@ func (m *MGPBox) Action(name, params string) (string, error) {
 		b, _ := json.Marshal(c)
 		return string(b), nil
 
-	// --- GPS control ---
 	case "gpsenable":
 		// Dual-mode bool: empty reads the last-commanded power state (the box can't report
 		// it), true/false powers the GPS on/off.

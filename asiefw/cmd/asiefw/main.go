@@ -1,10 +1,4 @@
-// Command asiefw serves a ZWO EFW filter wheel as a standalone ASCOM Alpaca
-// FilterWheel, over the goasi/efw driver.
-//
-// The binary is devicemain.Run over the registered driver: every flag
-// (-config, -port, one per config key, -discovery, -check, -schema), the
-// setup form, persistence, and discovery come from the library. The driver
-// package supplies the hardware knowledge and registers itself on import.
+// Command asiefw serves the asiefw driver.
 package main
 
 import (

@@ -17,17 +17,7 @@ import (
 // constructors: a vendor registers itself from an init function, and that
 // registration is what makes its bodies visible to USB enumeration at all.
 
-// init registers this driver in the goalpaca driver registry, so a composed host
-// (alpacahurd) can construct it from a config entry by importing this package.
-//
-// Sensor geometry and photosite pitch are configuration, not discovery. PTP has
-// no property for the sensor's physical dimensions, and some bodies (Sony) do
-// not report their pixel dimensions either, so a client cannot compute image
-// scale or plate-solve unless the operator supplies "pixelSize" — and, where the
-// body is silent, "sensorWidth"/"sensorHeight".
-// Config is the ptpcam entry's driver-owned keys: which body to bind and the
-// sensor geometry the driver reports for it. Every field applies at the next
-// start; the setup page shows them read-only.
+// Config contains device selection and settings.
 type Config struct {
 	Vendor       string  `json:"vendor,omitempty"       alpaca:"label=Vendor,when=start,help=fuji or sony"`
 	Serial       string  `json:"serial,omitempty"       alpaca:"label=Serial,when=start,help=Camera body serial"`
@@ -119,16 +109,8 @@ func NewOpener(vendor, serial string) func() (ptp.Camera, error) {
 	}
 }
 
-// NewAliveProbe reports whether a body matching the filter is still enumerated
-// as the same attachment the open session was opened on.
-//
-// It answers "is the body still on the bus", not "is the session healthy" — a
-// camera that has stopped answering is still enumerated, and that case is caught
-// by ptp.ErrNotResponding instead. A body that matches the filter under a
-// different attachment was unplugged and replugged between two probes; the
-// probe reports it absent and marks the camera replaced, so the supervisor
-// re-acquires at once instead of waiting out the miss count. cam may be nil,
-// in which case presence is judged by the filter alone.
+// NewAliveProbe checks USB presence without camera traffic.
+// A changed attachment marks the session for replacement; cam may be nil.
 func NewAliveProbe(vendor, serial string, cam *Camera) func() bool {
 	return func() bool {
 		devs, err := usb.Enumerate()

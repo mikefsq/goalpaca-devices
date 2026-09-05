@@ -54,21 +54,8 @@ var slots = []slot{
 		get: func(b *stellarmate.Board) (float64, error) { d, err := b.DewDuty(1); return float64(d), err },
 		set: func(b *stellarmate.Board, v float64) error { return b.SetDewDuty(1, int(math.Round(v))) }},
 
-	// 6..7 — the variable DC output: an enable toggle plus the voltage level.
-	//
-	// The maximum is 11 V, not 12: the DAC's ceiling is ~0.8565*Vin, measured at
-	// 11.56 V on a 13.5 V supply, so a commanded 12 V clamps and reads back ~11.5.
-	// ASCOM requires a static MaxSwitchValue, and one a client can actually reach —
-	// GetSwitchValue must return what SetSwitchValue set. (The ceiling falls with
-	// the supply: ~10.3 V from a 12 V battery, which 11 V would then overshoot. Drop
-	// this to 10 if the rig ever runs off a battery. Board.VariableOutputMax()
-	// reports the live ceiling.)
-	//
-	// This slot is the *programmed setpoint*, deliberately not the measured rail:
-	// the output has a bulk capacitor that decays over tens of seconds after the
-	// enable is dropped (11 V -> 0.8 V in ~10 s unloaded), so a measurement-backed
-	// value would drift below MinSwitchValue and never settle. The measurement is
-	// slot 16, read-only.
+	// Variable voltage reports the setpoint; slot 16 reports the measured rail.
+	// The maximum is 11 V; the hardware ceiling also depends on input voltage.
 	{name: "Variable Output", desc: "Variable DC output enable", min: 0, max: 1, step: 1,
 		get: func(b *stellarmate.Board) (float64, error) { return b2f(b.VariableEnable()) },
 		set: func(b *stellarmate.Board, v float64) error { return b.SetVariableEnable(v >= 0.5) }},
@@ -156,8 +143,6 @@ func NewSwitch(hub *Hub) *SMProSwitch {
 	return s
 }
 
-// --- Hardware lifecycle (persistent owner, shared with the Focuser) ---
-
 func (s *SMProSwitch) Open(ctx context.Context) error { return s.hub.Open(ctx) }
 
 func (s *SMProSwitch) Close(ctx context.Context) error {
@@ -186,8 +171,6 @@ func (s *SMProSwitch) Disconnect(ctx context.Context) error {
 
 // board gates every operational member on the session being live.
 func (s *SMProSwitch) board() (*stellarmate.Board, error) { return boardFor(&s.session, s.hub) }
-
-// --- ISwitchV3 ---
 
 func (s *SMProSwitch) MaxSwitch() int { return len(slots) }
 

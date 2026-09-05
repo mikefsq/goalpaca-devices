@@ -93,8 +93,6 @@ func newStubStackDev(t *testing.T, sd *stubDev) (base, mgmt string, dev *PureASI
 	return ts.URL + "/api/v1/camera/0/", ts.URL + "/management/v1/", dev
 }
 
-// --- HTTP helpers (same shape as asiefw_test.go) ---
-
 const txQ = "ClientID=1&ClientTransactionID=1"
 
 type resp struct {
@@ -157,8 +155,6 @@ func waitConnected(t *testing.T, base string, want bool) {
 		time.Sleep(30 * time.Millisecond)
 	}
 }
-
-// --- Tests ---
 
 // TestAlpacaCamera6200 covers metadata, connection, geometry, ranges, and cooling end-to-end
 // against a stub-backed cooled color camera.
@@ -850,17 +846,7 @@ func TestVideoModeDoesNotRearmOnAnUnchangedROI(t *testing.T) {
 	}
 }
 
-// TestVideoFramesDoNotShareABuffer pins an invariant rather than a fix: ImageFrame hands the
-// caller the driver's own slice, so that slice must never be written again. A host reading it
-// in-process — debayer, statistics, stretch, upload — holds it for tens of milliseconds, while a
-// small ROI in video mode delivers a frame every few. Refilling one buffer under that reader would
-// produce an image assembled from several frames: right size, plausible statistics, content in
-// bands, and no error anywhere.
-//
-// TWO things currently guarantee it — waitVideoFrame allocates per publish, and StartExposure
-// releases the previous frame — which is why this passes against either one alone. It is here so
-// that removing both is caught. Checked as identity, not by racing: consecutive frames must not
-// share backing memory.
+// TestVideoFramesDoNotShareABuffer checks that later exposures cannot overwrite a returned frame.
 func TestVideoFramesDoNotShareABuffer(t *testing.T) {
 	sd := &stubDev{pid: pid174, present: true, serial: astrocam.Serial(string([]byte{0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49}))}
 	base, _, dev := newStubStackDev(t, sd)

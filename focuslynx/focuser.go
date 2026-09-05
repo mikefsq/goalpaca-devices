@@ -22,9 +22,7 @@ var _ alpacadev.Focuser = (*OptecFocuser)(nil)
 // ThirdLynx is single-channel (F1). One Alpaca device = one channel; run a second
 // instance with -channel 2 for a FocusLynx's second port.
 type OptecFocuser struct {
-	// stopLoop ends the loop Open started and waits for it. Close calls it
-	// before releasing the handle, so a reload's replacement opens the hardware
-	// with no old loop left to re-acquire it (server.RunLoop).
+	// stopLoop cancels acquisition and waits before releasing the handle.
 	stopLoop func(time.Duration)
 	alpacadev.BaseFocuser
 
@@ -76,8 +74,6 @@ func (f *OptecFocuser) MaxIncrement() int { f.mu.Lock(); defer f.mu.Unlock(); re
 
 // foc returns the channel controller for the open hub (caller holds mu, hub != nil).
 func (f *OptecFocuser) foc() *focuslynx.Focuser { return f.hub.Focuser(f.ch) }
-
-// --- Hardware lifecycle ---
 
 func (f *OptecFocuser) Open(ctx context.Context) error {
 	if f.openDev == nil {
@@ -181,8 +177,6 @@ func (f *OptecFocuser) openByIndex() (*focuslynx.Hub, int, error) {
 func (f *OptecFocuser) openByNickname() (*focuslynx.Hub, int, error) {
 	return focuslynx.OpenByNickname(f.nickname)
 }
-
-// --- Focuser members ---
 
 func (f *OptecFocuser) IsMoving() bool {
 	f.mu.Lock()

@@ -17,13 +17,7 @@ const (
 	ibHeaderSize = 44
 )
 
-// fetchImageBytes GETs one exposure over Alpaca in the binary form goastro asks for, and returns
-// the frame ROW-major with its geometry.
-//
-// The transpose is the point of testing this layer separately. ImageBytes is COLUMN-major — the
-// wire runs down each column, so element i is (x = i/height, y = i%height) — and getting that
-// backwards, or getting the dimensions the wrong way round, produces a frame with the right byte
-// count whose content shears. That looks identical to a transport fault and is not one.
+// fetchImageBytes fetches an exposure and converts column-major ImageBytes to row-major pixels.
 func fetchImageBytes(base string) (pix []byte, w, h int, err error) {
 	req, _ := http.NewRequest(http.MethodGet, base+"imagearray?ClientID=1&ClientTransactionID=1", nil)
 	req.Header.Set("Accept", "application/imagebytes")

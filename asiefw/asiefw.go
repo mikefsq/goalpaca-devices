@@ -15,7 +15,6 @@ import (
 	"github.com/mikefsq/goasi/efw"
 )
 
-// Compile-time check that the driver satisfies the Alpaca FilterWheel interface.
 var _ alpacadev.FilterWheel = (*ASIFilterWheel)(nil)
 
 // ASIFilterWheel adapts a goasi/efw filter wheel to the alpacadev.FilterWheel +
@@ -24,9 +23,7 @@ var _ alpacadev.FilterWheel = (*ASIFilterWheel)(nil)
 // The EFW SDK is not safe for concurrent per-device calls; all efw access is
 // serialized by mu. mu is never held across a sleep.
 type ASIFilterWheel struct {
-	// stopLoop ends the loop Open started and waits for it. Close calls it
-	// before releasing the handle, so a reload's replacement opens the hardware
-	// with no old loop left to re-acquire it (server.RunLoop).
+	// stopLoop cancels acquisition and waits before releasing the handle.
 	stopLoop func(time.Duration)
 	alpacadev.BaseFilterWheel
 
@@ -65,8 +62,6 @@ func NewASIFilterWheel(index int, serial string, unidirectional bool) *ASIFilter
 	w.openDev = w.openConfigured
 	return w
 }
-
-// --- Hardware lifecycle (persistent owner) ---
 
 // Open starts the hardware-management goroutine and returns immediately, so the
 // Alpaca server comes up with or without a wheel attached.
@@ -214,8 +209,6 @@ func (w *ASIFilterWheel) configureOpened(dev *efw.EFW) {
 		w.ID = "EFW-" + serial // adopt real serial when not pinned by flag
 	}
 }
-
-// --- FilterWheel members ---
 
 // Position returns the current slot (0-based), or -1 while the wheel is moving or
 // when no wheel is connected.

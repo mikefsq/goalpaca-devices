@@ -23,9 +23,7 @@ import (
 // calls, and Alpaca HTTP handlers run concurrently. mu is never held across a sleep (the exposure
 // poll locks per-call only).
 type ASICamera struct {
-	// stopLoop ends the loop Open started and waits for it. Close calls it
-	// before releasing the handle, so a reload's replacement opens the hardware
-	// with no old loop left to re-acquire it (server.RunLoop).
+	// stopLoop cancels acquisition and waits before releasing the handle.
 	stopLoop func(time.Duration)
 	alpacadev.BaseCamera
 
@@ -75,8 +73,6 @@ func NewASICamera(index int, serial string) *ASICamera {
 	}
 	return c
 }
-
-// --- Hardware lifecycle (persistent owner) ---
 
 // Open starts the hardware-management goroutine and returns immediately, so the Alpaca server
 // comes up with or without a camera attached. The goroutine acquires the target camera when it
@@ -217,9 +213,7 @@ func (c *ASICamera) configureOpened(cam *goasi.GoAsiCamera, serialHex string) {
 	c.hwPresent.Store(true)
 }
 
-// Connect is the client's presence handshake: it succeeds iff the hardware is attached
-// (Connected ≡ hwPresent). It does not open hardware — the driver already owns it — so it is a
-// check, not a state change.
+// Connect checks hardware availability without opening a new handle.
 func (c *ASICamera) Connect(ctx context.Context) error {
 	if !c.hwPresent.Load() {
 		return alpacadev.ErrNotConnected
@@ -256,8 +250,6 @@ func (c *ASICamera) loadControlCaps() {
 	}
 }
 
-// --- Geometry / description ---
-
 func (c *ASICamera) CameraXSize() int         { return c.cam.CameraInfo.MaxWidth }
 func (c *ASICamera) CameraYSize() int         { return c.cam.CameraInfo.MaxHeight }
 func (c *ASICamera) PixelSizeX() float64      { return c.cam.CameraInfo.PixelSize }
@@ -275,8 +267,6 @@ func (c *ASICamera) SensorType() alpacadev.SensorType {
 	}
 	return alpacadev.SensorMonochrome
 }
-
-// --- Binning (symmetric only) ---
 
 func (c *ASICamera) BinX() int { return c.binning }
 func (c *ASICamera) BinY() int { return c.binning }
@@ -316,8 +306,6 @@ func (c *ASICamera) SetBinY(n int) error {
 	return nil
 }
 
-// --- Subframe (stored; applied at StartExposure) ---
-
 func (c *ASICamera) StartX() int { return c.startX }
 func (c *ASICamera) StartY() int { return c.startY }
 func (c *ASICamera) NumX() int   { return c.numX }
@@ -327,8 +315,6 @@ func (c *ASICamera) SetStartX(n int) error { c.mu.Lock(); c.startX = n; c.mu.Unl
 func (c *ASICamera) SetStartY(n int) error { c.mu.Lock(); c.startY = n; c.mu.Unlock(); return nil }
 func (c *ASICamera) SetNumX(n int) error   { c.mu.Lock(); c.numX = n; c.mu.Unlock(); return nil }
 func (c *ASICamera) SetNumY(n int) error   { c.mu.Lock(); c.numY = n; c.mu.Unlock(); return nil }
-
-// --- Gain / Offset ---
 
 func (c *ASICamera) Gain() int      { return c.cam.Gain }
 func (c *ASICamera) GainMin() int   { return c.gainMin }
@@ -356,8 +342,6 @@ func (c *ASICamera) SetOffset(n int) error {
 	c.mu.Unlock()
 	return nil
 }
-
-// --- Exposure (async) ---
 
 func (c *ASICamera) ExposureMin() float64        { return c.expMinSec }
 func (c *ASICamera) ExposureMax() float64        { return c.expMaxSec }
@@ -495,9 +479,7 @@ func (c *ASICamera) LastExposureStartTime() (string, error) {
 	return c.lastStart.Format("2006-01-02T15:04:05"), nil
 }
 
-// ImageFrame returns the last readout as ImageBytes-ready data. RAW16 is transmitted as unsigned
-// 16-bit, presented to clients as Int32. Orientation: the SDK buffer is row-major; [x,y] ordering
-// unverified against a client.
+// ImageFrame returns row-major RAW16 pixels as little-endian bytes.
 func (c *ASICamera) ImageFrame() (alpacadev.ImageFrame, error) {
 	if c.exposeOp.State() != alpacadev.OpDone {
 		return alpacadev.ImageFrame{}, alpacadev.ErrValueNotSet
@@ -521,8 +503,6 @@ func (c *ASICamera) ImageFrame() (alpacadev.ImageFrame, error) {
 		Pixels:                  f.Pixels,
 	}, nil
 }
-
-// --- Cooling ---
 
 func (c *ASICamera) CanGetCoolerPower() bool    { return c.cam.CameraInfo.IsCoolerCam }
 func (c *ASICamera) CanSetCCDTemperature() bool { return c.cam.CameraInfo.IsCoolerCam }
@@ -563,8 +543,6 @@ func (c *ASICamera) SetSetCCDTemperature(t float64) error {
 	c.cam.SetTemp(int(t))
 	return nil
 }
-
-// --- Guiding ---
 
 func (c *ASICamera) CanPulseGuide() bool { return c.cam.CameraInfo.ST4Port }
 func (c *ASICamera) IsPulseGuiding() bool {

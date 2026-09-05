@@ -1,16 +1,4 @@
-// Package driver is the ASCOM Alpaca ObservingConditions device for the Astromi.ch
-// MGPBox / MGPBox v2 (GPS + weather + dew-heater box), over the Go mikefsq/astromi.ch
-// mgpbox library (FTDI USB-serial). Sibling of the other goalpaca-devices drivers; served
-// standalone by cmd/mgpbox or hosted by alpacahurd.
-//
-// The MGPBox exposes four ambient sensors, mapped directly to ASCOM: Temperature,
-// Humidity, Pressure (hPa), DewPoint. The remaining ObservingConditions properties stay at
-// the BaseObservingConditions NotImplemented default (the box has no cloud/wind/rain/sky
-// sensors; its GPS has no ASCOM ObservingConditions home).
-//
-// Unlike a request/response instrument, the MGPBox streams continuously — the library's
-// background reader keeps the latest snapshot — so Refresh is a no-op and reads are served
-// from the freshest streamed sample.
+// Package driver exposes MGPBox weather and GPS data through ASCOM Alpaca.
 package driver
 
 import (
@@ -39,9 +27,7 @@ const firstSampleWait = 6 * time.Second
 // MGPBox adapts a mikefsq/astromi.ch MGPBox to the alpacadev.ObservingConditions +
 // Hardware interfaces.
 type MGPBox struct {
-	// stopLoop ends the loop Open started and waits for it. Close calls it
-	// before releasing the handle, so a reload's replacement opens the hardware
-	// with no old loop left to re-acquire it (server.RunLoop).
+	// stopLoop cancels acquisition and waits before releasing the handle.
 	stopLoop func(time.Duration)
 	stopFeed func(time.Duration)
 	alpacadev.BaseObservingConditions
@@ -139,8 +125,6 @@ func (m *MGPBox) init() {
 	m.feedState = make(map[string]*feedState)
 	m.now = time.Now
 }
-
-// --- Hardware lifecycle (mirrors the sibling unihedron device) ---
 
 func (m *MGPBox) Open(ctx context.Context) error {
 	if m.openDev == nil {
@@ -262,8 +246,6 @@ func (m *MGPBox) openByIndex() (*mgpbox.MGPBox, error) {
 }
 
 func (m *MGPBox) openBySerial() (*mgpbox.MGPBox, error) { return mgpbox.OpenBySerial(m.serial) }
-
-// --- ObservingConditions members ---
 
 // meteo returns the latest streamed weather snapshot, or ErrNotConnected when no device
 // is attached or no sample has arrived yet.

@@ -1,69 +1,38 @@
 # ptpcam
 
-A Fujifilm or Sony stills camera as an ASCOM Alpaca camera, over
-[github.com/mikefsq/ptp](https://github.com/mikefsq/ptp).
+ASCOM Alpaca camera driver for Fujifilm and Sony USB PTP cameras, using the
+[ptp](https://github.com/mikefsq/ptp) library.
 
-    make ptpcam
-    ./bin/ptpcam -list
-    ./bin/ptpcam                      # Alpaca on :11125
+## Build and run
 
-## These are not astro CMOS cameras, but this driver returns a raw ImageFrame like astro CMOS drivers.
+From the repository root:
 
-Two consequences worth knowing before you use it:
+```sh
+make ptpcam
+./bin/ptpcam -list
+./bin/ptpcam -vendor fuji -pixelSize 3.04
+```
 
-- **`LastExposureDuration` reports the actual exposure, not the requested exposure.** 
-- **A dial in a marked position might prevent writing.** Writes to a setting the camera owns are
-  accepted and silently ignored — by the *camera*, not by this driver. Put the
-  Fujifilm shutter dial on **T**, the ISO dial on **C**, and the focus lever on
-  **M**; a Sony wants **PC Remote** USB mode and the mode dial on **M**.
+The HTTP port defaults to `11111`. Use `-serial` to select a body, and set
+`-pixelSize` to its photosite pitch in micrometres. If the camera does not
+report its dimensions, supply both `-sensorWidth` and `-sensorHeight` in
+pixels. Use values for your camera's full sensor readout.
 
-## How Image Data is transferred
+See `-help` and the [shared configuration instructions](../README.md#configuration).
 
-Image data is delivered through an Alpaca request.
+## Camera setup
 
-A RAW capture is decoded to the **undemosaiced sensor readout** and delivered as
-a Rank-2, 16-bit `ImageFrame`: one sample per photosite at the full readout 
-geometry rather than the vendor's crop.
+For Fujifilm, put the shutter dial on T, the ISO dial on C, and the focus
+lever on M. For Sony, use PC Remote USB mode and manual exposure mode.
+A camera may ignore writes to settings controlled by its physical dials.
+`LastExposureDuration` reports the actual exposure duration.
 
+RAW captures are decoded to undemosaiced, 16-bit sensor samples. Unsupported
+RAW encodings leave `ImageReady` false; use a RAW mode supported by the PTP
+library. A pending Fujifilm capture is released after transfer so it does
+not block subsequent settings or exposures.
 
-### A capture is three steps, and the third is not optional
-
-    capture -> fetch -> delete  cf card; and the frame becomes ImageFrame
-    capture -> skip  -> delete  cf-card; the no bytes over USB interface
-
-**A pending Fujji frame blocks the camera** While one sits in a Fujifilm
-body's volatile store it answers `RefusedRightNow` to property writes. 
-Reading the frame does not clear it, so a delete is required. The image
-is written to cf-card immediately so a delete without a download is how to 
-achieve the fastest fps.
-
-### A frame that will not decode
-
-A RAW variant this build cannot unpack. e.g. Fujifilm's lossy mode, 
-leaves `ImageReady` false. The file will have to be fetched from the cf-card.
-
-## It comes up without a camera
-
-The Alpaca endpoint starts whether or not a body is attached. The driver
-acquires the camera when one appears and re-acquires it after a power cycle.
-`Connected` reports actual hardware presence, so a client will need to poll
-this value to see the underlying hardware state. 
-
-Three kinds of non-responsive camera states are possible:
-
-- **Physical absence** — unplugged or powered off. Caught by a probe over the OS
-  USB registry that **never touches the open camera**.
-- **A wedged session** — still enumerated, but no longer answering. The presence
-  probe cannot see this; `ptp.ErrNotResponding` is the only signal, and it forces
-  a re-acquisition.
-- **Busy** A camera *refusing* an operation is not a failure. A body may report 
-  "not now" for various reasons like a dial set incorrectly or if it is still 
-   writing to cf-card.
-
-
-## Vendor-neutral
-
-The driver holds the parent package's capability interfaces like `ptp.Capturer`,
-`ExposureControl`, `Downloader`, `FocusControl`, `LiveViewer`. The Vendor libraray 
-implements the vendor specific types and mapping to the standard types that Alpaca
-makes accessable on the network.
+The server starts without a camera attached and reacquires it after a power
+cycle. `Connected` reports hardware availability. A busy response can also
+mean the camera is writing a capture or a physical control prevents the
+operation.

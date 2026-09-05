@@ -126,8 +126,6 @@ func (f *fakeWheel) moveCount() int {
 	return n
 }
 
-// --- HTTP helpers ---
-
 const txQ = "ClientID=1&ClientTransactionID=1"
 
 type resp struct {

@@ -67,10 +67,7 @@ func newTestHub(t *testing.T) (*Hub, *bus.FakePWM) {
 	return hub, dew0
 }
 
-// connectedSwitch builds the Switch and opens an ASCOM session on it. Connect is
-// now a real step: the board being open is the HARDWARE being available, while
-// Connected is this client's session, and operational members fault with
-// NotConnected until the session is live. See session.go.
+// connectedSwitch opens a logical connection over the test hub.
 func connectedSwitch(t *testing.T, hub *Hub) *SMProSwitch {
 	t.Helper()
 	s := NewSwitch(hub)
@@ -460,19 +457,7 @@ func TestVariableVoltageSetpointIsReachable(t *testing.T) {
 	}
 }
 
-// Disconnect must end the ASCOM session — Connected goes false and operational
-// members fault — WITHOUT releasing the board.
-//
-// This was a bug: Connected() reported hub.Ready(), i.e. "is the hardware open?",
-// and Disconnect was a total no-op. So Connected stayed true forever after a
-// client disconnected, and every member kept working. ASCOM requires the opposite.
-//
-// But the fix must not swing the other way. Releasing the board on Disconnect
-// would cut the power outputs, the dew heaters and the variable rail the moment a
-// client closed its session — and on the SM Pro that means the mount and the
-// camera. The board belongs to the process; the session belongs to the client.
-// Both halves are asserted here, because getting one right by breaking the other
-// is the real failure mode.
+// Disconnect must clear logical state without releasing the powered board.
 func TestDisconnectEndsSessionButKeepsHardware(t *testing.T) {
 	hub, _ := newTestHub(t)
 	ctx := context.Background()

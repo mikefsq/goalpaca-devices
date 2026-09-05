@@ -7,10 +7,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/mikefsq/goasi/asiair"
 	"github.com/mikefsq/goalpaca/client"
 	"github.com/mikefsq/goalpaca/conformance"
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	"github.com/mikefsq/goasi/asiair"
 )
 
 // The ISwitchV3 invariants, checked over a real HTTP server and client — fakes
@@ -182,9 +182,7 @@ func serve(t *testing.T, cfg asiair.Config) *client.Switch {
 	return client.NewSwitch(ts.URL, 0)
 }
 
-// Disconnect must end the ASCOM session (Connected false, members fault) WITHOUT
-// dropping the board — the ports keep their power. Both halves, in one test,
-// because getting one right by breaking the other is the failure mode.
+// Disconnect must clear logical state without releasing the powered board.
 func TestDisconnectEndsSessionButKeepsPower(t *testing.T) {
 	cfg := asiair.DefaultConfig()
 	hub, _, gpio, _ := newTestHub(t, cfg, cfg.PWMChannel)

@@ -14,7 +14,6 @@ import (
 	"github.com/mikefsq/goasi/eaf"
 )
 
-// Compile-time check that the driver satisfies the Alpaca Focuser interface.
 var _ alpacadev.Focuser = (*ASIFocuser)(nil)
 
 // ASIFocuser adapts a goasi/eaf focuser to the alpacadev.Focuser + Hardware
@@ -24,9 +23,7 @@ var _ alpacadev.Focuser = (*ASIFocuser)(nil)
 // guards the handle pointer and cached props. mu is held across eaf calls; it is
 // never held across the manager's own sleeps.
 type ASIFocuser struct {
-	// stopLoop ends the loop Open started and waits for it. Close calls it
-	// before releasing the handle, so a reload's replacement opens the hardware
-	// with no old loop left to re-acquire it (server.RunLoop).
+	// stopLoop cancels acquisition and waits before releasing the handle.
 	stopLoop func(time.Duration)
 	alpacadev.BaseFocuser
 
@@ -61,8 +58,6 @@ func NewASIFocuser(index int, serial string) *ASIFocuser {
 	return f
 }
 
-// --- Hardware lifecycle (persistent owner) ---
-
 // Open starts the hardware-management goroutine and returns immediately, so the
 // Alpaca server comes up with or without a focuser attached.
 func (f *ASIFocuser) Open(ctx context.Context) error {
@@ -73,7 +68,7 @@ func (f *ASIFocuser) Open(ctx context.Context) error {
 	return nil
 }
 
-// Close releases the handle on graceful shutdown only.
+// Close stops acquisition and releases the hardware handle.
 func (f *ASIFocuser) Close(ctx context.Context) error {
 	if f.stopLoop != nil {
 		f.stopLoop(10 * time.Second) // end the loop Open started before the handle goes
@@ -178,8 +173,6 @@ func (f *ASIFocuser) configureOpened(dev *eaf.EAF) {
 	}
 	f.Desc = fmt.Sprintf("ZWO EAF (max %d steps, fw %d.%d)", f.maxStep, maj, min)
 }
-
-// --- Focuser members ---
 
 func (f *ASIFocuser) IsMoving() bool {
 	f.mu.Lock()

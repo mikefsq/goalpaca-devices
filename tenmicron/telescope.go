@@ -46,9 +46,7 @@ type snapshot struct {
 // Telescope is the 10Micron Alpaca Telescope device. It owns the mount for the
 // process lifetime; Connected ≡ mount reachable; Busy() gates writes while slewing.
 type Telescope struct {
-	// stopLoop ends the loop Open started and waits for it. Close calls it
-	// before releasing the handle, so a reload's replacement opens the hardware
-	// with no old loop left to re-acquire it (server.RunLoop).
+	// stopLoop cancels acquisition and waits before releasing the handle.
 	stopLoop func(time.Duration)
 	alpacadev.BaseTelescope
 
@@ -93,8 +91,6 @@ func NewTelescope(addr string) *Telescope {
 	t.Info = "tenmicron — 10 Micron Alpaca telescope driver over mikefsq/lx200"
 	return t
 }
-
-// --- Hardware lifecycle + connection model ----------------------------------
 
 func (t *Telescope) Open(ctx context.Context) error {
 	t.stopLoop = alpacadev.RunLoop(ctx, t.ID, t.manage)
@@ -285,7 +281,6 @@ func (t *Telescope) LiveMount() (lx200.Mount, error) {
 	return nil, alpacadev.ErrNotConnected
 }
 
-// --- ASCOM Command* passthrough -------------------------------------------------
 // CommandBlind/String/Bool send a raw LX200 command the typed API doesn't wrap,
 // mapping to the Blind/Get/Ack reply shapes. lx200.Frame adds ':'…'#' framing unless
 // raw. The server gates these by Connected()/Busy(); the nil-guard covers the
@@ -324,7 +319,6 @@ func (t *Telescope) CommandBool(cmd string, raw bool) (bool, error) {
 	return m.Ack(lx200.Frame(cmd, raw))
 }
 
-// --- Capabilities (10Micron: German-equatorial; park + pulse-guide + move-axis +
 // find-home) ---------------------------------------------------------------------
 // Park is park-in-place (:PiP#). Home is a direct axis-angle slew to the RA-axis
 // reference (SlewToRAAxis) that stops without parking, so it works on every model and
@@ -342,8 +336,6 @@ func (t *Telescope) CanPulseGuide() bool  { return true }
 func (t *Telescope) CanMoveAxis(axis alpacadev.TelescopeAxis) bool {
 	return axis == alpacadev.AxisPrimary || axis == alpacadev.AxisSecondary
 }
-
-// --- Position / status getters ----------------------------------------------
 
 // These return the last poller value from the snapshot — no synchronous mount I/O.
 // Freshness is bounded by the poll cadence (slewPoll while slewing, else monitorPoll).
@@ -426,8 +418,6 @@ func (t *Telescope) UTCDate() string {
 	t.mu.Unlock()
 	return time.Now().UTC().Add(skew).Format("2006-01-02T15:04:05.000Z")
 }
-
-// --- Setters ----------------------------------------------------------------
 
 func (t *Telescope) SetTracking(on bool) error {
 	m := t.mount()
@@ -588,8 +578,6 @@ func (t *Telescope) SetUTCDate(s string) error {
 	return nil
 }
 
-// --- Motion -----------------------------------------------------------------
-
 func (t *Telescope) AbortSlew() error {
 	m := t.mount()
 	if m == nil {
@@ -737,8 +725,6 @@ func (t *Telescope) MoveAxis(axis alpacadev.TelescopeAxis, rate float64) error {
 	// AxisRates advertises, rather than snapping to a coarse preset.
 	return m.MoveAxisRate(a, rate > 0, math.Abs(rate))
 }
-
-// --- helpers ----------------------------------------------------------------
 
 func (t *Telescope) setF(p *float64, v float64) float64 { t.mu.Lock(); *p = v; t.mu.Unlock(); return v }
 func (t *Telescope) getF(p *float64) float64            { t.mu.Lock(); defer t.mu.Unlock(); return *p }

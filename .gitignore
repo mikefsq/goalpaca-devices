@@ -27,6 +27,7 @@ asiair/asiair
 unihedron/unihedron
 smpro/smpro-focuser
 smpro/smpro-switch
+sim/cmd/sim/main
 
 # Packages built by build/build-deb.
 /dist

@@ -16,16 +16,8 @@ type (
 	oasisExt    = oasisfoc.ExtConfig
 )
 
-// The Oasis focuser exposes more than ASCOM IFocuserV3 has slots for (backlash, reverse,
-// beeps, speed, heating, stall, USB power, names, identity, relative moves, sync/zero),
-// surfaced via the Action seam.
-//
-// Conventions (goalpaca standard): names are advertised in CamelCase and matched
-// case-insensitively. Config fields are single read/write actions — EMPTY params reads the
-// current value, a value writes it (put/empty = read). Read-only telemetry rejects a params
-// value; no-arg operations reject a params value; operations that take an argument (MoveIn/
-// MoveOut/Sync) require it. Booleans read back as "true"/"false" and accept
-// 1/0/true/false/on/off on write.
+// Actions expose focuser settings and telemetry. Empty parameters read a
+// setting; values write it. Operations validate their own arguments.
 var oasisActions = []string{
 	// identity / telemetry (read-only)
 	"Serial", "Model", "HardwareVersion", "FirmwareVersion", "FirmwareBuildDate",
@@ -55,7 +47,6 @@ func (f *OasisFocuser) Action(name, params string) (string, error) {
 
 	switch strings.ToLower(strings.TrimSpace(name)) {
 
-	// --- identity / telemetry (read-only) ---
 	case "serial":
 		return ro(params, d.Serial)
 	case "model":
@@ -77,7 +68,6 @@ func (f *OasisFocuser) Action(name, params string) (string, error) {
 	case "bluetoothon": // readable, but no library setter — read-only
 		return ro(params, cfgBool(d, func(c oasisConfig) int { return c.BluetoothOn }))
 
-	// --- config (read/write: empty reads, a value writes) ---
 	case "backlash":
 		return rwI(params, cfgInt(d, func(c oasisConfig) int { return int(c.Backlash) }), d.SetBacklash)
 	case "backlashdirection":
@@ -107,7 +97,6 @@ func (f *OasisFocuser) Action(name, params string) (string, error) {
 	case "bluetoothname":
 		return rwS(params, d.BluetoothName, d.SetBluetoothName)
 
-	// --- operations ---
 	case "movein":
 		return setI(params, d.MoveIn)
 	case "moveout":
@@ -119,7 +108,6 @@ func (f *OasisFocuser) Action(name, params string) (string, error) {
 	case "clearstall":
 		return trigger(params, d.ClearStall)
 
-	// --- destructive (guarded) ---
 	case "factoryreset":
 		if strings.ToLower(strings.TrimSpace(params)) != "confirm" {
 			return "", fmt.Errorf("%w: factoryreset requires params=confirm", alpacadev.ErrInvalidValue)
@@ -147,8 +135,6 @@ func (f *OasisFocuser) dumpConfig(d oasisDev) (string, error) {
 		c.BeepOnMove, c.BeepOnStartup, c.BluetoothOn, e.StallDetection, e.HeatingOn,
 		e.HeatingTemperature, e.UsbPowerCapacity), nil
 }
-
-// --- dispatch helpers (shared shape across the host's Action drivers) ---
 
 // ro runs a read-only getter, rejecting a params value.
 func ro(params string, get func() (string, error)) (string, error) {
@@ -204,8 +190,6 @@ func roErr() error {
 func noValErr() error {
 	return alpacadev.NewError(alpacadev.ErrNumInvalidValue, "action takes no value")
 }
-
-// --- small value helpers ---
 
 // ok maps a library error to the standard action result ("ok" on success, else the error).
 func ok(err error) (string, error) {

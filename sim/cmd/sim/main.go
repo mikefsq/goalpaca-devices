@@ -1,8 +1,4 @@
-// Command sim runs the coupled guide simulator standalone: the simulated mount and
-// guide camera share one simulated sky (the mount owns the pointing error, the camera
-// renders it), so a guiding client like PHD2 can calibrate and guide a closed loop
-// with no hardware and no composed host (alpacahurd). Both devices are served as
-// device 0 (telescope and camera) on one Alpaca port.
+// Command sim serves the sim driver.
 package main
 
 import (

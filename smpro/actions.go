@@ -8,16 +8,7 @@ import (
 	"github.com/mikefsq/stellarmate"
 )
 
-// The Action seam carries what ISwitchV3 has no home for: the ambient-weather
-// feed that drives auto-dew, and the auto-dew ramp parameters.
-//
-// SetEnvironment deliberately shares the tenmicron mount's action name and
-// payload schema, because they are fed by the same producer: an MGPBox (or any
-// weather source) pushes one environment snapshot to every device that wants it.
-// The mount consumes pressure and temperature for refraction and ignores the
-// rest; the SM Pro consumes temperature, humidity and dew point for auto-dew and
-// ignores the rest. A feeder therefore sends one payload shape to both, and
-// unknown fields are silently tolerated rather than rejected.
+// Actions provide the device-specific controls listed below.
 var smproActions = []string{
 	"SetEnvironment", // PUT/GET weather: {"temperature_c":12.3,"humidity_pct":78.5[,"dewpoint_c":8.1]}
 	"SetAutoDew",     // PUT ramp: {"channel":1,"on":2,"off":10,"max":100[,"enabled":true]}

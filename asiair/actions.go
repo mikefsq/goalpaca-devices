@@ -6,21 +6,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mikefsq/goasi/asiair"
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	"github.com/mikefsq/goasi/asiair"
 )
 
-// The Action seam carries what ISwitchV3 has no home for: the ambient-weather
-// feed that drives auto-dew, the auto-dew ramp parameters, and the timed DSLR
-// frame sequence.
-//
-// SetEnvironment deliberately shares the smpro and tenmicron schema field for
-// field, because they are fed by the same producer: an MGPBox (or any weather
-// source) pushes one environment snapshot to every device that wants it. The
-// mount consumes pressure and temperature for refraction and ignores the rest;
-// a power board consumes temperature, humidity and dew point for auto-dew and
-// ignores the rest. A feeder therefore sends one payload shape to all of them,
-// and unknown fields are tolerated rather than rejected.
+// Actions provide the device-specific controls listed below.
 var asiairActions = []string{
 	"SetEnvironment", // PUT/GET weather: {"temperature_c":12.3,"humidity_pct":78.5[,"dewpoint_c":8.1]}
 	"SetAutoDew",     // PUT ramp: {"port":1,"on":2,"off":10,"max":100[,"enabled":true]}
@@ -114,8 +104,6 @@ func (s *AsiairSwitch) Action(name, params string) (string, error) {
 	return "", alpacadev.ErrActionNotImplemented
 }
 
-// --- Weather ---
-
 // actionSetEnvironment is dual-mode, like the mount's and smpro's: empty params
 // reads the stored conditions, a JSON body applies the fields it carries.
 func actionSetEnvironment(b *asiair.Board, params string) (string, error) {
@@ -200,8 +188,6 @@ func readEnvironment(b *asiair.Board) (string, error) {
 	return string(out), err
 }
 
-// --- Auto-dew ---
-
 // portOf resolves the payload's 1-based port (or its "channel" alias) to a
 // library Port, and rejects one that cannot dim. Auto-dew on a port that can only
 // switch fully on or off is not auto-dew, and quietly accepting it would leave a
@@ -281,8 +267,6 @@ func actionAutoDew(b *asiair.Board, params string) (string, error) {
 	})
 	return string(out), err
 }
-
-// --- DSLR sequence ---
 
 // actionStartSequence begins a timed DSLR run. It returns immediately; poll
 // SequenceStatus to follow it, or AbortSequence to stop it.

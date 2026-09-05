@@ -1,9 +1,4 @@
-// roiprobe drives the Alpaca driver against real hardware the way a client does — set the ROI,
-// turn video mode on, take exposures — so the free-run stream can be traced through the driver
-// rather than through gosnap. The two disagreed on how many bytes the camera sends for one
-// window, and only the driver's own sequence of calls can show why.
-//
-// Run with ASICAM_STREAMTRACE=1 to get the per-transfer trace alongside it.
+// Command roiprobe captures hardware frames for ROI diagnostics.
 package main
 
 import (

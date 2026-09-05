@@ -48,8 +48,6 @@ func (t *Telescope) live() (*tenmicron.Mount, error) {
 	return nil, alpacadev.ErrNotConnected
 }
 
-// --- action shapes ----------------------------------------------------------
-
 // read wraps a mount read as a read-only action (rejects a params value).
 func (t *Telescope) read(fn func(*tenmicron.Mount) (string, error)) actionFn {
 	return func(params string) (string, error) {
@@ -132,8 +130,6 @@ func (t *Telescope) indexed(fn func(*tenmicron.Mount, int) (string, error)) acti
 		return fn(m, n)
 	}
 }
-
-// --- shared helpers ---------------------------------------------------------
 
 func ftoa(v float64, prec int) string { return strconv.FormatFloat(v, 'f', prec, 64) }
 
@@ -251,8 +247,6 @@ func featureStr(s tenmicron.FeatureState) string {
 	}
 	return strconv.Itoa(int(s))
 }
-
-// --- registry ---------------------------------------------------------------
 
 func (t *Telescope) actions() map[string]actionFn {
 	reg := map[string]actionFn{
@@ -481,7 +475,7 @@ func (t *Telescope) actions() map[string]actionFn {
 		"parktosaved": t.op(func(m *tenmicron.Mount) (string, error) { return "parking", m.ParkToSaved() }),
 	}
 
-	// Back-compat: the original set-only names now resolve to the RW refraction actions.
+	// Legacy set-only names alias the read/write refraction Actions.
 	reg["setrefractionpressure"] = reg["refractionpressure"]
 	reg["setrefractiontemperature"] = reg["refractiontemperature"]
 
@@ -493,8 +487,6 @@ func (t *Telescope) actions() map[string]actionFn {
 	}
 	return reg
 }
-
-// --- JSON-valued reads ------------------------------------------------------
 
 func (t *Telescope) readWeather(m *tenmicron.Mount) (string, error) {
 	type field struct {
@@ -594,8 +586,6 @@ func (t *Telescope) readAxisAngles(m *tenmicron.Mount) (string, error) {
 	return string(b), nil
 }
 
-// --- multi-mode operations --------------------------------------------------
-
 // actionDither reads dither status (empty params → JSON: active + amplitude/timing) or
 // triggers start/stop/now.
 func (t *Telescope) actionDither(params string) (string, error) {
@@ -659,8 +649,6 @@ func (t *Telescope) actionPEC(params string) (string, error) {
 	}
 	return "", badValue("pec: want start, stop, train, or train:short|medium|long")
 }
-
-// --- setenvironment / dualaxistracking (site + refraction datums) -----------
 
 // actionDualAxisTracking reads or sets dual-axis tracking (:Gdat#/:SdatN#) — the mount
 // driving both axes to follow the refraction/pointing model. params: empty or "?" reads

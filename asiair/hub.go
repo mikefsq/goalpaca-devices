@@ -1,9 +1,4 @@
-// Package driver is the ASCOM Alpaca front-end for the ASIAIR power-distribution
-// board, over the pure-Go asiair library. The board presents one ASCOM device
-// type — a Switch carrying the four power ports (two of them dimmable), the DSLR
-// shutter, the auto-dew enables, and the ten telemetry readings — with the
-// weather push, the auto-dew ramp and the timed DSLR frame sequence on the Action
-// seam. Served standalone by cmd/asiair and hosted by the alpacahurd aggregator.
+// Package driver exposes the ASIAIR power board as an ASCOM Alpaca Switch.
 package driver
 
 import (
@@ -11,25 +6,12 @@ import (
 	"log"
 	"sync"
 
-	"github.com/mikefsq/goasi/asiair"
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	"github.com/mikefsq/goasi/asiair"
 )
 
-// Hub owns the single asiair.Board the device drives. It exists for the same
-// reason smpro's does — one board handle, refcounted across the server's
-// per-device Hardware lifecycle — but here it carries a second responsibility
-// that is not optional.
-//
-// A GPIO character-device line request is owned by its fd. Close the fd and the
-// kernel reverts the line to an input, where the board's pull-down switches the
-// port OFF. Ports 3 and 4 are where the camera and the mount live. So the Board
-// must stay open for the life of the process: Close is the server's Hardware
-// teardown, and Disconnect is deliberately a no-op (see Switch.Disconnect). An
-// ASCOM client reconnecting mid-session must not power-cycle the mount.
-//
-// The asymmetry is what makes it dangerous rather than merely wrong: the dimmable
-// ports run through sysfs PWM, which SURVIVES a process exit. A driver that
-// closed its lines would cut the mount and leave the dew heater running.
+// Hub reference-counts the board’s hardware lifetime.
+// Releasing GPIO requests can cut port power, so client disconnects retain the board.
 type Hub struct {
 	mu    sync.Mutex
 	board *asiair.Board
@@ -62,14 +44,8 @@ func (h *Hub) Config() asiair.Config {
 	return h.cfg
 }
 
-// Open opens the board on the first call and refcounts the rest.
-//
-// Warnings are logged rather than fatal, matching the library's best-effort
-// treatment of the ADCs and the shutter. One of them deserves a second look when
-// it appears: if the pwm-2chan overlay is missing, the library falls back to
-// driving a dimmable port as plain on/off, and the dew heater silently becomes a
-// switch. The log line says so, and Board.Dimmable then reports false — which is
-// what the Switch's set path checks before refusing a fractional duty.
+// Open acquires the board on the first call and increments its reference count.
+// Nonfatal hardware warnings are logged.
 func (h *Hub) Open(ctx context.Context) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()

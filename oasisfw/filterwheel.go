@@ -20,9 +20,7 @@ var _ alpacadev.FilterWheel = (*OasisWheel)(nil)
 // + Hardware interfaces. The oasisfw library already presents 0-based positions and
 // -1 while moving (ASCOM convention), so the adapter is a thin pass-through.
 type OasisWheel struct {
-	// stopLoop ends the loop Open started and waits for it. Close calls it
-	// before releasing the handle, so a reload's replacement opens the hardware
-	// with no old loop left to re-acquire it (server.RunLoop).
+	// stopLoop cancels acquisition and waits before releasing the handle.
 	stopLoop func(time.Duration)
 	alpacadev.BaseFilterWheel
 
@@ -49,8 +47,6 @@ func NewOasisWheel(index int) *OasisWheel {
 	w.openDev = w.openByIndex
 	return w
 }
-
-// --- Hardware lifecycle ---
 
 func (w *OasisWheel) Open(ctx context.Context) error {
 	if w.openDev == nil {
@@ -185,8 +181,6 @@ func (w *OasisWheel) configureOpened(dev *oasisfw.Oasis) {
 	w.Info = fmt.Sprintf("oasisfw Alpaca driver over Go oasis-astro/oasisfw; device FW %s build %s",
 		dev.FirmwareVersion(), dev.FirmwareBuildDate())
 }
-
-// --- FilterWheel members ---
 
 // Position returns the current 0-based slot, or -1 while moving or disconnected.
 func (w *OasisWheel) Position() int {

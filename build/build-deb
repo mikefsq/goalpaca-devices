@@ -1,29 +1,8 @@
 #!/usr/bin/env bash
 
-# build-deb - build one .deb per driver for Debian, Ubuntu and Raspberry Pi OS.
-#
-# Each driver is its own Go module producing its own binary, so each gets its own
-# package: alpacahurd-<driver>, holding /usr/bin/<driver> and a disabled entry in
-# /etc/alpacahurd/devices.d/. Installing one adds that driver to the herd;
-# removing it takes the driver away and leaves the rest serving.
-#
-# The packages depend on alpacahurd and carry no systemd unit of their own. A
-# driver runs under alpacahurd-device@<instance>.service, which the orchestrator
-# instantiates from its page, and alpacahurd resolves the driver by looking for a
-# binary named after it beside its own. The udev rules that give the drivers USB,
-# HID and serial access ship once, in the alpacahurd package.
-#
-# One package per architecture covers every release: the drivers are pure Go
-# built with CGO_ENABLED=0, so they link nothing shared and carry no versioned
-# glibc symbol.
-#
-# Usage:
-#
-#   build/build-deb                    # every packageable driver, amd64 + arm64
-#   build/build-deb -d tenmicron       # one driver
-#   build/build-deb -v 1.2.3           # override the version
-#
-# The build needs a Go toolchain, dpkg-deb and file. It needs no root.
+# Build one alpacahurd-<driver> package per architecture, with a disabled device entry.
+# Requires Go, dpkg-deb, and file; no root access needed.
+# Usage: build/build-deb [-d driver] [-v version]
 
 set -o pipefail
 
@@ -31,19 +10,11 @@ SCRIPT_DIR=$(cd "${BASH_SOURCE%/*}" && pwd)
 SRC_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 
 PREFIX=alpacahurd
-MAINTAINER="Mike Furlotti <mfurlotti@gmail.com>"
+MAINTAINER="mikefsq <162642838+mikefsq@users.noreply.github.com>"
 HOMEPAGE=https://github.com/mikefsq/goalpaca-devices
 
-# The drivers that build from their committed go.mod and accept the arguments
-# alpacahurd launches them with (-config, -discovery). Deliberately not the
-# Makefile's DRIVERS list, which is what builds inside the go.work workspace:
-#
-#   sim     the simulators are compiled into alpacahurd itself, so a separate
-#           binary would serve a second copy of devices the orchestrator
-#           already has. It is also not on devicemain, so it takes no -config.
-#   asicaa  cgo against the ZWO SDK (libASICamera2), which is proprietary and
-#   asiccd  not redistributable. These need their own job and their own
-#           licence terms; they are not part of this set.
+# Package drivers supporting -config and -discovery without vendor SDKs.
+# The simulator is built into alpacahurd; SDK drivers need separate packaging.
 DRIVERS="
     asiair
     asiam5

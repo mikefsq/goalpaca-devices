@@ -39,9 +39,7 @@ func ms(d time.Duration) float64 { return float64(d.Microseconds()) / 1000 }
 // it at once. The adapter's own mu guards only adapter-side state (geometry, the exposure
 // result, flags); it is never held across a blocking readout or a cooling state change.
 type PureASICamera struct {
-	// stopLoop ends the loop Open started and waits for it. Close calls it
-	// before releasing the handle, so a reload's replacement opens the hardware
-	// with no old loop left to re-acquire it (server.RunLoop).
+	// stopLoop cancels acquisition and waits before releasing the handle.
 	stopLoop func(time.Duration)
 	alpacadev.BaseCamera
 
@@ -97,13 +95,7 @@ type PureASICamera struct {
 	startX, startY int
 	numX, numY     int
 
-	// Factory hot-pixel correction. ON by default — the camera ships knowing which of its own
-	// pixels are bad, and correcting them is what the operator wants unless they say otherwise.
-	// The default is set in NewPureASICamera, so a host that never mentions "fixdefects" gets it;
-	// a host that names the key overrides it either way via SetFixDefects.
-	//
-	// The per-unit defect map is read once from SPI flash and applied to full-frame RAW16 frames
-	// in runExposure. It is a no-op for any other geometry or format.
+	// Factory defect correction defaults on and applies only to full-frame RAW16.
 	fixDefects bool
 	defectMap  *astrocam.DefectMap
 
@@ -240,8 +232,6 @@ func (c *PureASICamera) Reconfigure(v any) error {
 	return c.SetFPSPercent(cfg.FpsPercent)
 }
 
-// --- Hardware lifecycle ---
-
 // Open starts the hardware-management goroutine and returns immediately, so the Alpaca
 // endpoint comes up with or without a camera attached.
 func (c *PureASICamera) Open(ctx context.Context) error {
@@ -249,7 +239,7 @@ func (c *PureASICamera) Open(ctx context.Context) error {
 	return nil
 }
 
-// Close releases the camera on graceful shutdown only (cam.Close stops cooling + USB).
+// Close stops acquisition, releases the camera, and restores local controls.
 func (c *PureASICamera) Close(ctx context.Context) error {
 	if c.stopLoop != nil {
 		c.stopLoop(10 * time.Second) // end the loop Open started before the handle goes
@@ -556,8 +546,6 @@ func sleepCtx(ctx context.Context, d time.Duration) {
 	}
 }
 
-// --- Geometry / description ---
-
 func (c *PureASICamera) CameraXSize() int    { return c.cam.Info().MaxWidth }
 func (c *PureASICamera) CameraYSize() int    { return c.cam.Info().MaxHeight }
 func (c *PureASICamera) PixelSizeX() float64 { return c.cam.Info().PixelUm }
@@ -577,7 +565,6 @@ func (c *PureASICamera) SensorType() alpacadev.SensorType {
 	return alpacadev.SensorMonochrome
 }
 
-// --- Binning: symmetric, factors advertised from the sensor's Bins. SetBinX drives
 // astrocam.SetBinning; a listed factor whose readout geometry isn't decoded yet fails later at
 // SetROI (StartExposure) with InvalidValue, not here. ---
 
@@ -615,8 +602,6 @@ func (c *PureASICamera) SetBinX(n int) error {
 }
 func (c *PureASICamera) SetBinY(n int) error { return c.SetBinX(n) }
 
-// --- Subframe (stored; applied at StartExposure) ---
-
 func (c *PureASICamera) StartX() int { c.mu.Lock(); defer c.mu.Unlock(); return c.startX }
 func (c *PureASICamera) StartY() int { c.mu.Lock(); defer c.mu.Unlock(); return c.startY }
 func (c *PureASICamera) NumX() int   { c.mu.Lock(); defer c.mu.Unlock(); return c.numX }
@@ -626,8 +611,6 @@ func (c *PureASICamera) SetStartX(n int) error { c.mu.Lock(); c.startX = n; c.mu
 func (c *PureASICamera) SetStartY(n int) error { c.mu.Lock(); c.startY = n; c.mu.Unlock(); return nil }
 func (c *PureASICamera) SetNumX(n int) error   { c.mu.Lock(); c.numX = n; c.mu.Unlock(); return nil }
 func (c *PureASICamera) SetNumY(n int) error   { c.mu.Lock(); c.numY = n; c.mu.Unlock(); return nil }
-
-// --- Gain + Offset (offset = ASI Brightness / black level) ---
 
 func (c *PureASICamera) Gain() int    { return c.cam.Gain() }
 func (c *PureASICamera) GainMin() int { return c.gainMin }
@@ -651,15 +634,11 @@ func (c *PureASICamera) SetOffset(n int) error {
 	return c.cam.SetOffset(n)
 }
 
-// --- Exposure (async) ---
-
 func (c *PureASICamera) ExposureMin() float64        { return c.expMinSec }
 func (c *PureASICamera) ExposureMax() float64        { return c.expMaxSec }
 func (c *PureASICamera) ExposureResolution() float64 { return 1e-6 } // 1 µs
 func (c *PureASICamera) CanAbortExposure() bool      { return true }
 func (c *PureASICamera) CanStopExposure() bool       { return true }
-
-// --- Video (free-run) mode: the Alpaca Action "videomode" toggles it ---
 
 // SupportedActions advertises the device-specific Actions (CamelCase; matched
 // case-insensitively). "VideoMode" switches the camera between single-shot and continuous
@@ -1053,18 +1032,8 @@ func (c *PureASICamera) StartExposure(duration float64, light bool) error {
 		return nil
 	}
 	c.mu.Lock()
-	// Apply the ROI window now that all four of StartX/StartY/NumX/NumY are known, trimming it
-	// first to the largest window the camera accepts at this binning.
-	//
-	// ASCOM exposes no ROI-granularity property, so a client cannot know the rule and computes a
-	// full frame by dividing the sensor extent by the bin factor. That lands on a size the camera
-	// refuses whenever the extent does not divide cleanly — a 3856x2180 IMX585 gives an odd 1285
-	// columns at bin 3 and an odd 545 rows at bin 4 — and the rule is vendor policy, so no single
-	// value a client could hard-code is right for both makers. The driver trims instead and
-	// reports what it programmed, which is what an Alpaca client reads back.
-	//
-	// An out-of-range window is still a client value error (ASCOM InvalidValue): the clamp fits
-	// the size to the frame, so anything SetROI rejects after it is a real fault.
+	// Trim ROI dimensions to the camera’s binning and alignment requirements.
+	// ASCOM exposes no ROI granularity; report the programmed dimensions.
 	cx, cy, cw, ch := c.cam.ClampROI(c.startX, c.startY, c.numX, c.numY)
 	if err := c.cam.SetROI(cx, cy, cw, ch); err != nil {
 		c.mu.Unlock()
@@ -1095,14 +1064,8 @@ func (c *PureASICamera) StartExposure(duration float64, light bool) error {
 // bulk read). The deadline is 2×exposure + this.
 const readoutGrace = 20 * time.Second
 
-// runExposure arms then reads one frame. astrocam.GetDataAfterExp blocks for the whole host-timed
-// integration + readout, so this whole call lives in its own goroutine and never holds the adapter
-// mu across it (other handlers — temperature, cooler power — keep working).
-//
-// A watchdog bounds the readout: if it overruns the deadline, StopExposure unblocks the in-flight
-// bulk read so GetDataAfterExp returns and the op fails. Without it, a stalled read pins exposeOp
-// at OpBusy forever (CameraState=Exposing, Busy()=true), rejecting every later StartExposure with
-// InvalidOperation (1035) until the camera is manually aborted.
+// runExposure reads a frame without holding mu during integration or transfer.
+// The watchdog aborts stalled readout so later exposures can proceed.
 func (c *PureASICamera) runExposure(light bool) {
 	defer c.exposeWG.Done()
 	c.mu.Lock()
@@ -1268,16 +1231,8 @@ func (c *PureASICamera) LastExposureStartTime() (string, error) {
 	return c.lastStart.Format("2006-01-02T15:04:05"), nil
 }
 
-// ImageFrame returns the last readout: raw little-endian pixels, transmitted as UInt16 (RAW16)
-// or byte (RAW8), presented to clients as Int32 (ASCOM's convention for unsigned camera data).
-//
-// Orientation: Pixels is the sensor's raster order (row-major) passed straight through, with
-// Width/Height in the metadata — identical to the SDK-based asiccd driver. ASCOM
-// ImageArray[NumX][NumY] is column-major, so a raster buffer labelled [Width][Height] is the
-// transpose of the strict ASCOM order; whether a transpose is needed for correct client
-// orientation is unverified and is a shared convention question for the framework's
-// EncodeImageBytes, not an asicam-only divergence. The SDK's Flip control defaults to None
-// (max 3 = None/Horiz/Vert/Both), and asicam applies no software flip — matching that default.
+// ImageFrame returns row-major, little-endian RAW16 or RAW8 pixels.
+// The server encodes them in Alpaca wire order.
 func (c *PureASICamera) ImageFrame() (alpacadev.ImageFrame, error) {
 	if c.exposeOp.State() != alpacadev.OpDone {
 		return alpacadev.ImageFrame{}, alpacadev.ErrValueNotSet
@@ -1303,19 +1258,8 @@ func (c *PureASICamera) ImageFrame() (alpacadev.ImageFrame, error) {
 	}, nil
 }
 
-// --- Readout modes: sample size crossed with the sensor's readout programme ---
-//
-// ASCOM has one indexed list for "how the sensor is read", and on this hardware that is two
-// independent axes: the sample size (RAW8 / RAW16) and, where the die offers it, the sensor mode
-// (Normal / HDR on the IMX585). The cross product is presented as one flat list — "RAW16",
-// "RAW8", "HDR RAW16" — because a client has one control.
-//
-// NOT every combination exists. HDR is a 16-bit-only mode: the driver refuses HDR at RAW8, and so
-// does the hardware — asked for that pair the vendor SDK returns success, then programs Normal
-// registers and delivers a flat dead frame. The list is therefore built by PROBING each candidate
-// once at connect and keeping the ones the driver accepts, rather than hard-coding which pairs
-// are legal: a die whose modes are not yet decoded then advertises only what it can actually
-// deliver, and a future mode needs no change here.
+// Readout modes combine sample size and sensor mode. Probe supported pairs
+// at acquisition; HDR, for example, may require RAW16.
 
 // readoutMode is one entry in the advertised list.
 type readoutMode struct {
@@ -1412,8 +1356,6 @@ func (c *PureASICamera) SetReadoutMode(n int) error {
 	return nil
 }
 
-// --- Cooling ---
-
 func (c *PureASICamera) CanGetCoolerPower() bool    { return c.cam.Cooled() }
 func (c *PureASICamera) CanSetCCDTemperature() bool { return c.cam.Cooled() }
 
@@ -1490,8 +1432,6 @@ func (c *PureASICamera) SetSetCCDTemperature(t float64) error {
 	}
 	return nil
 }
-
-// --- Guiding (ST4) ---
 
 func (c *PureASICamera) CanPulseGuide() bool { return c.cam.ST4() }
 

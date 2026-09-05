@@ -1,6 +1,4 @@
-// Package driver is the ASCOM Alpaca Rotator device for the ZWO CAA (Camera Angle
-// Adjuster), over goasi/caa (cgo, the ZWO CAA SDK). It is served standalone by
-// cmd/asicaa; being cgo + SDK, it is not built into the vendor-free alpacahurd.
+// Package driver exposes the ZWO CAA through ASCOM Alpaca using the CAA SDK.
 package driver
 
 import (
@@ -16,7 +14,6 @@ import (
 	"github.com/mikefsq/goasi/caa"
 )
 
-// Compile-time check that the driver satisfies the Alpaca Rotator interface.
 var _ alpacadev.Rotator = (*ASIRotator)(nil)
 
 // ASIRotator adapts a goasi/caa rotator (ZWO Camera Angle Adjuster) to the
@@ -29,9 +26,7 @@ var _ alpacadev.Rotator = (*ASIRotator)(nil)
 // The CAA SDK is not safe for concurrent per-device calls; all caa access is
 // serialized by mu. mu is never held across a sleep.
 type ASIRotator struct {
-	// stopLoop ends the loop Open started and waits for it. Close calls it
-	// before releasing the handle, so a reload's replacement opens the hardware
-	// with no old loop left to re-acquire it (server.RunLoop).
+	// stopLoop cancels acquisition and waits before releasing the handle.
 	stopLoop func(time.Duration)
 	alpacadev.BaseRotator
 
@@ -67,8 +62,6 @@ func NewASIRotator(index int, serial string) *ASIRotator {
 	}
 	return r
 }
-
-// --- Hardware lifecycle (persistent owner) ---
 
 // Open starts the hardware-management goroutine and returns immediately, so the
 // Alpaca server comes up with or without a rotator attached.
@@ -190,8 +183,6 @@ func (r *ASIRotator) configureOpened(id int, serialHex string) {
 	}
 	r.hwPresent = true
 }
-
-// --- Rotator members ---
 
 // mechanicalLocked reads the raw hardware angle. Caller holds mu.
 func (r *ASIRotator) mechanicalLocked() (float64, bool) {

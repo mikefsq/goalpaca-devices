@@ -7,12 +7,7 @@ import (
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
-// init registers this driver in the goalpaca driver registry, so a composed
-// host (alpacahurd) can construct it from a config entry by importing this
-// package. Construction touches no hardware; the device connects in its own
-// acquire/monitor/re-acquire loop once served.
-// Config is the entry's driver-owned keys. Every field selects the hardware
-// to bind and applies at the next start; the setup page shows them read-only.
+// Config contains device selection and settings.
 type Config struct {
 	Addr string `json:"addr,omitempty" alpaca:"label=Address,when=start,help=host:port"`
 }
@@ -25,7 +20,7 @@ func init() {
 		ConfigExample: `{ "driver": "tenmicron", "addr": "10.0.1.51:3492", "aperture": 200, "focalLength": 1600 }`,
 		Config:        func() any { return &Config{} },
 		// 'G': the GM series are German equatorials.
-		FrontEnd:      lx200FrontEnd('G', "10micron"),
+		FrontEnd: lx200FrontEnd('G', "10micron"),
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
 			var cfg Config
 			if err := spec.Decode(&cfg); err != nil {

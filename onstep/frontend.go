@@ -13,14 +13,7 @@ import (
 	"github.com/mikefsq/lx200/bridge"
 )
 
-// lx200FrontEnd is the driver's registry.Driver.FrontEnd: when the device
-// entry sets "lx200Port" (which alone enables it), it serves a Meade-LX200
-// TCP bridge (Stellarium, SkySafari) over the same live mount, in whichever
-// process hosts the driver. One listener per host the Alpaca server binds, so
-// a "listen" restriction covers LX200 too; the bridges end when ctx does,
-// which the host cancels when the device is disabled. The bridge resolves the
-// device per command, so a reload's device swap is followed, and a nil device
-// (mid-swap) answers as not connected.
+// lx200FrontEnd serves the optional LX200 endpoint over the live mount.
 func lx200FrontEnd(mountType byte, product string) func(context.Context, func() alpacadev.Device, json.RawMessage, []string) error {
 	return func(ctx context.Context, dev func() alpacadev.Device, entry json.RawMessage, hosts []string) error {
 		var e struct {

@@ -6,13 +6,8 @@ import (
 	"github.com/mikefsq/ptp"
 )
 
-// Live view, with no transport of its own.
-//
-// ASCOM has no live-view concept, and the preview geometry (640x480 on an X-T5)
-// does not match the sensor, so this cannot go through the image members without
-// misdescribing the device. It previously had a plain-HTTP route, which was not
-// Alpaca and has been removed; reaching it now needs Action, the standard
-// extension point, which this driver does not yet implement.
+// Live view returns camera preview frames through the Go API.
+// It is not exposed through an Alpaca Action.
 
 // LiveFrame returns one preview frame as JPEG, exactly as the camera produced it.
 func (c *Camera) LiveFrame() ([]byte, error) {

@@ -5,11 +5,7 @@ import (
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
-// init registers this driver in the goalpaca driver registry, so a composed
-// host (alpacahurd) can construct it from a config entry by importing this
-// package.
-// Config is the entry's driver-owned keys. Every field selects the hardware
-// to bind and applies at the next start; the setup page shows them read-only.
+// Config contains device selection and settings.
 type Config struct {
 	Index  int    `json:"index,omitempty" alpaca:"label=Enumeration index,min=0,when=start,help=Bind the Nth attached unit; prefer Serial where the device has one"`
 	Serial string `json:"serial,omitempty" alpaca:"label=Serial,when=start,help=Bind by serial (stable across replug and start-before-plug)"`

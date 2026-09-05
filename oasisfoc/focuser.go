@@ -33,9 +33,7 @@ var debugMoves = func() bool {
 // presents as an ASCOM absolute focuser; it also has a manual clutch, so the reported
 // position can change without a commanded move (the encoder still tracks it).
 type OasisFocuser struct {
-	// stopLoop ends the loop Open started and waits for it. Close calls it
-	// before releasing the handle, so a reload's replacement opens the hardware
-	// with no old loop left to re-acquire it (server.RunLoop).
+	// stopLoop cancels acquisition and waits before releasing the handle.
 	stopLoop func(time.Duration)
 	alpacadev.BaseFocuser
 
@@ -73,8 +71,6 @@ func NewOasisFocuser(index int) *OasisFocuser {
 func (f *OasisFocuser) Absolute() bool    { return true }
 func (f *OasisFocuser) MaxStep() int      { f.mu.Lock(); defer f.mu.Unlock(); return f.maxStep }
 func (f *OasisFocuser) MaxIncrement() int { f.mu.Lock(); defer f.mu.Unlock(); return f.maxStep }
-
-// --- Hardware lifecycle (persistent owner) ---
 
 func (f *OasisFocuser) Open(ctx context.Context) error {
 	if f.openDev == nil {
@@ -192,7 +188,6 @@ func (f *OasisFocuser) openByIndex() (*oasisfoc.Oasis, error) {
 	return oasisfoc.OpenAt(devs[f.index].LocationID)
 }
 
-// --- Focuser members ---
 //
 // StepSize and TempComp are left at the BaseFocuser defaults (ASCOM
 // PropertyNotImplemented): they are optical-train values the device cannot report.

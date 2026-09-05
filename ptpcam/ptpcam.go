@@ -1,54 +1,4 @@
-// Package ptpcam presents a PTP stills camera — a Fujifilm or Sony body — as an
-// ASCOM Alpaca camera, over github.com/mikefsq/ptp and no vendor SDK.
-//
-// # These are not astro CMOS cameras
-//
-// The differences are not cosmetic, and this driver is shaped by them:
-//
-//   - A PTP body hands over a FILE, not a sensor buffer. An ASI camera's SDK
-//     gives a 16-bit array that goes straight into ImageFrame; here the camera
-//     produces a JPEG, or a vendor RAW container with metadata and compression
-//     wrapped around the pixels.
-//   - Exposure is a LADDER, not a number. An X-T5 offers 76 discrete shutter
-//     speeds and refuses anything else. StartExposure snaps to the nearest rung,
-//     and LastExposureDuration reports what was actually used — not what was
-//     asked for, which would be a fiction a client might average over.
-//   - The user's hands are on the camera. A dial in a marked position takes
-//     ownership of its setting, and writes are then ACCEPTED AND IGNORED. ASCOM
-//     has no vocabulary for that, and the driver does not pretend otherwise: a
-//     write returns without error because the camera accepted it.
-//   - There is no cooling and no gain in electrons. And Fujifilm's X-Trans is a
-//     6x6 CFA that ASCOM cannot describe at all, so those frames are reported
-//     MONOCHROME rather than claiming a mosaic that would be debayered wrongly.
-//
-// # How images leave
-//
-// Over Alpaca, and only over Alpaca.
-//
-// A RAW capture is decoded to the UNDEMOSAICED sensor readout and delivered as
-// a Rank-2, 16-bit ImageFrame: one sample per photosite, exactly where the
-// sensor put it, at the FULL readout geometry rather than the vendor's crop. Nothing is interpolated, because calibration is only valid
-// while every value still sits at its own photosite — demosaicing is the
-// client's decision to make later, if at all.
-//
-// A JPEG-only body still goes through the JPEG path, decoded to RGB planes.
-// RAW is tried first: a RAF also CONTAINS a JPEG preview, and delivering that
-// would silently hand over a 1920x1280 thumbnail where the client asked for the
-// sensor.
-//
-// Two things ASCOM cannot carry are therefore not reachable at present:
-//
-//   - The frame EXACTLY as the camera produced it. ImageBytes is defined as raw
-//     pixels in a declared element type, and its Rank-2 encoder TRANSPOSES to
-//     column-major, so a container file pushed through it is scrambled. The
-//     bytes are still kept in memory and returned by LastFile.
-//   - The live view, which both vendors produce as JPEG (640x480, ~56 KB on an
-//     X-T5). ASCOM has no live-view concept and the preview geometry does not
-//     match the sensor. Returned by LiveFrame.
-//
-// Both previously had plain-HTTP routes. Those were not Alpaca and have been
-// removed; Action is the standard extension point for reaching them, and is not
-// yet implemented here.
+// Package ptpcam exposes Fujifilm and Sony PTP cameras through ASCOM Alpaca.
 package ptpcam
 
 import (
@@ -79,9 +29,7 @@ import (
 // interfaces exist precisely for this, and this is their first real consumer —
 // which is why the vendor packages carry compile-time assertions against them.
 type Camera struct {
-	// stopLoop ends the loop Open started and waits for it. Close calls it
-	// before releasing the handle, so a reload's replacement opens the hardware
-	// with no old loop left to re-acquire it (server.RunLoop).
+	// stopLoop cancels acquisition and waits before releasing the handle.
 	stopLoop func(time.Duration)
 	alpacadev.BaseCamera
 
@@ -114,15 +62,8 @@ type Camera struct {
 	// the registered driver, nil in tests (polling path). See manageHardware.
 	HotplugFn func(context.Context) (<-chan usb.HotplugEvent, error)
 
-	// CardOnly runs the capture -> skip -> delete path: the shutter fires, the
-	// frame is deleted from the camera's buffer, and its bytes never cross USB.
-	// The photograph survives on the card, so the body MUST be configured to
-	// write one.
-	//
-	// This is the eclipse case. Transferring a 25-80 MB frame takes most of a
-	// second on a body that can shoot faster than that, and during totality the
-	// cadence is the whole point; the frames get processed afterwards. Nothing
-	// is served over Alpaca in this mode, so ImageReady stays false.
+	// CardOnly skips transfer and deletes the pending capture.
+	// The camera must save to its card; ImageReady remains false.
 	CardOnly bool
 
 	// hwPresent is the single source of truth for "is a camera attached", and
@@ -191,8 +132,6 @@ func New(id, name string, opener func() (ptp.Camera, error)) *Camera {
 	return c
 }
 
-// ---------------------------------------------------------------- geometry
-
 // GeometrySource is where CameraXSize/CameraYSize came from, for the operator's
 // benefit — a driver reporting a guessed sensor size should say so.
 type GeometrySource string
@@ -215,13 +154,7 @@ func (c *Camera) SetPixelSize(microns float64) {
 	c.pixelSize = microns
 }
 
-// PixelSizeX is the photosite pitch in microns, or 0 when it has not been
-// configured.
-//
-// This matters more than it looks: a client computes image scale from it, as
-// 206.265 * microns / focal length, so a wrong value silently mis-scales every
-// plate solve. Zero is reported rather than a guess, because a guess would be
-// indistinguishable from a measurement.
+// PixelSizeX returns the configured photosite pitch in micrometres, or zero if unset.
 func (c *Camera) PixelSizeX() float64 { return c.pixelSizeLocked() }
 
 // PixelSizeY is the same: these sensors have square photosites.
@@ -309,22 +242,9 @@ func (c *Camera) SensorName() string {
 	return c.Body.Model()
 }
 
-// SensorType is Colour: the JPEG is already demosaiced RGB. It is deliberately
-// NOT reported as Bayer/RGGB — this driver never delivers CFA data, which is
-// also how it sidesteps X-Trans being undescribable in ASCOM.
-// SensorType describes the mosaic of the frame actually delivered.
-//
-// A Bayer readout is SensorRGGB, which ASCOM can describe exactly, with the
-// phase in BayerOffsetX/Y. An X-Trans readout is reported MONOCHROME — not
-// because the pixels are grey, but because ASCOM has no value for a 6x6 CFA and
-// claiming RGGB would make a client debayer 6x6 data with a 2x2 kernel and get
-// confidently wrong colour. Silence beats a false statement; the true pattern
-// travels in the FITS/XISF header instead.
-//
-// Before any frame, this answers from the body's SensorInfo — what a capture
-// WILL produce — so a client configuring itself at connect is told the truth
-// rather than the JPEG path's SensorColor. With neither, it falls back to
-// SensorColor, which is what a JPEG-only body delivers.
+// SensorType describes the delivered frame, or the sensor before capture.
+// X-Trans is reported as monochrome because ASCOM cannot describe its 6×6 CFA.
+// Without sensor information, the fallback is RGB for JPEG captures.
 func (c *Camera) SensorType() alpacadev.SensorType {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -380,8 +300,6 @@ func (c *Camera) MaxADU() int {
 }
 
 func (c *Camera) HasShutter() bool { return true }
-
-// ---------------------------------------------------------------- exposure
 
 func (c *Camera) CanAbortExposure() bool { return false }
 func (c *Camera) CanStopExposure() bool  { return false }
@@ -587,24 +505,9 @@ func (c *Camera) expose(duration float64) error {
 	return nil
 }
 
-// collectFrame completes a capture: exactly one frame, taken off the camera and
-// then removed from it.
-//
-//	capture -> fetch -> delete    the frame crosses USB and becomes ImageFrame
-//	capture -> skip  -> delete    card-only; the bytes never move
-//
-// The delete is not housekeeping, and it is not optional in either path. A
-// Fujifilm body treats a frame sitting in its volatile store as a STUCK state,
-// not a queue: while one is pending it answers RefusedRightNow to property
-// writes, so the next exposure cannot even set its shutter. Observed on an X-T5,
-// which also keeps counting a frame as undownloaded after it has been read —
-// only the delete clears it. That is why skip still deletes: the point of the
-// operation is to unstick the camera, and transferring the bytes is the part
-// that is optional.
-//
-// Skipping is safe only when the body is writing to its card, where the
-// photograph then lives. With the card write off, the buffer copy is the only
-// one and skipping destroys it.
+// collectFrame transfers and releases a capture, or only releases it in CardOnly mode.
+// Fujifilm blocks property writes until the pending capture is deleted.
+// CardOnly requires card storage; otherwise deletion loses the only copy.
 func (c *Camera) collectFrame(skip bool) ([]byte, string, error) {
 	if c.download == nil {
 		return nil, "", fmt.Errorf("this body cannot download frames")
@@ -636,13 +539,8 @@ func (c *Camera) collectFrame(skip bool) ([]byte, string, error) {
 	}
 }
 
-// takeOne collects the frame the capture produced and deletes it.
-//
-// One exposure means one frame — Alpaca has nowhere to put a second, since
-// ImageBytes carries a single image. More than one handle therefore means
-// something went wrong rather than something to merge, so the extras are
-// reported and then deleted anyway: leaving them would wedge the camera, which
-// is worse than losing frames the driver never asked for.
+// takeOne downloads one capture and deletes all returned handles.
+// Unexpected extra handles are reported and released to avoid blocking the camera.
 func (c *Camera) takeOne(handles []uint32, skip bool) ([]byte, string, error) {
 	if len(handles) > 1 {
 		log.Printf("ptpcam: camera %s produced %d frames for one exposure (%#x); "+
@@ -675,18 +573,7 @@ func (c *Camera) takeOne(handles []uint32, skip bool) ([]byte, string, error) {
 	return data, name, nil
 }
 
-// decodeRaw turns a vendor RAW container into an ImageFrame carrying the
-// UNDEMOSAICED sensor readout.
-//
-// Rank 2, 16-bit, one sample per photosite, exactly where the sensor put it.
-// Nothing is interpolated: calibration — bias, dark, flat — is only valid while
-// every value still sits at its own photosite, so demosaicing is the client's
-// decision to make later, if at all.
-//
-// The FULL readout goes out, padding included. On an X-T5 that margin measures
-// exactly zero — it is blanking, not optical black — but it is constant in
-// every frame so it cancels in calibration, and inside it sit 24 columns and 32
-// rows of real photosites the camera does not admit to.
+// decodeRaw returns the full, undemosaiced RAW readout as a rank-2, 16-bit ImageFrame.
 func (c *Camera) decodeRaw(file []byte) (*alpaca.ImageFrame, *ptp.CFA, error) {
 	if c.rawdec == nil {
 		return nil, nil, fmt.Errorf("this body cannot decode its own RAW")
@@ -695,16 +582,8 @@ func (c *Camera) decodeRaw(file []byte) (*alpaca.ImageFrame, *ptp.CFA, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	// Alias the samples as bytes rather than copying them.
-	//
-	// ImageFrame.Pixels is []byte and CFA.Pixels is []uint16, but on a
-	// little-endian machine the bytes are already exactly what the wire wants —
-	// the copy existed only to change the static type. At 40 MP that is 81.8 MB
-	// of allocation and a full memory pass per frame, which on the Raspberry Pi
-	// this targets is worth more than the tidiness of avoiding unsafe.
-	//
-	// Guarded, not assumed: on a big-endian host the copy still happens, and
-	// the samples are byte-swapped into wire order.
+	// Alias samples on little-endian hosts to avoid a full-frame allocation.
+	// Big-endian hosts copy and byte-swap to little-endian order.
 	px := samplesAsBytes(cfa.Pixels)
 
 	return &alpaca.ImageFrame{
@@ -778,19 +657,8 @@ func decodeJPEG(data []byte) (*alpaca.ImageFrame, error) {
 	}, nil
 }
 
-// ---------------------------------------------------------------- gain / ISO
-
-// ISO is the closest thing these bodies have to gain, and ASCOM clients reach
-// for Gain, so it is mapped here — but the two are NOT the same quantity. An
-// astro camera's gain is a sensor amplifier setting in e-/ADU; ISO is a
-// standardised exposure index that folds in the whole processing chain. Nothing
-// here should be read as electrons.
-//
-// Value mode is used rather than list mode (Gains()) because the parent
-// package's ExposureControl exposes a value, not the advertised set. A request
-// off the camera's ladder is snapped by the vendor package, exactly as the
-// shutter is, so reading Gain back after setting it is the only way to know
-// what was actually applied.
+// Gain maps to ISO. Read it back after setting to obtain the camera’s
+// selected value from its supported exposure ladder.
 func (c *Camera) Gain() int {
 	if !c.hwPresent.Load() {
 		return 0

@@ -164,8 +164,7 @@ func (t *Telescope) actions() map[string]actionFn {
 				return "", err
 			}
 			if params == "" {
-				// The mount does report it, via :AF#. This used to reject an empty read
-				// because the reply command had not been identified.
+				// Read the current flip setting with :AF#.
 				on, err := m.ForcePierFlip()
 				if err != nil {
 					return "", err

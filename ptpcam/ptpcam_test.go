@@ -355,8 +355,6 @@ func TestParseSize(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- lifecycle
-
 // The endpoint must come up with NO camera attached. On a fleet box the service
 // starts at boot and the body is very likely powered off at that moment; an
 // Open that failed would take the whole device down.

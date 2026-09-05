@@ -1,13 +1,4 @@
-// Package driver is the ASCOM Alpaca ObservingConditions device for Unihedron Sky
-// Quality Meters (SQM-LU / SQM-LU-DL / SQM-LE), over the Go mikefsq/unihedron library
-// (FTDI USB-serial). It is served standalone by cmd/unihedron and can be hosted by
-// alpacahurd.
-//
-// Sensor mapping is deliberately narrow. An SQM measures exactly two things:
-//   - sky brightness in mag/arcsec²  → SkyQuality()
-//   - temperature at the light sensor → Temperature()
-//
-// Everything else returns BaseObservingConditions NotImplemented default.
+// Package driver exposes Unihedron SQM readings through ASCOM Alpaca.
 package driver
 
 import (
@@ -39,9 +30,7 @@ const cacheTTL = 10 * time.Second
 // SQM adapts a mikefsq/unihedron Sky Quality Meter to the alpacadev.ObservingConditions
 // + Hardware interfaces.
 type SQM struct {
-	// stopLoop ends the loop Open started and waits for it. Close calls it
-	// before releasing the handle, so a reload's replacement opens the hardware
-	// with no old loop left to re-acquire it (server.RunLoop).
+	// stopLoop cancels acquisition and waits before releasing the handle.
 	stopLoop func(time.Duration)
 	alpacadev.BaseObservingConditions
 

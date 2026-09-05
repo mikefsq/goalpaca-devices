@@ -20,6 +20,8 @@ github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab h1:o/B43bPe5hkY
 github.com/mikefsq/goalpaca v0.3.2-0.20260819050816-8cf78fc439ab/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/goalpaca v0.3.2-0.20260902054344-97b5d6c64d11 h1:P2s/e54wQzINnRab9hHiHqHOQ23S1MLWWfVeqjrIj2o=
 github.com/mikefsq/goalpaca v0.3.2-0.20260902054344-97b5d6c64d11/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.2-0.20260905160338-12e995ea15c0 h1:VcBguzdtDCR/vV56l/Ew7LZ3QJdNfRt4blOhxrPPnIs=
+github.com/mikefsq/goalpaca v0.3.2-0.20260905160338-12e995ea15c0/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/goasi v0.2.1-0.20260818011734-c236963482e5 h1:NgkyUE8pwb1KZt5qxZtdxrImrAwiLIp6GZyDERFpC60=
 github.com/mikefsq/goasi v0.2.1-0.20260818011734-c236963482e5/go.mod h1:jgdDPCgo05MzPh5jl/nZRgz2d1utuWBTMoEALnQMSoM=
 github.com/mikefsq/goasi v0.2.1-0.20260821215032-7011c101a08c h1:NqXwIO1f9ir5TudMfj3s8qjB7UMc46/2DyB4legHahg=

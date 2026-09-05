@@ -37,14 +37,7 @@ const (
 // unreachable target can't stall the feed loop for the others.
 var feedClient = &http.Client{Timeout: 10 * time.Second}
 
-// feedState is a target's health record: its retry bookkeeping (how many consecutive
-// pushes have failed, when it may next be tried, what went wrong last — so the log
-// reports a failure and a recovery, not the same error every cycle) plus running totals
-// an operator can read back through the FeedStatus Action.
-//
-// It survives a success — only `failures` resets — because "this target has been fine
-// for an hour but dropped 3 pushes overnight" is exactly what you want to know, and a
-// record deleted on recovery cannot tell you that.
+// feedState tracks retry backoff, consecutive failures, and lifetime feed totals.
 type feedState struct {
 	failures    int // consecutive; 0 = healthy
 	nextAttempt time.Time
@@ -319,17 +312,8 @@ func buildEnv(dev *mgpbox.MGPBox) *envPayload {
 		p.PressureHPa = ptr(me.Pressure)
 		p.TemperatureC = ptr(me.Temperature)
 		p.HumidityPct = ptr(me.Humidity)
-		// Send the dew point resolveDewpoint gives us — the box's own transducer
-		// reading, or one derived from the temperature and humidity it does report
-		// — so a consumer gets a usable value whether or not this unit carries the
-		// transducer, and gets the same value the ObservingConditions property
-		// reports for the same sample.
-		//
-		// When there is no dew point to be had, the field is omitted rather than
-		// sent as 0. `omitempty` cannot do that for us: it omits a nil pointer, not
-		// a non-nil pointer to zero. A consumer taking a 0 °C dew point at face
-		// value sees a margin of the whole air temperature ("bone dry") and
-		// switches its dew heaters off on exactly the night they are needed.
+		// Use the sensor property’s dew point. Omit unavailable values; an explicit
+		// zero would be interpreted as a measurement by feed consumers.
 		if dp, ok := resolveDewpoint(me); ok {
 			p.DewpointC = ptr(dp)
 		}

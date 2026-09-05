@@ -6,8 +6,8 @@ import (
 	"math"
 	"sync"
 
-	"github.com/mikefsq/goasi/asiair"
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	"github.com/mikefsq/goasi/asiair"
 )
 
 var _ alpacadev.Switch = (*AsiairSwitch)(nil)
@@ -41,27 +41,12 @@ const (
 	maxMainAmps = 11.0
 )
 
-// newSlots builds the switch array for a given board config.
-//
-// It is built per device rather than being a package-level var (as in smpro)
-// because which ports can dim is a property of the Pi's pin functions and the
-// applied overlay — see Config.PWMChannel. ISwitchV3 requires the metadata to be
-// static, and it is: the config is fixed for the session. The array's LENGTH is
-// also fixed at 17 across both pairings, so a saved client profile keyed on switch
-// id survives a change of pairing.
-//
-// Order is part of the public surface once clients save profiles against it;
-// append rather than reorder.
+// newSlots builds the fixed 17-slot layout for the configured PWM pairing.
+// Slot order is part of the client interface; append rather than reorder.
 func newSlots(cfg asiair.Config) []slot {
 	s := make([]slot, 0, 17)
 
-	// 0..3 — the four power ports.
-	//
-	// A port that the config gives a PWM channel is advertised as a 0..100 duty
-	// cycle; the rest are plain booleans. That difference is the Pi's silicon, not
-	// a choice: the PWM peripheral reaches the header on two channels only, so at
-	// most two of the four ports can dim, and GPIO 26 (Port 3) has no PWM
-	// alt-function at all.
+	// PWM ports accept duty percentages; other power ports are on/off.
 	for i := 0; i < asiair.NumPorts; i++ {
 		p := asiair.Port(i)
 		n := i + 1
@@ -84,14 +69,7 @@ func newSlots(cfg asiair.Config) []slot {
 		})
 	}
 
-	// 4 — the DSLR shutter contact.
-	//
-	// This is a LEVEL, not a momentary. The ASCOM Switch FAQ does advise momentary
-	// action on one edge of SetSwitch — but a DSLR bulb exposure requires the
-	// contact to be HELD closed for the whole exposure, so a momentary switch could
-	// not express what this line actually does. 1 = contact closed = exposing.
-	// Timed runs (N frames × duration + gap) have no home in ISwitchV3 at all and
-	// live on the Action seam; see actions.go.
+	// The shutter is held closed at 1 for bulb exposures. Actions provide timing.
 	s = append(s, slot{
 		name: "DSLR Shutter", desc: "DSLR shutter contact (1 = closed, exposing)",
 		min: 0, max: 1, step: 1,
@@ -158,15 +136,7 @@ func newSlots(cfg asiair.Config) []slot {
 	return s
 }
 
-// nonNeg clamps a sensor reading to zero.
-//
-// The ADS1015 result is signed, and a current shunt at zero load sits a hair
-// below zero — a real front end dithers a millivolt either side from offset and
-// noise, so an idle port genuinely reads about −12 mA. That is the truth, and the
-// library reports it. But ISwitchV3 requires GetSwitchValue to fall within
-// MinSwitchValue..MaxSwitchValue, and a MinSwitchValue of −0.05 A on a current
-// sensor is a worse lie to a client UI than clamping the noise away. So: clamp
-// here, at the ASCOM boundary, and leave the library honest.
+// nonNeg clamps negative ADC noise to the advertised minimum of zero.
 func nonNeg(v float64, err error) (float64, error) {
 	if v < 0 {
 		v = 0
@@ -191,18 +161,7 @@ func getDimmable(b *asiair.Board, p asiair.Port) (float64, error) {
 	return 0, err
 }
 
-// setDimmable writes a port advertised as a 0..100 duty.
-//
-// The awkward case is a port the config says is dimmable but the hardware is not,
-// because the pwm-2chan overlay was never applied and Open fell back to a plain
-// GPIO line. Then 0 and 100 still work — off and on — and only a fractional duty
-// is genuinely impossible.
-//
-// So refuse only the fractional case, and say why. Refusing 0 and 100 as well
-// would leave the port unusable through this slot entirely, which is a bad answer
-// for a camera. Silently rounding 60% up to full power is a worse one: the user
-// would never learn that their dew heater has no PWM, and would spend a season
-// wondering why it only ever runs flat out.
+// setDimmable writes duty percent. Without PWM, only 0 and 100 are supported.
 func setDimmable(b *asiair.Board, p asiair.Port, v float64) error {
 	pct := int(math.Round(v))
 	if b.Dimmable(p) {
@@ -253,26 +212,7 @@ func NewSwitch(hub *Hub) *AsiairSwitch {
 	return s
 }
 
-// --- Lifecycle ---
-//
-// Two different things are going on here, and conflating them is the mistake this
-// driver most wants to avoid.
-//
-//   - The BOARD is hardware. It is opened once at Hardware startup (Open) and
-//     released once at Hardware teardown (Close). It is owned by the PROCESS.
-//   - CONNECTED is an ASCOM client's logical session. Connect and Disconnect flip
-//     it, and operational members fault with NotConnected while it is false. It is
-//     owned by the CLIENT.
-//
-// ASCOM requires Connected to go false after Disconnect. It does NOT require the
-// hardware to be released — and here it must not be, because the on/off ports are
-// held by GPIO character-device line requests that the kernel reverts the moment
-// their fd closes. Tying the board's lifetime to the client's would mean that any
-// client disconnecting mid-session cuts power to whatever is on ports 3 and 4:
-// typically the mount, which loses its position, and the camera, which loses its
-// cooling.
-//
-// So Disconnect drops the session and keeps the power on. Both halves matter.
+// Disconnect clears logical state while retaining GPIO requests and port power.
 
 func (s *AsiairSwitch) Open(ctx context.Context) error { return s.hub.Open(ctx) }
 
@@ -316,8 +256,6 @@ func (s *AsiairSwitch) board() (*asiair.Board, error) {
 	}
 	return s.hub.Board()
 }
-
-// --- ISwitchV3 ---
 
 func (s *AsiairSwitch) MaxSwitch() int { return len(s.slots) }
 

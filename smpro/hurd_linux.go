@@ -1,9 +1,4 @@
-// The _linux suffix is this driver's platform declaration: the I2C, SPI, and
-// UART buses it drives exist only on Linux SBCs, so registration compiles only
-// there. On every other platform the package still builds (a fat alpacahurd
-// blank-imports it anywhere) but registers nothing, so the driver is absent
-// from that host's registry and a device entry naming it degrades to the
-// skipped-entry path. See alpacahurd's DRIVERS.md, "Platform-specific drivers".
+// Registration is Linux-only; other platforms import the package without registering devices.
 package driver
 
 import (
@@ -17,16 +12,7 @@ import (
 // and status LED, the Focuser drives the TMC2209 UART and nothing else. Nothing
 // is shared between them, so they run equally well in one process or two.
 
-// SwitchConfig and FocuserConfig are each device's driver-owned keys. Every
-// field overrides one part of the wiring stellarmate detects for the compute
-// module; a key left out keeps the detected value, which is right on both the
-// CM4 and the CM5 with no entry at all.
-//
-// The dew-heater PWM chip is deliberately not a key. It is the one field that
-// moves between modules (pwmchip2 on the CM4, pwmchip0 on the CM5), and
-// detecting it is exactly what stellarmate.DefaultConfig does; exposing it would
-// offer a setting whose only correct value is the one already chosen, with 0 a
-// legitimate value that could not be told from "unset".
+// SwitchConfig overrides detected switch wiring. Unset fields retain board defaults.
 type SwitchConfig struct {
 	I2CBus string `json:"i2cBus,omitempty" alpaca:"label=I2C bus,when=start,help=Expander/DAC/EEPROM bus node; blank uses the detected /dev/i2c-1"`
 	SPIDev string `json:"spiDev,omitempty" alpaca:"label=ADC SPI device,when=start,help=Voltage-sensing ADC node; blank uses the detected spidev"`
@@ -66,9 +52,6 @@ func focuserCfg(c FocuserConfig) stellarmate.Config {
 	return cfg
 }
 
-// init registers both SM Pro devices in the goalpaca driver registry, so a
-// composed host (alpacahurd) can construct them from config entries by
-// importing this package.
 func init() {
 	registry.Register(registry.Driver{
 		Name:          "smpro-switch",

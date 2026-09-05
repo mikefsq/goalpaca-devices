@@ -10,16 +10,8 @@ import (
 	"time"
 )
 
-// sky is the single physical source of truth for the simulated closed guide loop:
-// the mount's accumulated pointing error (arc-seconds) relative to where the guide
-// star was locked. It is driven by the mount's own state — the sky rotating past a
-// mount that isn't tracking, periodic error, and polar-misalignment drift — and
-// reduced by guide pulses at the mount's guide rate. The camera projects this error
-// onto the sensor and the mount reports it as an RA/Dec offset, so the reported
-// pointing and the guide-star image are the same quantity and can never disagree.
-//
-// Package-level because the sim mount and sim camera are separate registry devices
-// that must share one sky.
+// sky holds pointing error shared by the mount and camera, in arcseconds.
+// Tracking, drift, periodic error, and guide pulses update the same model.
 var sky = newGuideModel()
 
 // siderealArcsecPerSec is the sky's apparent rotation rate on the RA axis. With

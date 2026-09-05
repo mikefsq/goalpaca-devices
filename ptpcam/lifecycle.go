@@ -11,24 +11,8 @@ import (
 	"github.com/mikefsq/ptp/usb"
 )
 
-// Hardware lifecycle, following the pattern astrocam established.
-//
-// The Alpaca endpoint must come up with or WITHOUT a camera attached: on a
-// fleet box the service starts at boot, and the body is very likely powered off
-// at that moment, or gets power-cycled later. So Open never fails for absence —
-// it starts a supervisor that acquires the camera whenever one appears and
-// re-acquires it after it goes away.
-//
-// Two different failures have to be told apart, because they are detected
-// differently:
-//
-//   - PHYSICAL ABSENCE. The body was unplugged or powered off. Caught by
-//     AliveFn, which reads the OS USB registry and never touches the open
-//     camera — a probe that sent PTP traffic would compete with an exposure in
-//     flight, and on a body mid-capture that is exactly the wrong moment.
-//   - A WEDGED SESSION. The camera is still on the bus but has stopped
-//     answering: ptp.ErrNotResponding. AliveFn cannot see this, because the
-//     device is still enumerated. Operations that hit it set needsReconnect.
+// AliveFn detects USB absence without camera traffic. ErrNotResponding
+// requests recovery when the device is present but its session has failed.
 
 // acquireInterval is how often to look for a camera that is not there yet, and
 // maxMisses how many consecutive absent probes before tearing down. The
@@ -47,11 +31,7 @@ func (c *Camera) Open(ctx context.Context) error {
 	return nil
 }
 
-// Close releases the camera on graceful shutdown only.
-//
-// The handback is not politeness: a Fujifilm body left in PC Priority has its
-// dials, buttons and shutter dead in its owner's hands, and a Sony can be left
-// with its shutter held down.
+// Close stops acquisition, releases the camera, and restores local controls.
 func (c *Camera) Close(ctx context.Context) error {
 	if c.stopLoop != nil {
 		c.stopLoop(10 * time.Second) // end the loop Open started before the handle goes

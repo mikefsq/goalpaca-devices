@@ -1,15 +1,4 @@
-// Command asicam exposes ZWO ASI cameras as a standalone ASCOM Alpaca server using
-// the goalpaca/server (alpacadev) library and the pure-Go asicam driver — no ZWO
-// libASICamera2 SDK. The USB transport is IOKit (macOS) / usbfs (Linux) / WinUSB (Windows).
-//
-// One process serves one Alpaca port with one camera device per entry of the
-// config file's "cameras" array (device 0, 1, … in array order), so every
-// camera stays reachable through a single discovered server for clients that
-// stop at the first one. The array defaults to two entries. -config takes
-// the same device file an orchestrator keeps in devices.d, so the binary runs
-// identically by hand and under `alpacahurd -launch` (which passes
-// `-discovery register -config <file>`); the -serial flag remains the file-less
-// way to run it, and a second copy on another port serves a second camera set.
+// Command astrocam serves the astrocam driver.
 package main
 
 import (

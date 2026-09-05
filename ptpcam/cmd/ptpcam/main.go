@@ -1,14 +1,4 @@
-// Command ptpcam serves a Fujifilm or Sony stills camera as a standalone ASCOM
-// Alpaca Camera, over PTP with no vendor SDK.
-//
-// The binary is devicemain.Run over the registered driver: every flag
-// (-config, -port, one per config key, -discovery, -check, -schema), the setup
-// form, persistence, and discovery come from the library. The driver package
-// supplies the hardware knowledge and registers itself on import; importing it
-// also pulls in ptp/fuji and ptp/sony, whose init functions register the
-// vendors that USB enumeration then sees.
-//
-// -list is the one flag of its own: it prints the attached cameras and exits.
+// Command ptpcam serves the ptpcam driver.
 package main
 
 import (

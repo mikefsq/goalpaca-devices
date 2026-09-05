@@ -21,13 +21,7 @@ func rawHasKey(raw json.RawMessage, key string) bool {
 	return ok
 }
 
-// init registers this driver in the goalpaca driver registry, so a composed
-// host (alpacahurd) can construct it from a config entry by importing this
-// package. The blank sensors import above makes every decoded sensor profile
-// available to any host that compiles this driver in.
-// Config is the astrocam entry's driver-owned keys: which camera to bind and
-// how to run it. Index and Serial select the hardware and apply at the next
-// start; FixDefects and FpsPercent are live and change through the setup page.
+// Config contains device selection and settings.
 type Config struct {
 	Index      int    `json:"index,omitempty"      alpaca:"label=Enumeration index,min=0,when=start,help=Bind the Nth attached camera; prefer Serial"`
 	Serial     string `json:"serial,omitempty"     alpaca:"label=Serial,when=start,help=Factory serial (hex); stable across replug and start-before-plug"`
@@ -128,10 +122,7 @@ func (s *ccdSource) SetSubframe(x, y, w, h int) error {
 	return s.c.SetNumY(h)
 }
 
-// indiCamera adds the LiveCamera seam to the Alpaca camera, so a host can serve
-// it over INDI as a guide camera. The driver is embedded (Alpaca behaviour
-// unchanged); LiveCamera gates on a live hardware connection so the INDI CCD
-// device drives the camera only once it is acquired.
+// indiCamera exposes an acquired Alpaca camera through the INDI CCD interface.
 type indiCamera struct {
 	*PureASICamera
 	src ccd.Camera

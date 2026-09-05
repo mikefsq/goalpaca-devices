@@ -17,7 +17,6 @@ const arcsecPerDeg = 3600.0
 // to convert ASCOM DeclinationRate (arcsec/s) to the mount's multiples-of-sidereal.
 const siderealArcsecPerSec = 15.0410681
 
-// --- Mount geometry ---------------------------------------------------------
 // 10Micron GM-series German-equatorial mounts report apparent (Jnow) coordinates.
 
 func (t *Telescope) AlignmentMode() alpacadev.AlignmentMode {
@@ -27,8 +26,6 @@ func (t *Telescope) AlignmentMode() alpacadev.AlignmentMode {
 func (t *Telescope) EquatorialSystem() alpacadev.EquatorialCoordinateType {
 	return alpacadev.EquTopocentric
 }
-
-// --- Capabilities now supported ---------------------------------------------
 
 func (t *Telescope) CanSlewAltAz() bool             { return true }
 func (t *Telescope) CanSlewAltAzAsync() bool        { return true }
@@ -66,7 +63,6 @@ func (t *Telescope) SetSideOfPier(side alpacadev.PierSide) error {
 	}
 }
 
-// --- Custom tracking-rate offsets -------------------------------------------
 // No mount read-back, so the last-set value is cached. ASCOM RightAscensionRate
 // (seconds of RA per sidereal second) maps 1:1 to the mount's :RR rate (multiples of
 // sidereal). ASCOM DeclinationRate (arcsec/SI-second) is divided by the sidereal rate
@@ -107,7 +103,6 @@ func (t *Telescope) SetDeclinationRate(arcsecPerSec float64) error {
 	return nil
 }
 
-// --- Optics (instrument profile, set via flags) -----------------------------
 // The mount cannot report optics; these are configured at startup so ASCOM clients
 // read consistent values.
 
@@ -126,8 +121,6 @@ func (t *Telescope) SetOptics(diameterMeters, areaSqMeters, focalLengthMeters fl
 	}
 	t.opticsStore().SetOptics(diameterMeters, areaSqMeters, focalLengthMeters, diameterMeters, focalLengthMeters)
 }
-
-// --- Alt/Az goto + sync (ASCOM order is azimuth, altitude) ------------------
 
 func (t *Telescope) SlewToAltAzAsync(azimuth, altitude float64) error {
 	if !validAltAz(azimuth, altitude) {
@@ -162,8 +155,6 @@ func (t *Telescope) SyncToAltAz(azimuth, altitude float64) error {
 func validAltAz(az, alt float64) bool {
 	return az >= 0 && az <= 360 && alt >= -90 && alt <= 90
 }
-
-// --- Guide rates (ASCOM deg/s; the mount uses one rate for both axes) --------
 
 func (t *Telescope) GuideRateRightAscension() float64 { return t.guideRate() }
 func (t *Telescope) GuideRateDeclination() float64    { return t.guideRate() }
@@ -203,8 +194,6 @@ func (t *Telescope) setGuideRate(degPerSec float64) error {
 	return nil
 }
 
-// --- Refraction (the default reported false; the mount has a refraction model) -
-
 // DoesRefraction is snapshot-served (poller slow set + SetDoesRefraction); no mount I/O.
 func (t *Telescope) DoesRefraction() bool { return t.getB(&t.snap.doesRefraction) }
 
@@ -223,8 +212,6 @@ func (t *Telescope) SetDoesRefraction(on bool) error {
 	t.setB(&t.snap.doesRefraction, on)
 	return nil
 }
-
-// --- Set-park + destination-side-of-pier ------------------------------------
 
 func (t *Telescope) SetPark() error {
 	m := t.mount()
@@ -257,8 +244,6 @@ func (t *Telescope) DestinationSideOfPier(ra, dec float64) (alpacadev.PierSide, 
 	}
 	return alpacadev.PierSide(ps), nil // lx200/alpacadev PierSide share values (-1/0/1)
 }
-
-// --- Pulse-guiding state (the default was always false) ----------------------
 
 func (t *Telescope) IsPulseGuiding() bool {
 	t.mu.Lock()

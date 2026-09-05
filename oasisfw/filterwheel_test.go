@@ -147,8 +147,6 @@ func TestOasisWheelMoving(t *testing.T) {
 	}
 }
 
-// --- Action tests ---
-
 func wcfgReply() []byte { // 0x30: speed 0, autorun 1, bt 0, turbo 0
 	r := make([]byte, 10)
 	r[0], r[1] = 0x30, 0x08
@@ -255,7 +253,6 @@ func TestOasisWheelActions(t *testing.T) {
 	}
 }
 
-// --- Tier-2 hardware end-to-end test (gated; opens the REAL wheel) ---
 //
 // Mirrors the host pattern (asiefw TestAlpacaHardware): open the real device through
 // the driver's normal Open() lifecycle, serve it on a real Alpaca server behind httptest,

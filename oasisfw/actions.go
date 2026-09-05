@@ -15,17 +15,8 @@ type (
 	oasisConfig = oasisfw.Config
 )
 
-// The Oasis filter wheel exposes more than ASCOM IFilterWheel (Names/FocusOffsets/
-// Position): identity, temperature, the config block (speed/autorun/bluetooth/turbo),
-// calibrate, per-slot names/offsets/colors, and friendly/bluetooth names, surfaced via
-// the Action seam.
-//
-// Conventions (goalpaca standard): names are advertised in CamelCase and matched
-// case-insensitively. Config fields are single read/write actions — EMPTY params reads, a
-// value writes (put/empty = read). Read-only telemetry rejects a params value. The per-slot
-// actions are the exception: their read takes the slot index as params and their write takes
-// "slot:value", so the index is required both ways and they stay a read + SetX pair rather
-// than one dual-mode action.
+// Actions expose wheel settings and telemetry. Empty parameters read settings;
+// slot reads take an index and slot writes take "slot:value".
 var wheelActions = []string{
 	// identity / telemetry (read-only)
 	"Serial", "Model", "HardwareVersion", "FirmwareVersion", "FirmwareBuildDate",
@@ -57,7 +48,6 @@ func (w *OasisWheel) Action(name, params string) (string, error) {
 
 	switch strings.ToLower(strings.TrimSpace(name)) {
 
-	// --- identity / telemetry (read-only) ---
 	case "serial":
 		return ro(params, d.Serial)
 	case "model":
@@ -88,7 +78,6 @@ func (w *OasisWheel) Action(name, params string) (string, error) {
 				c.Speed, c.Autorun, c.BluetoothOn, c.Turbo), nil
 		})
 
-	// --- config (read/write: empty reads, a value writes) ---
 	case "speed":
 		return rwI(params, cfgField(d, func(c oasisConfig) int { return c.Speed }),
 			func(n int32) error { return d.SetSpeed(int(n)) })
@@ -103,7 +92,6 @@ func (w *OasisWheel) Action(name, params string) (string, error) {
 	case "bluetoothname":
 		return rwS(params, d.BluetoothName, d.SetBluetoothName)
 
-	// --- per-slot reads (params = slot index) ---
 	case "slotname":
 		s, err := parseInt(params)
 		if err != nil {
@@ -127,7 +115,6 @@ func (w *OasisWheel) Action(name, params string) (string, error) {
 		}
 		return fmt.Sprintf("%#08x", c), nil
 
-	// --- per-slot writes (params = "slot:value") ---
 	case "setslotname":
 		slot, val, err := splitSlot(params)
 		if err != nil {
@@ -155,7 +142,6 @@ func (w *OasisWheel) Action(name, params string) (string, error) {
 		}
 		return ok(d.SetColor(slot, uint32(c)))
 
-	// --- maintenance ---
 	case "calibrate":
 		return trigger(params, d.Calibrate)
 	case "factoryreset":
@@ -167,8 +153,6 @@ func (w *OasisWheel) Action(name, params string) (string, error) {
 
 	return "", alpacadev.ErrActionNotImplemented
 }
-
-// --- dispatch helpers (shared shape across the host's Action drivers) ---
 
 // ro runs a read-only getter, rejecting a params value.
 func ro(params string, get func() (string, error)) (string, error) {
@@ -224,8 +208,6 @@ func roErr() error {
 func noValErr() error {
 	return alpacadev.NewError(alpacadev.ErrNumInvalidValue, "action takes no value")
 }
-
-// --- value helpers ---
 
 // ok maps a library error to the standard action result ("ok" on success, else the error).
 func ok(err error) (string, error) {

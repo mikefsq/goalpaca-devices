@@ -7,11 +7,7 @@ import (
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
-// init registers this driver in the goalpaca driver registry, so a composed
-// host (alpacahurd) can construct it from a config entry by importing this
-// package.
-// Config is the entry's driver-owned keys. Every field selects the hardware
-// to bind and applies at the next start; the setup page shows them read-only.
+// Config contains device selection and settings.
 type Config struct {
 	Serial string `json:"serial,omitempty" alpaca:"label=Serial,when=start,help=Bind by serial (stable across replug and start-before-plug)"`
 	Addr   string `json:"addr,omitempty" alpaca:"label=Address,when=start,help=host:port"`
@@ -25,7 +21,7 @@ func init() {
 		ConfigExample: `{ "driver": "asiam5", "serial": "0123456789ABCDEF" }`,
 		Config:        func() any { return &Config{} },
 		// 'G': the AM series track as German-style equatorials ('A' for alt-az installs).
-		FrontEnd:      lx200FrontEnd('G', "ZWO AM"),
+		FrontEnd: lx200FrontEnd('G', "ZWO AM"),
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
 			var cfg Config
 			if err := spec.Decode(&cfg); err != nil {

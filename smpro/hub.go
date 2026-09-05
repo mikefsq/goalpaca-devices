@@ -42,9 +42,8 @@ func NewHub(cfg stellarmate.Config, subs stellarmate.Subsystem) *Hub {
 	}}
 }
 
-// Open opens the board on the first call and refcounts the rest. Warnings from
-// optional subsystems that did not come up are logged, matching the library's
-// best-effort treatment of the ADC/DAC/PWM/focuser.
+// Open acquires the board on the first call and increments its reference count.
+// Nonfatal hardware warnings are logged.
 func (h *Hub) Open(ctx context.Context) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()

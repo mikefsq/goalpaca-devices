@@ -164,8 +164,6 @@ func TestOasisFocuserMovingAndDisconnected(t *testing.T) {
 // serve2 registers a second device on a fresh server (avoids index-0 clash).
 func serve2(t *testing.T, foc *OasisFocuser) string { return serve(t, foc) }
 
-// --- scripted replies for the Action tests ---
-
 func cfgReply() []byte { // 0x30 part-1: maxStep 80000, beeps on
 	r := make([]byte, 20)
 	r[0], r[1] = 0x30, 0x12
@@ -292,7 +290,6 @@ func TestOasisFocuserActions(t *testing.T) {
 	}
 }
 
-// --- Tier-2 hardware end-to-end test (gated; opens the REAL focuser) ---
 //
 // Mirrors the host pattern (asieaf/asiefw TestAlpacaHardware): open the real device via
 // the driver's normal Open() lifecycle, serve it on a real Alpaca server behind httptest,

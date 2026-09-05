@@ -5,19 +5,7 @@ import (
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
-// init registers this driver in the goalpaca driver registry, so a composed
-// host (alpacahurd) can construct it from a config entry by importing this
-// package.
-// Config is the mgpbox entry's driver-owned keys. Index and Serial bind the
-// box and apply at the next start. Feed lists the Alpaca devices the box pushes
-// its GPS + weather snapshot to, via each one's setenvironment Action; a
-// tenmicron telescope takes the pressure/temperature refraction datums plus the
-// site and time, and an SM Pro switch takes temperature, humidity and dew point
-// for its dew heaters. Every consumer ignores what it does not understand, so
-// one snapshot serves them all. Feed is a list and stays a config-file matter,
-// so the setup page omits it. MountAddr and MountDevice are the historical
-// single-telescope spelling, kept so existing configs keep working; together
-// they equal one Feed entry of type "telescope".
+// Config contains device selection and settings.
 type Config struct {
 	Index       int          `json:"index,omitempty"       alpaca:"label=Enumeration index,min=0,when=start,help=Bind the Nth attached unit; prefer Serial"`
 	Serial      string       `json:"serial,omitempty"      alpaca:"label=Serial,when=start,help=FTDI serial (stable across replug)"`

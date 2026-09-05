@@ -190,10 +190,7 @@ func TestGuideRate(t *testing.T) {
 		t.Errorf("SetGuideRate did not send :Rg07.500#; writes=%v", f.writes)
 	}
 
-	// The library now sends the rate verbatim (its own clamp was removed), so the
-	// Alpaca layer is the sole enforcer of the mount's [0.1×, 1.0×] sidereal band and
-	// must report the clamped value it actually sent. Above 1.0× sidereal clamps down
-	// to 15.041"/s (:Rg15.041#).
+	// The driver must enforce the advertised rate bounds before calling the library.
 	base2, f2 := newStack(t, map[string]string{":Ggui#": "7.50#"})
 	if r := put(t, base2, "guideraterightascension", "GuideRateRightAscension=0.006"); r.ErrorNumber != 0 { // 21.6"/s
 		t.Errorf("set high guiderate: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
@@ -582,7 +579,7 @@ func TestSetEnvironmentReadOnEmpty(t *testing.T) {
 }
 
 func TestRefractionAliasReadsOnEmpty(t *testing.T) {
-	// The legacy setrefraction* names now read on empty (aliased to the RW actions).
+	// Legacy setrefraction names also support reads with empty parameters.
 	base, f := newStack(t, map[string]string{":GRPRS#": "980.5#", ":GRTMP#": "-3.0#"})
 	if r := put(t, base, "action", "Action=setrefractionpressure&Parameters="); r.ErrorNumber != 0 || r.Value != "980.5" {
 		t.Errorf("setrefractionpressure read = %v (err %d), want \"980.5\"", r.Value, r.ErrorNumber)
