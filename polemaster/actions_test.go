@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -52,5 +53,32 @@ func TestPixelScaleHTTP(t *testing.T) {
 				t.Fatalf("HTTP %d: %s", w.Code, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestImageReadyReportsExposureFailureHTTP(t *testing.T) {
+	p := newTestDriver(t, newFake())
+	defer p.Close(context.Background())
+	p.exposeOp.TryBegin()
+	p.exposeOp.Fail(errors.New("USB stream recovery failed"))
+	srv := alpacadev.New(alpacadev.Config{Discovery: alpacadev.DiscoveryConfig{Mode: alpacadev.DiscoveryOff}})
+	if err := srv.Register(alpacadev.CameraType, 0, p); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/api/v1/camera/0/imageready?ClientID=1&ClientTransactionID=1", nil)
+	w := httptest.NewRecorder()
+	srv.ServeHTTP(w, req)
+	var got struct {
+		ErrorNumber  int
+		ErrorMessage string
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ErrorNumber == 0 || !strings.Contains(got.ErrorMessage, "USB stream recovery failed") {
+		t.Fatalf("failed exposure reported success: %s", w.Body.String())
+	}
+	if p.CameraState() != alpacadev.CameraError {
+		t.Fatal("failure did not set camera error state")
 	}
 }

@@ -189,6 +189,8 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 
 // Open a camera and restore the selected readout depth before reporting presence.
 func (p *PoleMaster) tryAcquire() {
+	// A failed capture leaves an open handle. Release it before opening again.
+	p.teardown()
 	cam, err := p.openDev()
 	if err != nil {
 		return
@@ -549,6 +551,10 @@ func (p *PoleMaster) AbortExposure() error {
 	p.aborted.Store(true)
 	return nil
 }
+
+// ExposureError lets the Alpaca server report a failed asynchronous exposure
+// through ImageReady's error envelope, until the next exposure starts.
+func (p *PoleMaster) ExposureError() error { return p.exposeOp.Err() }
 
 func (p *PoleMaster) ImageReady() bool { return p.exposeOp.State() == alpacadev.OpDone }
 
