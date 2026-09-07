@@ -1,6 +1,7 @@
 # Build standalone drivers into bin/.
 DRIVERS := tenmicron asiam5 rst onstep astrocam asieaf asiefw \
-           focuscube focuslynx oasisfoc oasisfw mgpbox unihedron ptpcam sim
+           focuscube focuslynx oasisfoc oasisfw mgpbox unihedron ptpcam \
+           polemaster sim
 
 SDK_DRIVERS := asiccd asicaa
 
@@ -11,7 +12,7 @@ moduledir = $(if $(filter smpro-switch smpro-focuser,$(1)),smpro,$(1))
 
 BIN := bin
 
-.PHONY: build help all sdk pi deb head deps-head alpacasim vet tidy clean install uninstall $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS)
+.PHONY: build help all sdk pi deb head deps deps-head alpacasim vet tidy clean install uninstall $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS)
 
 PREFIX ?= /usr/local
 DESTDIR ?=
@@ -101,17 +102,28 @@ vet: ## go vet every module
 
 head: deps-head
 
-deps-head: ## update mikefsq dependencies to main
-	@for d in $(DRIVERS) $(SDK_DRIVERS) $(PI_MODULES); do \
+deps: deps-head ## update mikefsq dependencies to main (no release tags needed)
+
+# Resolve branch heads outside each module's graph before replacing placeholder versions.
+deps-head: ## update mikefsq dependencies to main (no release tags needed)
+	@set -e; querydir=$$(mktemp -d); \
+	trap 'rm -rf "$$querydir"' EXIT HUP INT TERM; \
+	printf 'module deps-head-query\ngo 1.25.0\n' > "$$querydir/go.mod"; \
+	for d in $(DRIVERS) $(SDK_DRIVERS) $(PI_MODULES); do \
 		echo "head $$d"; \
 		( cd $$d && \
+		  mods=$$(grep -oE 'github.com/mikefsq/[a-z0-9./-]+' go.mod | grep -v goalpaca-devices | sort -u); \
+		  set --; for m in $$mods; do set -- "$$@" "$$m@main"; done; \
+		  if [ "$$#" -gt 0 ]; then \
+			refs=$$(cd "$$querydir" && GOWORK=off GOFLAGS= go list -m -f '{{.Path}}@{{.Version}}' "$$@") || exit 1; \
+			set --; for ref in $$refs; do set -- "$$@" "-require=$$ref"; done; \
+			GOWORK=off go mod edit "$$@" || exit 1; \
+		  fi; \
 		  for r in $$(grep -oE '^replace github.com/mikefsq/[a-z0-9./-]+' go.mod | awk '{print $$2}'); do \
-			GOWORK=off go mod edit -dropreplace=$$r; \
+			GOWORK=off go mod edit -dropreplace=$$r || exit 1; \
 		  done; \
-		  for m in $$(grep -oE 'github.com/mikefsq/[a-z0-9./-]+' go.mod | grep -v goalpaca-devices | sort -u); do \
-			GOWORK=off GOFLAGS=-mod=mod go get $$m@main > /dev/null 2>&1 || echo "  could not reach $$m@main"; \
-		  done; \
-		  GOWORK=off GOFLAGS=-mod=mod go mod download all > /dev/null 2>&1 ) || exit 1; \
+		  if [ -n "$$mods" ]; then GOWORK=off GOFLAGS=-mod=mod go get $$refs || exit 1; fi; \
+		  GOWORK=off GOFLAGS=-mod=mod go mod download all ) || exit 1; \
 	done
 	@echo "run 'make deb' to confirm every module still builds from its go.mod"
 

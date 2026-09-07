@@ -13,16 +13,15 @@ Use [alpacahurd](https://github.com/mikefsq/alpacahurd) to manage several driver
 | Telescope | [asiam5](asiam5/README.md) | ZWO AM-series, serial or TCP |
 | Telescope | [rst](rst/README.md) | Rainbow Astro RST, USB-serial |
 | Telescope | [onstep](onstep/README.md) | OnStep / OnStepX, serial or TCP |
-| Camera | [astrocam](astrocam/README.md) | USB astronomy cameras, no vendor SDK |
+| Camera | [astrocam](astrocam/README.md) | USB astronomy cameras |
 | Camera | [ptpcam](ptpcam/README.md) | Fujifilm and Sony USB PTP cameras |
-| Camera | [asiccd](asiccd/README.md) | ZWO ASI cameras, ZWO SDK |
+| Camera | [polemaster](polemaster/README.md) | QHY PoleMaster |
 | Focuser | [asieaf](asieaf/README.md) | ZWO EAF |
 | Focuser | [focuscube](focuscube/README.md) | Pegasus FocusCube / DMFC |
 | Focuser | [focuslynx](focuslynx/README.md) | Optec FocusLynx / ThirdLynx |
 | Focuser | [oasisfoc](oasisfoc/README.md) | Astroasis Oasis |
 | Filter wheel | [asiefw](asiefw/README.md) | ZWO EFW |
 | Filter wheel | [oasisfw](oasisfw/README.md) | Astroasis Oasis |
-| Rotator | [asicaa](asicaa/README.md) | ZWO CAA, ZWO SDK |
 | Observing conditions | [mgpbox](mgpbox/README.md) | Astromi.ch MGPBox weather and GPS |
 | Observing conditions | [unihedron](unihedron/README.md) | Unihedron SQM |
 | Switch | [asiair](asiair/README.md) | ZWO ASIAIR power board; runs on its Pi |

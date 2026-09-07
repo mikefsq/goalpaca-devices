@@ -6,3 +6,5 @@ github.com/mikefsq/goalpaca v0.3.2-0.20260905160338-12e995ea15c0 h1:VcBguzdtDCR/
 github.com/mikefsq/goalpaca v0.3.2-0.20260905160338-12e995ea15c0/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/ptp v0.0.0-20260819023716-4dce94a699a8 h1:zTd6nammNW3KzxukPkxHpCYxWE9V4jJYWBdhD67CrWA=
 github.com/mikefsq/ptp v0.0.0-20260819023716-4dce94a699a8/go.mod h1:883GNtGyqVtKCfy8mPTFJrBOL8rhNXR4KQ0DlAgSjUg=
+github.com/mikefsq/ptp v0.0.0-20260905171255-0fe3c68516f8 h1:r7I7nRcHA0OEwFUfiFjvw6s2I1buU2feW/OVgduD/+o=
+github.com/mikefsq/ptp v0.0.0-20260905171255-0fe3c68516f8/go.mod h1:883GNtGyqVtKCfy8mPTFJrBOL8rhNXR4KQ0DlAgSjUg=

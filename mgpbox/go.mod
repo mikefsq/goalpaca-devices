@@ -3,7 +3,7 @@ module github.com/mikefsq/goalpaca-devices/mgpbox
 go 1.25.0
 
 require (
-	github.com/mikefsq/astromi.ch v0.1.1-0.20260817194910-b02747c7688b
+	github.com/mikefsq/astromi.ch v0.1.1-0.20260907031227-dcc48dc4e7a1
 	github.com/mikefsq/goalpaca v0.3.2-0.20260905160338-12e995ea15c0
 )
 

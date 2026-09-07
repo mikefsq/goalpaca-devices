@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/mikefsq/goalpaca v0.3.2-0.20260905160338-12e995ea15c0
-	github.com/mikefsq/unihedron v0.1.1-0.20260821215438-d164bf0a596c
+	github.com/mikefsq/unihedron v0.1.1-0.20260907031036-e9332fb29b9b
 )
 
 require (

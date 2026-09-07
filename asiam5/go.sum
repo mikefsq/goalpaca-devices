@@ -8,6 +8,8 @@ github.com/mikefsq/lx200 v0.2.2-0.20260817201024-34f2c2ad8403 h1:Z/Yt6bqHJr7/cKD
 github.com/mikefsq/lx200 v0.2.2-0.20260817201024-34f2c2ad8403/go.mod h1:Rag8s80nrhhCQLC3KjjAT/Lx6fahp0+R0abuXm62tKo=
 github.com/mikefsq/lx200 v0.2.2-0.20260828004623-148d3f4ede4b h1:Z1x6sqtv1TAW+6G8ANVbkI8W1rKbFHeuy6flSIxaDgk=
 github.com/mikefsq/lx200 v0.2.2-0.20260828004623-148d3f4ede4b/go.mod h1:Rag8s80nrhhCQLC3KjjAT/Lx6fahp0+R0abuXm62tKo=
+github.com/mikefsq/lx200 v0.2.2-0.20260905172702-3d176e35c710 h1:xpOUN+aC6vt6/5B357OpYMLku4vbrm+JuRCROZ+K2EM=
+github.com/mikefsq/lx200 v0.2.2-0.20260905172702-3d176e35c710/go.mod h1:Rag8s80nrhhCQLC3KjjAT/Lx6fahp0+R0abuXm62tKo=
 go.bug.st/serial v1.7.1 h1:5aP8wYL0UjEYOVs3oPAGscjaSfRQLHtCvBFXNN/rwtc=
 go.bug.st/serial v1.7.1/go.mod h1:d0MmS16Qt9b1m06yoYRNUXhRRTJV5Qg2S5EKqQtnayQ=
 golang.org/x/sys v0.43.0 h1:Rlag2XtaFTxp19wS8MXlJwTvoh8ArU6ezoyFsMyCTNI=
