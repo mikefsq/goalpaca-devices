@@ -13,7 +13,7 @@ Use [alpacahurd](https://github.com/mikefsq/alpacahurd) to manage several driver
 | Telescope | [asiam5](asiam5/README.md) | ZWO AM-series, serial or TCP |
 | Telescope | [rst](rst/README.md) | Rainbow Astro RST, USB-serial |
 | Telescope | [onstep](onstep/README.md) | OnStep / OnStepX, serial or TCP |
-| Camera | [astrocam](astrocam/README.md) | USB astronomy cameras |
+| Camera | [astrocam](astrocam/README.md) | USB astronomy cameras like the ASI6200 |
 | Camera | [ptpcam](ptpcam/README.md) | Fujifilm and Sony USB PTP cameras |
 | Camera | [polemaster](polemaster/README.md) | QHY PoleMaster |
 | Focuser | [asieaf](asieaf/README.md) | ZWO EAF |

@@ -67,6 +67,27 @@ enclosing sensor window and crops it to the requested region. It prioritizes
 fewer rows to reduce readout time, then minimizes width. Full-frame readout takes
 about 260 ms; shorter windows can read faster.
 
+## Pixel scale
+
+The driver reports a measured **31.0276 arcseconds per pixel** for the stock
+fixed optics on either axis. This value is unchanged by subframes or readout
+depth; use a plate solution when a calibrated scale is needed.
+[QHY specification](https://www.qhyccd.com/polemaster/).
+
+Alpaca's standard `PixelSizeX` and `PixelSizeY` remain **3.75 µm**. Angular scale
+is available through the custom `PixelScale` action listed in `SupportedActions`:
+
+```sh
+curl -X PUT 'http://localhost:11125/api/v1/camera/0/action' \
+  -d 'Action=PixelScale&Parameters=&ClientID=1&ClientTransactionID=1'
+```
+
+The response's `Value` is the string `"31.0276"`, in arcseconds per pixel. The action
+is read-only, accepts no parameters, and requires the camera to be connected.
+Clients must explicitly support this action; standard Alpaca clients will not
+use it automatically. It uses Alpaca's
+[custom action mechanism](https://ascom-standards.org/alpyca/alpaca.camera.html#alpaca.camera.Camera.Action).
+
 ## Exposure behavior
 
 The sensor uses 262.5 µs row increments up to about 17.06 seconds. Nonnegative
