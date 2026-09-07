@@ -317,9 +317,10 @@ func pattern12(x, y int) uint16 { return uint16((x*7 + y*13) & 0x0fff) }
 // fakeDevice is a polemaster.Device that answers register traffic and streams
 // frames whose geometry follows the window the driver programmed.
 type fakeDevice struct {
-	regs map[uint16]uint16
-	wide bool   // two bytes per pixel
-	buf  []byte // the pending wire stream
+	closes int
+	regs   map[uint16]uint16
+	wide   bool   // two bytes per pixel
+	buf    []byte // the pending wire stream
 }
 
 // The wire constants the fake has to understand, as they appear on the bus.
@@ -406,4 +407,18 @@ func (f *fakeDevice) BulkRead(buf []byte, _ time.Duration) (int, error) {
 
 func (f *fakeDevice) ClearHalt() error { f.buf = nil; return nil }
 func (f *fakeDevice) Reset() error     { return nil }
-func (f *fakeDevice) Close() error     { return nil }
+func (f *fakeDevice) Close() error     { f.closes++; return nil }
+
+func TestReacquireClosesOldHandle(t *testing.T) {
+	f := newFake()
+	p := newTestDriver(t, f)
+	defer p.Close(context.Background())
+	p.hwPresent.Store(false)
+	p.tryAcquire()
+	if f.closes != 1 {
+		t.Fatalf("old handle closed %d times, want once", f.closes)
+	}
+	if !p.Connected() {
+		t.Fatal("camera was not reacquired")
+	}
+}

@@ -45,6 +45,10 @@ curl 'http://localhost:11125/api/v1/camera/0/cameraxsize?ClientID=1&ClientTransa
 
 For capture, connect in your client, choose the readout mode and exposure, and
 start an exposure. The client can retrieve the image once `ImageReady` is true.
+A failed exposure sets `CameraState` to error and reports the failure through
+`ImageReady`'s Alpaca error envelope. Check `ErrorNumber` and `ErrorMessage` even
+when HTTP status is 200. After an unrecoverable USB read failure, background
+acquisition closes the old handle before reopening the camera.
 
 ## Capture settings
 
