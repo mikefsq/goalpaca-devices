@@ -1,8 +1,12 @@
 package driver
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/mikefsq/goalpaca/registry"
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	"github.com/mikefsq/optec/focuslynx"
 )
 
 // Config contains device selection and settings.
@@ -19,6 +23,10 @@ func init() {
 		Description:   "Optec FocusLynx/ThirdLynx focuser hub",
 		ConfigExample: `{ "driver": "focuslynx", "index": 0, "channel": 1 }`,
 		Config:        func() any { return &Config{} },
+		// A hub's nickname is what survives a replug — the enumerator reports no serial for these
+		// — and the channel picks the focuser on it.
+		Identity: []string{"nickname", "index"},
+		Scan:     scanHubs,
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
 			var cfg Config
 			if err := spec.Decode(&cfg); err != nil {
@@ -42,4 +50,27 @@ func init() {
 			return d, nil
 		},
 	})
+}
+
+// scanHubs lists the serial ports a FocusLynx or ThirdLynx hub answers on.
+//
+// The enumerator reports no serial for these, and the protocol nickname that identifies a hub can
+// only be read by talking to it — which a scan does not do. So a row names its port and its baud
+// rate, and the operator pins a nickname afterwards if they want one.
+func scanHubs(ctx context.Context) ([]registry.Found, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	devs, err := focuslynx.Enumerate()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]registry.Found, 0, len(devs))
+	for i, d := range devs {
+		out = append(out, registry.Found{
+			Label:  fmt.Sprintf("Lynx hub on %s (%d baud)", d.Port, d.Baud),
+			Values: map[string]any{"index": i},
+		})
+	}
+	return out, nil
 }

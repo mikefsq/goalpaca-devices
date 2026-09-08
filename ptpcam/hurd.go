@@ -1,6 +1,7 @@
 package ptpcam
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -32,6 +33,10 @@ func init() {
 		Type:        alpacadev.CameraType,
 		Description: "Fujifilm/Sony PTP stills camera (no vendor SDK)",
 		Config:      func() any { return &Config{} },
+		// The body serial is the whole identity: two Fujifilm bodies on one machine are told apart
+		// by nothing else, and the USB location changes with the port.
+		Identity: []string{"serial"},
+		Scan:     scanCameras,
 		ConfigExample: `{ "driver": "ptpcam", "vendor": "auto", "pixelSize": 3.04, ` +
 			`"name": "X-T5" }`,
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
@@ -172,4 +177,46 @@ func wantVendor(vendor string, id ptp.VendorID) bool {
 		return id == ptp.Sony
 	}
 	return id == ptp.Fujifilm || id == ptp.Sony
+}
+
+// scanCameras lists the attached PTP bodies this driver supports.
+//
+// The serial and the product name are in the USB descriptor, so nothing is opened — which matters
+// more here than elsewhere: opening a camera means starting a PTP session, and on macOS the system
+// photo daemon competes for exactly that.
+//
+// Vendor is filled alongside the serial. It is not identity — the serial alone binds the body —
+// but a camera the operator has not powered into tethered mode yet is easier to recognise as
+// "Fujifilm X-T5" than as a hex serial.
+func scanCameras(ctx context.Context) ([]registry.Found, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	devs, err := usb.Enumerate()
+	if err != nil {
+		return nil, err
+	}
+	var out []registry.Found
+	for _, d := range devs {
+		var vendor string
+		switch ptp.VendorID(d.VID) {
+		case ptp.Fujifilm:
+			vendor = "fuji"
+		case ptp.Sony:
+			vendor = "sony"
+		default:
+			continue // a PTP device this driver does not drive
+		}
+		vals := map[string]any{"vendor": vendor}
+		label := d.Name
+		if label == "" {
+			label = vendor
+		}
+		if d.Serial != "" {
+			vals["serial"] = d.Serial
+			label = fmt.Sprintf("%s (serial %s)", label, d.Serial)
+		}
+		out = append(out, registry.Found{Label: label, Values: vals})
+	}
+	return out, nil
 }

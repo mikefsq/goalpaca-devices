@@ -1,8 +1,11 @@
 package driver
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 
+	"github.com/mikefsq/astrocam"
 	_ "github.com/mikefsq/astrocam/sensors" // registers the PID -> sensor profile table
 
 	"github.com/mikefsq/goalpaca/registry"
@@ -40,6 +43,10 @@ func init() {
 		MultiKey:      "cameras",
 		ConfigExample: `{ "driver": "astrocam", "serial": "1a2b3c4d", "name": "Main camera" }`,
 		Config:        func() any { return &Config{} },
+		// Serial first: it survives a replug and a move to another USB port, where the
+		// enumeration index is only the order the bus reported this time.
+		Identity: []string{"serial", "index"},
+		Scan:     scanCameras,
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
 			var cfg Config
 			if err := spec.Decode(&cfg); err != nil {
@@ -145,3 +152,36 @@ var (
 	_ ccd.OffsetController = (*ccdSource)(nil)
 	_ ccd.Subframer        = (*ccdSource)(nil)
 )
+
+// scanCameras lists the attached cameras for a host's device-configuration flow.
+//
+// The serial is what makes a listing worth anything: an operator cannot type one from memory, and
+// it is the only value that still binds the same camera after it is unplugged and moved to another
+// port. Reading it costs a brief open of each camera, which EnumerateWithSerials does and undoes.
+//
+// A camera already open — the one the operator connected a minute ago — comes back with no serial
+// rather than not at all, so it still appears in the list with its product name and index.
+func scanCameras(ctx context.Context) ([]registry.Found, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	cams, err := astrocam.EnumerateWithSerials()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]registry.Found, 0, len(cams))
+	for i, c := range cams {
+		vals := map[string]any{"index": i}
+		label := c.Name
+		if c.Serial != "" {
+			vals["serial"] = c.Serial
+			label = fmt.Sprintf("%s (serial %s)", c.Name, c.Serial)
+		} else {
+			// Say WHY there is no serial. "index only" reads as a driver limitation; "in use"
+			// tells the operator to disconnect it and scan again if they want it pinned.
+			label = fmt.Sprintf("%s (in use — serial unreadable)", c.Name)
+		}
+		out = append(out, registry.Found{Label: label, Values: vals})
+	}
+	return out, nil
+}

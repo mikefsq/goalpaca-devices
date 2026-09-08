@@ -1,8 +1,12 @@
 package driver
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/mikefsq/goalpaca/registry"
 	alpacadev "github.com/mikefsq/goalpaca/server"
+	"github.com/mikefsq/pegasus-astro/focuscube"
 )
 
 // Config contains device selection and settings.
@@ -19,6 +23,9 @@ func init() {
 		Description:   "Pegasus Astro FocusCube focuser",
 		ConfigExample: `{ "driver": "focuscube", "index": 0, "maxstep": 100000 }`,
 		Config:        func() any { return &Config{} },
+		// The FTDI serial survives a replug; the enumeration index does not.
+		Identity: []string{"serial", "index"},
+		Scan:     scanFocusers,
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
 			var cfg Config
 			if err := spec.Decode(&cfg); err != nil {
@@ -41,4 +48,33 @@ func init() {
 			return d, nil
 		},
 	})
+}
+
+// scanFocusers lists the attached FocusCube units.
+//
+// Ports come from the OS enumerator, so nothing is opened and a focuser another process is driving
+// is still listed with its serial.
+func scanFocusers(ctx context.Context) ([]registry.Found, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	devs, err := focuscube.Enumerate()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]registry.Found, 0, len(devs))
+	for i, d := range devs {
+		vals := map[string]any{"index": i}
+		label := d.Product
+		if label == "" {
+			label = "Pegasus FocusCube"
+		}
+		label = fmt.Sprintf("%s on %s", label, d.Port)
+		if d.Serial != "" {
+			vals["serial"] = d.Serial
+			label = fmt.Sprintf("%s (serial %s)", label, d.Serial)
+		}
+		out = append(out, registry.Found{Label: label, Values: vals})
+	}
+	return out, nil
 }

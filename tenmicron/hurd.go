@@ -19,6 +19,11 @@ func init() {
 		Description:   "10Micron GM-series mount (TCP)",
 		ConfigExample: `{ "driver": "tenmicron", "addr": "10.0.1.51:3492", "aperture": 200, "focalLength": 1600 }`,
 		Config:        func() any { return &Config{} },
+		// The address IS the identity, and there is no Scan: a mount on the network answers
+		// nothing until it is dialled, so a host asks for the address rather than offering a
+		// list. Declaring the key anyway is what lets a host pin this device the same way it
+		// pins a scanned one.
+		Identity: []string{"addr"},
 		// 'G': the GM series are German equatorials.
 		FrontEnd: lx200FrontEnd('G', "10micron"),
 		New: func(spec registry.Spec) (alpacadev.Device, error) {
