@@ -9,6 +9,10 @@ github.com/mikefsq/astromi.ch v0.1.1-0.20260907031227-dcc48dc4e7a1 h1:a6nKmHZ9cK
 github.com/mikefsq/astromi.ch v0.1.1-0.20260907031227-dcc48dc4e7a1/go.mod h1:YBq9nFaxkzWMtjAPKULE++atX33EFdW4dDcOzwHCY9Q=
 github.com/mikefsq/goalpaca v0.3.2-0.20260905160338-12e995ea15c0 h1:VcBguzdtDCR/vV56l/Ew7LZ3QJdNfRt4blOhxrPPnIs=
 github.com/mikefsq/goalpaca v0.3.2-0.20260905160338-12e995ea15c0/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.2-0.20260908212354-24752e5640d2 h1:KWW4hp+d7Nvv6RfCQvYxrvN1kRWU+mhDcFcvfRdKc2E=
+github.com/mikefsq/goalpaca v0.3.2-0.20260908212354-24752e5640d2/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.2-0.20260908230641-48cbbb7348cf h1:wT407eaWNgq7Cp64/a2EAIXNcrlWwtUYsnKXjibGKas=
+github.com/mikefsq/goalpaca v0.3.2-0.20260908230641-48cbbb7348cf/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/objx v0.1.0 h1:4G4v2dO3VZwixGIRoQ5Lfboy6nUhCyYzaqnIAPPhYs4=

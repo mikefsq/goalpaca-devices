@@ -3,7 +3,7 @@ module github.com/mikefsq/goalpaca-devices/focuscube
 go 1.25.0
 
 require (
-	github.com/mikefsq/goalpaca v0.3.2-0.20260905160338-12e995ea15c0
+	github.com/mikefsq/goalpaca v0.3.2-0.20260908230641-48cbbb7348cf
 	github.com/mikefsq/pegasus-astro v0.0.0-20260906162530-f5c388bb3e95
 )
 
