@@ -8,6 +8,8 @@ github.com/mikefsq/goalpaca v0.3.2-0.20260908212354-24752e5640d2 h1:KWW4hp+d7Nvv
 github.com/mikefsq/goalpaca v0.3.2-0.20260908212354-24752e5640d2/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/goalpaca v0.3.2-0.20260908230641-48cbbb7348cf h1:wT407eaWNgq7Cp64/a2EAIXNcrlWwtUYsnKXjibGKas=
 github.com/mikefsq/goalpaca v0.3.2-0.20260908230641-48cbbb7348cf/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.2-0.20260911213543-13b576706d8d h1:w8rnwqhDb0zgD9yBwzO635sauhEAf/nIjjBsJDCLIqs=
+github.com/mikefsq/goalpaca v0.3.2-0.20260911213543-13b576706d8d/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/pegasus-astro v0.0.0-20260713175352-7c8746528e1c h1:DXCyjeRC6bcyVWfVmw86Q2NUukf3pCIxZXvHzeyiYCs=
 github.com/mikefsq/pegasus-astro v0.0.0-20260713175352-7c8746528e1c/go.mod h1:E8S8NyhcFwabgbl+JYkwvmKswCVpl9Z/2vxhBjs+XEU=
 github.com/mikefsq/pegasus-astro v0.0.0-20260906162530-f5c388bb3e95 h1:4Xrwr5XeB2sdPYteeVBGa56eStLVudTkqvKTQS8XUtY=

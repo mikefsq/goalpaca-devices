@@ -8,6 +8,8 @@ github.com/mikefsq/goalpaca v0.3.2-0.20260908212354-24752e5640d2 h1:KWW4hp+d7Nvv
 github.com/mikefsq/goalpaca v0.3.2-0.20260908212354-24752e5640d2/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/goalpaca v0.3.2-0.20260908230641-48cbbb7348cf h1:wT407eaWNgq7Cp64/a2EAIXNcrlWwtUYsnKXjibGKas=
 github.com/mikefsq/goalpaca v0.3.2-0.20260908230641-48cbbb7348cf/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.2-0.20260911213543-13b576706d8d h1:w8rnwqhDb0zgD9yBwzO635sauhEAf/nIjjBsJDCLIqs=
+github.com/mikefsq/goalpaca v0.3.2-0.20260911213543-13b576706d8d/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/optec v0.0.0-20260713175428-9a276b61f41e h1:hw2jiJ+4TVpbUcDZbcNj8OtKSKaBh92PcDU7IDZiErg=
 github.com/mikefsq/optec v0.0.0-20260713175428-9a276b61f41e/go.mod h1:ntwr57cUWCCEYxu5bUQkt44RzcYjumqRuLJ6Iv+ooY8=
 github.com/mikefsq/optec v0.0.0-20260906162602-ac129cf404ca h1:m0+/k58Ja+2ZpLbm7YwEacbxQN9/FQxT+cwS05CjjCA=

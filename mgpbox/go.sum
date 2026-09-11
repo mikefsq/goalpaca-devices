@@ -13,6 +13,8 @@ github.com/mikefsq/goalpaca v0.3.2-0.20260908212354-24752e5640d2 h1:KWW4hp+d7Nvv
 github.com/mikefsq/goalpaca v0.3.2-0.20260908212354-24752e5640d2/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/goalpaca v0.3.2-0.20260908230641-48cbbb7348cf h1:wT407eaWNgq7Cp64/a2EAIXNcrlWwtUYsnKXjibGKas=
 github.com/mikefsq/goalpaca v0.3.2-0.20260908230641-48cbbb7348cf/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.2-0.20260911213543-13b576706d8d h1:w8rnwqhDb0zgD9yBwzO635sauhEAf/nIjjBsJDCLIqs=
+github.com/mikefsq/goalpaca v0.3.2-0.20260911213543-13b576706d8d/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/objx v0.1.0 h1:4G4v2dO3VZwixGIRoQ5Lfboy6nUhCyYzaqnIAPPhYs4=

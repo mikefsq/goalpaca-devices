@@ -4,6 +4,8 @@ github.com/mikefsq/goalpaca v0.3.2-0.20260908212354-24752e5640d2 h1:KWW4hp+d7Nvv
 github.com/mikefsq/goalpaca v0.3.2-0.20260908212354-24752e5640d2/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/goalpaca v0.3.2-0.20260908230641-48cbbb7348cf h1:wT407eaWNgq7Cp64/a2EAIXNcrlWwtUYsnKXjibGKas=
 github.com/mikefsq/goalpaca v0.3.2-0.20260908230641-48cbbb7348cf/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.2-0.20260911213543-13b576706d8d h1:w8rnwqhDb0zgD9yBwzO635sauhEAf/nIjjBsJDCLIqs=
+github.com/mikefsq/goalpaca v0.3.2-0.20260911213543-13b576706d8d/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/polemaster v0.0.0-20260907022708-bb6632990b32 h1:atUvKz9/CVypPpIMawGc8Ve0qDysW+w9a6X+6zw7zk8=
 github.com/mikefsq/polemaster v0.0.0-20260907022708-bb6632990b32/go.mod h1:xkNdfICev2srEvuZ3rpbK4Ti5aUPx8uOWA0fuFeC/6Q=
 github.com/mikefsq/polemaster v0.0.0-20260907054354-60b4645afe77 h1:gQ8qQnMfV5+rEAqklam9z9mIxaHLDk+l3RA576hYFMs=

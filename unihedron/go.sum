@@ -8,6 +8,8 @@ github.com/mikefsq/goalpaca v0.3.2-0.20260908212354-24752e5640d2 h1:KWW4hp+d7Nvv
 github.com/mikefsq/goalpaca v0.3.2-0.20260908212354-24752e5640d2/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/goalpaca v0.3.2-0.20260908230641-48cbbb7348cf h1:wT407eaWNgq7Cp64/a2EAIXNcrlWwtUYsnKXjibGKas=
 github.com/mikefsq/goalpaca v0.3.2-0.20260908230641-48cbbb7348cf/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
+github.com/mikefsq/goalpaca v0.3.2-0.20260911213543-13b576706d8d h1:w8rnwqhDb0zgD9yBwzO635sauhEAf/nIjjBsJDCLIqs=
+github.com/mikefsq/goalpaca v0.3.2-0.20260911213543-13b576706d8d/go.mod h1:K6Ib2gbC+aUgAwU2G95KHsD0EIPdiCqyZIm6RGwBQhw=
 github.com/mikefsq/unihedron v0.1.1-0.20260817201224-d396e3ebd27e h1:MZ2zlDeovZklIR1sE8QlYV2T01QrIl9DUGoGlHHCXTY=
 github.com/mikefsq/unihedron v0.1.1-0.20260817201224-d396e3ebd27e/go.mod h1:6UUn+xcszDq4xPTRVJKpE9NGBNev6f27hJjFuWqaUvY=
 github.com/mikefsq/unihedron v0.1.1-0.20260821215438-d164bf0a596c h1:iyNMvQ/5V+olWI+zuy//COPiIqekk80E2k3SNNMFn3g=
