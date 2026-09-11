@@ -22,7 +22,7 @@ func parkedNumber(err error) int {
 // must fire before anything reaches the hardware, so a nil mount is the right fixture: if the
 // guard is missing the member returns NotConnected instead, which the test can tell apart.
 func parked() *Telescope {
-	tel := NewTelescope("")
+	tel := NewTelescope("", "")
 	tel.snap.atPark = true
 	return tel
 }
@@ -79,7 +79,7 @@ func TestStoppingIsAllowedWhileParked(t *testing.T) {
 // Zero is the stop command, not a rate the mount can be asked to move at. Advertising a range
 // that starts at zero is a conformance error.
 func TestAxisRatesMinimumIsNotZero(t *testing.T) {
-	tel := NewTelescope("")
+	tel := NewTelescope("", "")
 	for _, axis := range []alpacadev.TelescopeAxis{alpacadev.AxisPrimary, alpacadev.AxisSecondary} {
 		rates := tel.AxisRates(axis)
 		if len(rates) == 0 {
@@ -121,7 +121,7 @@ func TestDriveRateMapping(t *testing.T) {
 
 // UTCDate must report the MOUNT's clock or nothing
 func TestUTCDateIsEmptyRatherThanHostTimeWhenTheMountCannotBeRead(t *testing.T) {
-	tel := NewTelescope("") // no mount attached
+	tel := NewTelescope("", "") // no mount attached
 	got := tel.UTCDate()
 	if got == "" {
 		return
@@ -134,7 +134,7 @@ func TestUTCDateIsEmptyRatherThanHostTimeWhenTheMountCannotBeRead(t *testing.T) 
 
 // ASCOM requires DriverInfo and DriverVersion to be non-empty
 func TestDriverInfoAndVersionAreSet(t *testing.T) {
-	tel := NewTelescope("")
+	tel := NewTelescope("", "")
 	if tel.DriverVersion() == "" {
 		t.Error("DriverVersion is empty")
 	}

@@ -7,7 +7,7 @@ import (
 )
 
 func TestSetOpticsAction(t *testing.T) {
-	tel := NewTelescope("")
+	tel := NewTelescope("", "")
 	// Action takes mm; ASCOM getters report metres.
 	if _, err := tel.Action("setoptics", `{"aperture":130,"focal_length":715}`); err != nil {
 		t.Fatalf("setoptics: %v", err)
@@ -21,7 +21,7 @@ func TestSetOpticsAction(t *testing.T) {
 }
 
 func TestUseOpticsSharedHolder(t *testing.T) {
-	tel := NewTelescope("")
+	tel := NewTelescope("", "")
 	h := &localOptics{}
 	tel.UseOptics(h)
 	if _, err := tel.Action("setoptics", `{"aperture":130,"focal_length":715,"guider_focal_length":200}`); err != nil {
@@ -34,7 +34,7 @@ func TestUseOpticsSharedHolder(t *testing.T) {
 }
 
 func TestSupportedActionsHasSetOptics(t *testing.T) {
-	tel := NewTelescope("")
+	tel := NewTelescope("", "")
 	var found bool
 	for _, a := range tel.SupportedActions() {
 		if strings.EqualFold(a, "setoptics") { // advertised CamelCase ("SetOptics"), matched case-insensitively
@@ -50,7 +50,7 @@ func TestSupportedActionsHasSetOptics(t *testing.T) {
 // mm/m² shape the write accepts (dual-mode, in parity with tenmicron), under both the
 // "setoptics" and "optics" action names.
 func TestOpticsReadBack(t *testing.T) {
-	tel := NewTelescope("")
+	tel := NewTelescope("", "")
 	if _, err := tel.Action("setoptics", `{"aperture":130,"focal_length":715}`); err != nil {
 		t.Fatalf("setoptics write: %v", err)
 	}

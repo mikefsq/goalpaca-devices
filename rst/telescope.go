@@ -47,7 +47,8 @@ type Telescope struct {
 	stopLoop func(time.Duration)
 	alpacadev.BaseTelescope
 
-	serial string // USB bridge serial to bind; empty = ask every candidate and take the one that answers
+	serial      string // USB bridge serial to bind; empty = ask every candidate and take the one that answers
+	mountSerial string // the mount's own :AS# serial to bind; empty = take whichever mount answers
 
 	mu   sync.Mutex
 	m    *rst.Mount // nil ⇔ not connected
@@ -63,8 +64,8 @@ type Telescope struct {
 }
 
 // NewTelescope builds the driver. Since FTDI 0403:6001 is common we have to validate the device is an RST.
-func NewTelescope(serial string) *Telescope {
-	t := &Telescope{serial: serial, trackingRate: alpacadev.DriveSidereal, optics: &localOptics{}}
+func NewTelescope(serial, mountSerial string) *Telescope {
+	t := &Telescope{serial: serial, mountSerial: mountSerial, trackingRate: alpacadev.DriveSidereal, optics: &localOptics{}}
 	t.IfaceVer = alpacadev.InterfaceVersionTelescope
 	t.Version = "0.1.0"
 	t.Info = "rst — Rainbow Astro RST Alpaca telescope driver over mikefsq/lx200"
@@ -73,7 +74,7 @@ func NewTelescope(serial string) *Telescope {
 
 // dial finds and opens the mount.
 func (t *Telescope) dial() (*rst.Mount, error) {
-	m, rep, err := rst.FindMatching(rst.Filter{Serial: t.serial})
+	m, rep, err := rst.FindMatching(rst.Filter{Serial: t.serial, MountSerial: t.mountSerial})
 	if err != nil {
 		return nil, err
 	}

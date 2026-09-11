@@ -11,7 +11,8 @@ import (
 
 // Config contains device selection and settings.
 type Config struct {
-	Serial string `json:"serial,omitempty" alpaca:"label=Serial,when=start,help=USB bridge serial to bind (stable across replug and port renumbering); empty asks every candidate"`
+	Serial      string `json:"serial,omitempty"      alpaca:"label=USB bridge serial,when=start,help=Serial of the USB adapter the mount is on; narrows the search before any port is opened"`
+	MountSerial string `json:"mountSerial,omitempty" alpaca:"label=Mount serial,when=start,help=The serial of the mount itself (:AS#) as printed on the unit. Recorded for identification; when set it is checked after connecting and a different mount is refused"`
 }
 
 func init() {
@@ -21,8 +22,10 @@ func init() {
 		Description:   "Rainbow Astro RST mount (USB serial, auto-detected)",
 		ConfigExample: `{ "driver": "rst" }`,
 		Config:        func() any { return &Config{} },
-		// The USB bridge serial is the only thing that survives a replug or a port renumbering,
-		// and it is the one key this driver binds by.
+		// The BRIDGE serial is the identity, and only it: the port enumerator reports it, so a
+		// host binds the mount without opening a single port. The mount's own serial can only be
+		// had by opening a port and asking, which is the USB scan this key exists to avoid — so it
+		// is reported, shown and verified, but never searched on.
 		Identity: []string{"serial"},
 		Scan:     scanMounts,
 		// 'G': the RST rides its RA/DEC axes as a German-style equatorial.
@@ -36,7 +39,7 @@ func init() {
 			if id == "" {
 				id = "auto"
 			}
-			d := NewTelescope(cfg.Serial)
+			d := NewTelescope(cfg.Serial, cfg.MountSerial)
 			d.ID = "rst-" + id
 			d.DevName = "Rainbow Astro RST"
 			if spec.Name != "" {
@@ -68,14 +71,21 @@ func scanMounts(ctx context.Context) ([]registry.Found, error) {
 	}
 	out := make([]registry.Found, 0, len(found))
 	for _, d := range found {
+		// Both serials are reported, for different jobs. The bridge serial BINDS — it comes from
+		// the port enumerator, so a host reaches the mount without opening anything. The mount
+		// serial IDENTIFIES: it is what an operator recognises, and what proves the thing that
+		// answered is the mount they configured rather than another one on the same adapter.
 		vals := map[string]any{}
 		label := fmt.Sprintf("Rainbow Astro RST on %s", d.Port)
+		if d.MountSerial != "" {
+			// Leads the label: it is the number printed on the unit, and the one an operator
+			// choosing between two mounts recognises.
+			label = fmt.Sprintf("Rainbow Astro RST %s on %s", d.MountSerial, d.Port)
+			vals["mountSerial"] = d.MountSerial
+		}
 		if d.Version != "" {
 			label = fmt.Sprintf("%s (firmware %s)", label, d.Version)
 		}
-		// A row with no serial is not a lesser row: an entry without one asks every candidate
-		// port, which is how this driver has always found a mount, and macOS reports no serial
-		// for these bridges anyway.
 		if d.Serial != "" {
 			vals["serial"] = d.Serial
 			label = fmt.Sprintf("%s (bridge serial %s)", label, d.Serial)
