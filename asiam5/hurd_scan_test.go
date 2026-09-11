@@ -1,6 +1,8 @@
 package driver
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/mikefsq/goalpaca/registry"
@@ -58,6 +60,33 @@ func TestDialAddrJoinsHostAndPort(t *testing.T) {
 		tel := NewTelescope("", tc.addr, tc.port)
 		if got := tel.dialAddr(); got != tc.want {
 			t.Errorf("addr %q port %d = %q, want %q", tc.addr, tc.port, got, tc.want)
+		}
+	}
+}
+
+func TestRegistryAllowsAutomaticUSBDiscovery(t *testing.T) {
+	drv, _ := registry.Lookup("asiam5")
+	for _, raw := range []string{`{"driver":"asiam5"}`, `{"driver":"asiam5","serial":"","addr":"","enable":false}`} {
+		dev, err := drv.New(registry.Spec{Driver: drv.Name, Raw: json.RawMessage(raw)})
+		if err != nil {
+			t.Fatalf("automatic discovery rejected: %v", err)
+		}
+		mount := dev.(*Telescope)
+		if mount.serial != "" || mount.addr != "" || mount.ID == "" {
+			t.Fatal("automatic mount selector was not preserved")
+		}
+		if !strings.Contains(mount.Description(), "automatic USB discovery") {
+			t.Fatal(mount.Description())
+		}
+	}
+	for _, raw := range []string{`{"serial":"chosen"}`, `{"addr":"mount.local"}`} {
+		dev, err := drv.New(registry.Spec{Driver: drv.Name, Raw: json.RawMessage(raw)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		mount := dev.(*Telescope)
+		if mount.serial != "chosen" && mount.addr != "mount.local" {
+			t.Fatal("explicit selection lost")
 		}
 	}
 }

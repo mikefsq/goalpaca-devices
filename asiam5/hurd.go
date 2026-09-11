@@ -13,7 +13,7 @@ import (
 
 // Config contains device selection and settings.
 type Config struct {
-	Serial string `json:"serial,omitempty" alpaca:"label=USB serial,when=start,help=USB serial of the mount; survives a replug and picks one mount when several are attached"`
+	Serial string `json:"serial,omitempty" alpaca:"label=USB serial,when=start,help=Optional USB serial; leave serial and addr empty to discover an attached AM-series mount. Set serial to select one when several are attached"`
 	Addr   string `json:"addr,omitempty" alpaca:"label=Host or IP,when=start,help=The WiFi address of the mount. In access-point mode this is 192.168.4.1; on a home network it is whatever the router gave it"`
 	Port   int    `json:"tcpPort,omitempty" alpaca:"label=Port,min=1,max=65535,when=start,help=TCP port the mount listens on; empty uses 4030 which is the only port the ZWO firmware serves. Named tcpPort because port is reserved for the Alpaca server itself"`
 }
@@ -43,7 +43,7 @@ func init() {
 				conn = cfg.Serial
 			}
 			if conn == "" {
-				return nil, fmt.Errorf("asiam5 requires \"serial\" or \"addr\"")
+				conn = "auto"
 			}
 			d := NewTelescope(cfg.Serial, cfg.Addr, cfg.Port)
 			d.ID = "zwoam5-" + conn
@@ -52,6 +52,9 @@ func init() {
 				d.DevName = spec.Name
 			}
 			d.Desc = "ZWO AM-series mount (" + conn + ")"
+			if cfg.Serial == "" && cfg.Addr == "" {
+				d.Desc = "ZWO AM-series mount (automatic USB discovery)"
+			}
 			return d, nil
 		},
 	})

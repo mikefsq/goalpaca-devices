@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -61,6 +62,7 @@ func main() {
 	serial := flag.String("serial", "",
 		"comma-separated factory serials (hex) — one Alpaca camera device per serial, in order; the file-less "+
 			"alternative to -config. Empty with no -config = auto-enumerate all attached.")
+	discover := flag.Bool("discover", false, "list detected hardware as JSON and exit")
 	discoveryMode := flag.String("discovery", "direct",
 		"discovery mode: direct (self-answer on 32227) | register (heartbeat to discovery_proxy) | off")
 	discoveryServer := flag.String("discovery-server", "localhost:32227",
@@ -69,6 +71,16 @@ func main() {
 	check := flag.Bool("check", false, "load the config, construct every camera (no hardware is touched), report, and exit")
 	schema := flag.String("schema", "", "print the config schema and exit: commented (a device file with the default two-camera array)")
 	flag.Parse()
+	if *discover {
+		drv, ok := registry.Lookup("astrocam")
+		if !ok {
+			log.Fatal("astrocam is not registered")
+		}
+		if err := devicemain.Discover(context.Background(), drv, os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	switch *schema {
 	case "":

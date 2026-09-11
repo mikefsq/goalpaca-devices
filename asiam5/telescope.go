@@ -72,7 +72,9 @@ func NewTelescope(serial, addr string, port int) *Telescope {
 }
 
 // dial finds and opens the mount: the network when an address is configured, otherwise the USB
-// port carrying the configured serial.
+// port carrying the configured serial. With neither selector, FindMatching opens
+// the first responding AM-series USB mount. Discovery runs in the hardware loop,
+// so startup and configuration checks work even when no mount is attached.
 //
 // The serial is a USB SERIAL, not a port path. It used to be handed straight to am5.Open, which
 // opens a device node — so a mount configured with the serial ZWO printed on it tried to open

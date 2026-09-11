@@ -8,6 +8,8 @@ else
 CONFDIR ?= /etc/alpacahurd/devices.d
 endif
 
+REGISTRYFILE ?= $(CONFDIR)/../drivers.conf
+
 .PHONY: build install uninstall tidy test vet clean $(BINS)
 
 build: $(BINS)
@@ -21,6 +23,7 @@ install: build
 	@for b in $(BINS); do \
 		install -m 0755 "$$b" "$(PREFIX)/bin/$$b"; \
 		echo "install $(PREFIX)/bin/$$b"; \
+		sh ../build/register-driver "$(PREFIX)/bin/$$b" "$(REGISTRYFILE)" || exit 1; \
 		if [ -f "$(CONFDIR)/$$b.json" ]; then \
 			echo "keep    $(CONFDIR)/$$b.json"; \
 		elif "./$$b" -schema commented > "$(CONFDIR)/$$b.json" 2>/dev/null; then \
@@ -32,7 +35,7 @@ install: build
 	done
 
 uninstall:
-	@for b in $(BINS); do rm -f "$(PREFIX)/bin/$$b"; echo "remove  $(PREFIX)/bin/$$b"; done
+	@for b in $(BINS); do sh ../build/register-driver "$(PREFIX)/bin/$$b" "$(REGISTRYFILE)" "$(PREFIX)/bin/$$b" remove || exit 1; rm -f "$(PREFIX)/bin/$$b"; echo "remove  $(PREFIX)/bin/$$b"; done
 
 tidy:
 	GOWORK=off go mod tidy

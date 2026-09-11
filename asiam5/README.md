@@ -13,7 +13,7 @@ go build -o asiam5 ./cmd/asiam5
 
 ### Linux permissions
 
-When binding by `-serial`, the mount's USB-serial adapter (`/dev/ttyUSB*` or
+For automatic USB discovery or binding by `-serial`, the mount's USB-serial adapter (`/dev/ttyUSB*` or
 `/dev/ttyACM*`) is in the `dialout` group. Add the service user to it (the WiFi/TCP
 `-addr` path needs no special permissions):
 
@@ -24,6 +24,7 @@ sudo usermod -aG dialout "$USER"    # then re-login
 ## Run
 
 ```sh
+./asiam5                                # discover an attached AM-series USB mount
 ./asiam5 -serial /dev/tty.usbserial-XXXX   # USB-serial
 ./asiam5 -addr 192.168.4.1:4030            # WiFi/TCP
 ```
@@ -31,13 +32,17 @@ sudo usermod -aG dialout "$USER"    # then re-login
 | Flag | Default | Meaning |
 |---|---|---|
 | `-port` | `11111` | Alpaca HTTP port |
-| `-serial` | "" | USB-serial port |
+| `-serial` | "" | Optional USB serial number or device path |
 | `-addr` | "" | WiFi/TCP address `host:port` (takes precedence over `-serial`) |
 | `-discovery` | `direct` | `direct` \| `register` \| `off` |
 | `-discovery-server` | `localhost:32227` | proxy address for `register` mode |
 | `-ipv6` | false | also answer IPv6 multicast discovery |
 
-Give either `-serial` or `-addr`.
+With neither selector set, the driver discovers the first responding AM-series
+USB mount. It can start before the mount is attached and retries discovery until
+one is available. Set `-serial` to select a specific mount when several are
+attached, or `-addr` for a network connection. Configuration checks do not scan
+for hardware.
 
 Use `-help` for all flags, or `-schema commented` to generate a JSONC device
 file. See the [shared configuration instructions](../README.md#configuration).

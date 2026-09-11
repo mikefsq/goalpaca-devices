@@ -18,6 +18,7 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 BINDIR := $(DESTDIR)$(PREFIX)/bin
 DEVICESDIR := $(DESTDIR)/etc/alpacahurd/devices.d
+REGISTRYFILE := $(DESTDIR)/etc/alpacahurd/drivers.conf
 
 ALIAS_asiair := asiair-switch
 
@@ -69,6 +70,7 @@ install: ## install drivers from ./bin into $(PREFIX)/bin and seed disabled entr
 		n=$$(basename $$f); \
 		install -m 0755 "$$f" "$(BINDIR)/$$n"; \
 		echo "installed $(BINDIR)/$$n"; \
+		sh build/register-driver "$(BINDIR)/$$n" "$(REGISTRYFILE)" "$(PREFIX)/bin/$$n" || exit 1; \
 		for a in $(ALIAS_asiair); do \
 			[ "$$n" = asiair ] || continue; \
 			ln -sf "$$n" "$(BINDIR)/$$a"; \
@@ -89,9 +91,9 @@ uninstall: ## remove installed drivers (device entries are kept)
 	@for f in $(BIN)/*; do \
 		[ -f "$$f" ] || continue; \
 		n=$$(basename $$f); \
-		rm -f "$(BINDIR)/$$n"; \
+		sh build/register-driver "$(BINDIR)/$$n" "$(REGISTRYFILE)" "$(PREFIX)/bin/$$n" remove || exit 1; rm -f "$(BINDIR)/$$n"; \
 		for a in $(ALIAS_asiair); do \
-			[ "$$n" = asiair ] && rm -f "$(BINDIR)/$$a"; \
+			if [ "$$n" = asiair ]; then rm -f "$(BINDIR)/$$a"; fi; \
 		done; \
 	done
 	@echo "removed drivers from $(BINDIR); $(DEVICESDIR) left intact"

@@ -1,0 +1,35 @@
+#!/bin/sh
+# Usage: register-driver executable registry-file [installed-runtime-path] [remove]
+# Maintain one absolute executable path per line. Never launch the binary.
+set -eu
+binary=$1
+registry_file=$2
+runtime_path=${3:-$binary}
+action=${4:-add}
+case "$runtime_path" in /*) ;; *) echo 'installed binary path must be absolute' >&2; exit 1 ;; esac
+case "$runtime_path" in *'
+'*) echo 'installed binary path must be a single line' >&2; exit 1 ;; esac
+[ "$action" != remove ] || [ -f "$registry_file" ] || exit 0
+mkdir -p "$(dirname "$registry_file")"
+# Serialize concurrent installers while replacing the list atomically.
+lock="$registry_file.lock"
+attempt=0
+until mkdir "$lock" 2>/dev/null; do
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 30 ] || { echo "registry is locked: $registry_file" >&2; exit 1; }
+    sleep 1
+done
+tmp=
+trap 'rm -f "$tmp"; rmdir "$lock"' EXIT
+trap 'exit 1' HUP INT TERM
+tmp=$(mktemp "$registry_file.XXXXXX")
+if [ -f "$registry_file" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ "$line" = "$runtime_path" ] || printf '%s\n' "$line"
+    done < "$registry_file" > "$tmp"
+fi
+if [ "$action" != remove ]; then
+    printf '%s\n' "$runtime_path" >> "$tmp"
+fi
+chmod 0644 "$tmp"
+mv -f "$tmp" "$registry_file"

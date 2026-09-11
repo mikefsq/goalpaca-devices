@@ -47,6 +47,47 @@ make help
 The SDK drivers require cgo and their ZWO libraries; see their READMEs.
 Some macOS USB transports also require cgo and Apple's command-line tools.
 
+`make install` (or `make install` in a driver directory) records each binary in
+`/etc/alpacahurd/drivers.conf`, alongside the existing disabled seed
+in `devices.d/`. The registry contains one absolute executable path per line.
+Updating the registry does not execute the driver or create runtime state. Upgrades preserve existing device configurations.
+Uninstall removes the binary's registry entry and keeps device configurations.
+Debian packages maintain the same registry, using their `/usr/bin` paths.
+
+For a binary installed before this registry was introduced, register it without
+rebuilding or starting it:
+
+```sh
+sudo sh build/register-driver /usr/local/bin/asiam5 /etc/alpacahurd/drivers.conf
+```
+
+The Add device page in alpacahurd reads this catalogue on each visit and can
+create additional disabled instances from a binary's `-schema commented` output.
+Legacy launchers without schema support can be recorded, but cannot generate
+configuration through that page. On macOS, per-driver installs place the registry
+beside the configured `devices.d` directory; `REGISTRYFILE` overrides that location.
+
+## Discover hardware
+
+Run `<driver> -discover` to list detected hardware as JSON and exit without
+loading configuration, constructing a device, starting an Alpaca server, or
+writing state. This is distinct from `-discovery`, which controls Alpaca network
+advertising. Explicit `-discover` scans regardless of any supplied config pin.
+
+The output includes `driver`, `supported`, ordered `identity` configuration keys,
+and `devices`, each with a `label` and `values` containing usable configuration
+selectors. Unknown selectors are omitted. A busy device may be listed without a
+serial; discovery must not interrupt the process using it.
+
+No devices found returns an empty `devices` array. Drivers without a scanner
+return `supported: false` and an empty array. Scan failures include `error` in the
+JSON and exit nonzero; diagnostics go to stderr. Scans receive a ten-second
+context deadline, which each scanner must honor.
+
+All launchers using `goalpaca/devicemain` inherit this flag. The custom Astrocam
+and simulator launchers also support it (the simulator has no hardware to scan).
+Rebuild installed binaries to obtain the new flag.
+
 ## Run
 
 ```sh

@@ -5,11 +5,14 @@ import (
 	"context"
 	"flag"
 	"log"
+	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 
 	driver "github.com/mikefsq/goalpaca-devices/sim"
+	"github.com/mikefsq/goalpaca/devicemain"
+	"github.com/mikefsq/goalpaca/registry"
 	alpacadev "github.com/mikefsq/goalpaca/server"
 )
 
@@ -25,7 +28,14 @@ func main() {
 	dsrv := flag.String("discovery-server", "localhost:32227", "discovery proxy for register mode")
 	ipv6 := flag.Bool("ipv6", false, "also answer IPv6 multicast discovery")
 	verbose := flag.Bool("v", false, "log every Alpaca request")
+	discover := flag.Bool("discover", false, "report hardware discovery support as JSON and exit")
 	flag.Parse()
+	if *discover {
+		if err := devicemain.Discover(context.Background(), registry.Driver{Name: "sim"}, os.Stdout); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 
 	var reqLog *log.Logger
 	if *verbose {
