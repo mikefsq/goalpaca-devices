@@ -7,6 +7,9 @@ import (
 	"context"
 	"log"
 	"math"
+	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,7 +39,8 @@ type Telescope struct {
 	stopLoop func(time.Duration)
 	alpacadev.BaseTelescope
 
-	serial, addr string // USB-serial port or WiFi/TCP host:port (addr wins)
+	serial, addr string // USB serial (or port path) and WiFi host; addr wins when both are set
+	port         int    // TCP port for addr; 0 uses defaultTCPPort
 
 	mu   sync.Mutex
 	m    *am5.Mount // nil ⇔ not connected
@@ -45,20 +49,70 @@ type Telescope struct {
 	siteLat, siteLon, siteEl float64
 	trackingRate             alpacadev.DriveRate
 	slewSettleSec            int
+
+	// The two rates the mount accepts but will not report. Cached so the actions that set them
+	// can be read back, which is the fleet's pattern for unreadable-from-hardware state; they
+	// hold what this driver last sent, not necessarily what the mount is doing if something else
+	// has talked to it since.
+	varSlewRate float64 // ×sidereal, :Rv
+	slewRateIdx float64 // 0–9, :R%d — float only so it can share the setF/getF helpers
 }
 
+// defaultTCPPort is the port ZWO's firmware serves, and the only one it serves — INDI and INDIGO
+// both hardcode it. It is a field rather than a constant in the address because an operator
+// reaching the mount through a port forward or a serial bridge needs to change it, and pasting a
+// "host:port" string into a field labelled Host is not how anyone expects to do that.
+const defaultTCPPort = 4030
+
 // NewTelescope builds the driver. addr (WiFi/TCP) takes precedence over serial.
-func NewTelescope(serial, addr string) *Telescope {
-	t := &Telescope{serial: serial, addr: addr, trackingRate: alpacadev.DriveSidereal}
+func NewTelescope(serial, addr string, port int) *Telescope {
+	t := &Telescope{serial: serial, addr: addr, port: port, trackingRate: alpacadev.DriveSidereal}
 	t.IfaceVer = alpacadev.InterfaceVersionTelescope
 	return t
 }
 
+// dial finds and opens the mount: the network when an address is configured, otherwise the USB
+// port carrying the configured serial.
+//
+// The serial is a USB SERIAL, not a port path. It used to be handed straight to am5.Open, which
+// opens a device node — so a mount configured with the serial ZWO printed on it tried to open
+// /dev/<serial> and never connected, while the field's own help text promised it was "stable
+// across replug". FindMatching resolves it through the port enumerator instead, which is what
+// makes it stable and what lets a rig with several mounts bind each one.
+//
+// A path is still accepted, because an operator with one mount and a known port should not have
+// to find a serial first, and because it is what every entry written before this said.
 func (t *Telescope) dial() (*am5.Mount, error) {
 	if t.addr != "" {
-		return am5.Dial(t.addr)
+		return am5.Dial(t.dialAddr())
 	}
-	return am5.Open(t.serial)
+	if looksLikePort(t.serial) {
+		return am5.Open(t.serial)
+	}
+	m, _, err := am5.FindMatching(am5.Filter{Serial: t.serial})
+	return m, err
+}
+
+// dialAddr joins the configured host and port.
+//
+// A host that already carries a port is left alone: entries written before the port had its own
+// field say "192.168.4.1:4030", and an operator who types that into a field labelled Host means
+// it. Anything else is joined with the configured port, or 4030 when none is set.
+func (t *Telescope) dialAddr() string {
+	if strings.Contains(t.addr, ":") {
+		return t.addr
+	}
+	port := t.port
+	if port <= 0 {
+		port = defaultTCPPort
+	}
+	return net.JoinHostPort(t.addr, strconv.Itoa(port))
+}
+
+// looksLikePort reports whether a configured selector is a device path rather than a serial.
+func looksLikePort(s string) bool {
+	return strings.HasPrefix(s, "/dev/") || strings.HasPrefix(s, `\\.\`) ||
+		(len(s) > 3 && strings.EqualFold(s[:3], "COM"))
 }
 
 func (t *Telescope) Open(ctx context.Context) error {
@@ -291,8 +345,6 @@ func (t *Telescope) TrackingRate() alpacadev.DriveRate {
 func (t *Telescope) TrackingRates() []alpacadev.DriveRate {
 	return []alpacadev.DriveRate{alpacadev.DriveSidereal, alpacadev.DriveLunar, alpacadev.DriveSolar}
 }
-
-func (t *Telescope) UTCDate() string { return time.Now().UTC().Format("2006-01-02T15:04:05.000Z") }
 
 func (t *Telescope) SetTracking(on bool) error {
 	m := t.mount()
