@@ -30,11 +30,29 @@ Use [alpacahurd](https://github.com/mikefsq/alpacahurd) to manage several driver
 
 ## Install and build
 
+Release packages target **Debian Trixie only**, on **amd64 and arm64**.
+PoleMaster is included on both architectures. ASIAIR and SM Pro packages are
+arm64 only because they access Pi hardware. The default build produces 33
+packages; the optional ZWO SDK drivers and standalone simulator are excluded.
+CI builds in Trixie and checks installation on both native architectures.
+
 Debian packages and installation instructions are in the
 [APT archive](https://mikefsq.github.io/apt/). See
 [releases](https://github.com/mikefsq/goalpaca-devices/releases) for release assets.
 
-For a source build, install Go 1.25 or later. Each driver is a separate Go module.
+For a source build, install Go 1.25 or later. All drivers are packages in one Go module, `github.com/mikefsq/goalpaca-devices`.
+The root `go.mod` records shared, released library dependencies; one root tag
+versions every driver. Individual executables and Debian packages remain separate.
+
+Third-party code can import a single package, such as
+`github.com/mikefsq/goalpaca-devices/asiam5`; only that package and its
+dependencies are compiled into the application. When migrating from older
+releases, remove the individual `goalpaca-devices/<driver>` module requirements
+and require the new root module release instead.
+
+Run `make deps` to download the recorded versions, `make test vet` to check
+the SDK-free drivers (`make test-sdk` checks the optional ZWO SDK drivers),
+and `make tidy` after deliberate dependency changes.
 From this directory:
 
 ```sh

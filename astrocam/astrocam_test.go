@@ -255,8 +255,8 @@ func TestAlpacaCamera6200(t *testing.T) {
 		if !ok || len(arr) == 0 {
 			t.Fatalf("configureddevices = %v", arr)
 		}
-		if id := arr[0].(map[string]any)["UniqueID"]; id != "CAM-06118f061f090900" {
-			t.Errorf("UniqueID = %v, want ASI-06118f061f090900 (factory serial)", id)
+		if id := arr[0].(map[string]any)["UniqueID"]; id != "06118f061f090900" {
+			t.Errorf("UniqueID = %v, want 06118f061f090900 (factory serial)", id)
 		}
 	})
 

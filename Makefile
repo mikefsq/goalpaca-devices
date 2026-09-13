@@ -6,13 +6,15 @@ DRIVERS := tenmicron asiam5 rst onstep astrocam asieaf asiefw \
 SDK_DRIVERS := asiccd asicaa
 
 PI_DRIVERS := smpro-switch smpro-focuser asiair
-PI_MODULES := smpro asiair
+PI_PACKAGES := smpro asiair
 
-moduledir = $(if $(filter smpro-switch smpro-focuser,$(1)),smpro,$(1))
+driverdir = $(if $(filter smpro-switch smpro-focuser,$(1)),smpro,$(1))
+
+CHECK_PACKAGES := $(foreach d,$(DRIVERS) $(PI_PACKAGES),./$(d)/...)
 
 BIN := bin
 
-.PHONY: build help all sdk pi deb head deps deps-head alpacasim vet tidy clean install uninstall $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS)
+.PHONY: build help all sdk pi deb deps alpacasim test test-sdk vet tidy clean install uninstall $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS)
 
 PREFIX ?= /usr/local
 DESTDIR ?=
@@ -38,20 +40,20 @@ all: build sdk pi ## build + the cgo ZWO-SDK drivers + the Pi drivers
 
 $(DRIVERS): | $(BIN)
 	@echo "building $@"
-	@cd $@ && CGO_ENABLED=1 go build -o ../$(BIN)/$@ ./cmd/$@
+	@CGO_ENABLED=1 go build -o $(BIN)/$@ ./$@/cmd/$@
 
 sdk: $(SDK_DRIVERS) ## build the cgo ZWO-SDK drivers (needs libASICamera2 and libCAA)
 
 $(SDK_DRIVERS): | $(BIN)
 	@echo "building $@ (cgo + ZWO SDK)"
-	@cd $@ && CGO_ENABLED=1 go build -o ../$(BIN)/$@ ./cmd/$@
+	@CGO_ENABLED=1 go build -o $(BIN)/$@ ./$@/cmd/$@
 
 pi: $(PI_DRIVERS) ## cross-compile the Raspberry Pi drivers (linux/arm64) into ./bin/linux_arm64
 
 $(PI_DRIVERS): | $(BIN)
 	@echo "building $@ (linux/arm64)"
 	@mkdir -p $(BIN)/linux_arm64
-	@cd $(call moduledir,$@) && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o ../$(BIN)/linux_arm64/$@ ./cmd/$@
+	@GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o $(BIN)/linux_arm64/$@ ./$(call driverdir,$@)/cmd/$@
 
 alpacasim: ## run goalpaca's one-of-every-type protocol sim (not guidable)
 	@cd ../goalpaca && go run ./cmd/alpacasim
@@ -98,40 +100,25 @@ uninstall: ## remove installed drivers (device entries are kept)
 	done
 	@echo "removed drivers from $(BINDIR); $(DEVICESDIR) left intact"
 
-vet: ## go vet every module
-	@for d in $(DRIVERS) $(SDK_DRIVERS); do echo "vet $$d"; (cd $$d && go vet ./...) || exit 1; done
-	@for d in $(PI_MODULES); do echo "vet $$d (linux/arm64)"; (cd $$d && GOOS=linux GOARCH=arm64 go vet ./...) || exit 1; done
+# Resolve only the committed module graph, independent of developer workspaces.
+export GOWORK := off
 
-head: deps-head
+test: ## run tests for drivers that do not require vendor SDKs
+	go test $(CHECK_PACKAGES)
 
-deps: deps-head ## update mikefsq dependencies to main (no release tags needed)
+test-sdk: ## test vendor SDK drivers (requires installed ZWO libraries)
+	go test ./asiccd/... ./asicaa/...
 
-# Resolve branch heads outside each module's graph before replacing placeholder versions.
-deps-head: ## update mikefsq dependencies to main (no release tags needed)
-	@set -e; querydir=$$(mktemp -d); \
-	trap 'rm -rf "$$querydir"' EXIT HUP INT TERM; \
-	printf 'module deps-head-query\ngo 1.25.0\n' > "$$querydir/go.mod"; \
-	for d in $(DRIVERS) $(SDK_DRIVERS) $(PI_MODULES); do \
-		echo "head $$d"; \
-		( cd $$d && \
-		  mods=$$(grep -oE 'github.com/mikefsq/[a-z0-9./-]+' go.mod | grep -v goalpaca-devices | sort -u); \
-		  set --; for m in $$mods; do set -- "$$@" "$$m@main"; done; \
-		  if [ "$$#" -gt 0 ]; then \
-			refs=$$(cd "$$querydir" && GOWORK=off GOFLAGS= go list -m -f '{{.Path}}@{{.Version}}' "$$@") || exit 1; \
-			set --; for ref in $$refs; do set -- "$$@" "-require=$$ref"; done; \
-			GOWORK=off go mod edit "$$@" || exit 1; \
-		  fi; \
-		  for r in $$(grep -oE '^replace github.com/mikefsq/[a-z0-9./-]+' go.mod | awk '{print $$2}'); do \
-			GOWORK=off go mod edit -dropreplace=$$r || exit 1; \
-		  done; \
-		  if [ -n "$$mods" ]; then GOWORK=off GOFLAGS=-mod=mod go get $$refs || exit 1; fi; \
-		  GOWORK=off GOFLAGS=-mod=mod go mod download all ) || exit 1; \
-	done
-	@echo "run 'make deb' to confirm every module still builds from its go.mod"
+vet: ## vet SDK-free drivers, including Linux-only packages
+	go vet $(CHECK_PACKAGES)
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go vet $(CHECK_PACKAGES)
 
-tidy: ## go mod tidy every module
-	@for d in $(DRIVERS) $(SDK_DRIVERS) $(PI_MODULES); do echo "tidy $$d"; (cd $$d && go mod tidy) || exit 1; done
+deps: ## download the versions recorded in go.mod
+	go mod download
+
+tidy: ## tidy the shared module dependencies
+	go mod tidy
 
 clean: ## remove ./bin, ./dist and any per-cmd build outputs
 	@rm -rf $(BIN) dist
-	@rm -f $(foreach d,$(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS),$(call moduledir,$(d))/cmd/$(d)/$(d))
+	@rm -f $(foreach d,$(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS),$(call driverdir,$(d))/cmd/$(d)/$(d))

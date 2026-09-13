@@ -27,6 +27,7 @@ DRIVERS="
     oasisfoc
     oasisfw
     onstep
+    polemaster
     ptpcam
     rst
     smpro-focuser
@@ -37,7 +38,7 @@ DRIVERS="
 
 # Drivers whose registered driver names differ from their binary name get a
 # symlink per name, because alpacahurd resolves a driver by looking for a file
-# called exactly that. One line per module: the module name, then the names it
+# called exactly that. One line per driver: the driver name, then the names it
 # registers that its binary is not already called.
 ALIASES="
     asiair asiair-switch
@@ -58,7 +59,7 @@ Usage: build-deb [-d DRIVERS] [-a ARCHES] [-o OUTDIR] [-v VERSION]
 
 Options:
  -d DRIVERS    space-separated driver names   [default: every packageable one]
- -a ARCHES     space-separated Debian architectures: amd64, arm64, armhf
+ -a ARCHES     space-separated Debian architectures: amd64, arm64
                [default: $arches]
  -o OUTDIR     directory for the .deb files   [default: $outdir]
  -v VERSION    package version. A tagged commit takes its version from the
@@ -82,6 +83,14 @@ while getopts "d:a:o:v:h" o; do
     esac
 done
 
+# Reject unsupported targets before building any packages.
+for arch in $arches; do
+    case "$arch" in
+        amd64|arm64) ;;
+        *) echo "build-deb: unsupported architecture '$arch' (use amd64 or arm64)" >&2; exit 1 ;;
+    esac
+done
+
 for t in go dpkg-deb file; do
     command -v "$t" >/dev/null 2>&1 || { echo "build-deb: $t not found" >&2; exit 1; }
 done
@@ -92,14 +101,13 @@ goarch () {
     case "$1" in
         amd64) echo "amd64 " ;;
         arm64) echo "arm64 " ;;
-        armhf) echo "arm 7" ;;
         *)     return 1 ;;
     esac
 }
 
 # aliases_for prints the extra driver names a module registers, or nothing.
-# Drivers whose module directory is not their own name. The SM Pro board is one
-# Go module serving two ASCOM device types, with a binary for each: the two open
+# Drivers whose package directory is not their own name. The SM Pro board is one
+# Go package serving two ASCOM device types, with a binary for each: the two open
 # disjoint hardware (I2C/SPI/PWM against the stepper UART), so they run as
 # separate processes.
 MODULE_DIRS="
@@ -107,7 +115,7 @@ MODULE_DIRS="
     smpro-focuser smpro
 "
 
-# module_for prints the module directory a driver is built from, defaulting to
+# module_for prints the package directory a driver is built from, defaulting to
 # the driver's own name.
 module_for () {
     local m
@@ -120,8 +128,7 @@ aliases_for () {
 }
 
 # resolve_version derives the package version, shared by every package built in
-# one run: the modules carry no version of their own, and a herd assembled from
-# one commit is easier to reason about than fourteen independent version lines.
+# one run: all drivers share the root Go module and its release tag.
 resolve_version () {
     local tag stamp sha
     tag=$(git -C "$SRC_DIR" describe --exact-match --tags HEAD 2>/dev/null)
@@ -168,19 +175,19 @@ build_one () {
     read -r ga gm <<<"$pair"
 
     dir=$(module_for "$driver")
-    [[ -d $SRC_DIR/$dir ]] || { echo "build-deb: no module directory '$dir'" >&2; return 1; }
+    [[ -d $SRC_DIR/$dir ]] || { echo "build-deb: no driver directory '$dir'" >&2; return 1; }
 
     root=$(mktemp -d) || return 1
     chmod 0755 "$root"
     bin=$root/usr/bin/$driver
     mkdir -p "$root/usr/bin" "$root/usr/share/doc/$PREFIX-$driver" "$root/DEBIAN"
 
-    # GOWORK=off builds from the module's committed go.mod, so a package can only
+    # GOWORK=off builds from the repository's committed go.mod, so a package can only
     # be built from dependencies a plain clone resolves. A driver that needs a
     # sibling checkout fails here rather than on a runner.
-    if ! ( cd "$SRC_DIR/$dir" && CGO_ENABLED=0 GOOS=linux GOARCH="$ga" GOARM="$gm" \
+    if ! ( cd "$SRC_DIR" && CGO_ENABLED=0 GOOS=linux GOARCH="$ga" GOARM="$gm" \
         GOFLAGS=-mod=readonly GOWORK=off \
-        go build -trimpath -ldflags "-s -w" -o "$bin" "./cmd/$driver" ); then
+        go build -trimpath -ldflags "-s -w" -o "$bin" "./$dir/cmd/$driver" ); then
         rm -rf "$root"
         return 1
     fi

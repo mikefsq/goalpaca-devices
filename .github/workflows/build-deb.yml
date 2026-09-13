@@ -6,9 +6,7 @@ name: Debian Packages
 #
 #     gh workflow run build-deb.yml --repo mikefsq/goalpaca-devices -f version=1.2.3
 #
-# One .deb per driver, all sharing the run's version: the modules carry no
-# version of their own, and a herd assembled from one commit is easier to reason
-# about than fourteen independent version lines.
+# One Go module and one .deb per driver, sharing the release version.
 #
 # The packages reach users through mikefsq/apt, which is also manual. Publishing
 # is two deliberate steps: release here, then run Publish archive there.
@@ -36,11 +34,13 @@ permissions:
 jobs:
   build-deb:
     name: build
-    runs-on: ubuntu-latest
-    # Every driver is pure Go built with CGO_ENABLED=0, so both architectures
-    # cross-compile on one x86 runner and one package per architecture installs
-    # on every Debian and Ubuntu release.
+    runs-on: ubuntu-24.04
+    container: golang:1.25-trixie
+    # Cross-compile the SDK-free drivers for Debian Trixie amd64 and arm64.
     steps:
+    - name: Install build tools
+      run: apt-get update && apt-get install -y --no-install-recommends file
+
     - name: Checkout code
       uses: actions/checkout@v6
       with:
@@ -51,20 +51,24 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v6
       with:
-        # One module stands in for all of them, because setup-go takes a single
-        # file. That works only while every module declares the same go
-        # directive: setup-go pins GOTOOLCHAIN=local, so a module asking for a
-        # higher version is not silently upgraded, it fails to build while the
-        # rest succeed. Keep the directives in step, or raise this file's
-        # module to the highest of them.
-        go-version-file: tenmicron/go.mod
+        go-version-file: go.mod
         cache: false
 
+    - name: Check drivers
+      env:
+        GOWORK: off
+        GOFLAGS: -mod=readonly
+      run: make test vet
+
     - name: Build packages
-      # go.work is gitignored and absent here, and build-deb sets GOWORK=off, so
-      # every module resolves from its own committed go.mod. A driver that only
-      # builds inside the developer's workspace fails here, by design.
-      run: build/build-deb ${{ inputs.version && format('-v {0}', inputs.version) || '' }}
+      env:
+        RELEASE_VERSION: ${{ inputs.version }}
+      run: |
+        if [ -n "$RELEASE_VERSION" ]; then
+          build/build-deb -v "$RELEASE_VERSION"
+        else
+          build/build-deb
+        fi
 
     - name: Upload packages
       uses: actions/upload-artifact@v6
@@ -74,15 +78,29 @@ jobs:
         if-no-files-found: error
 
   install-test:
-    name: install test
+    name: install test (${{ matrix.arch }}, Trixie)
     needs: build-deb
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - arch: amd64
+          runner: ubuntu-24.04
+        - arch: arm64
+          runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: debian:trixie-slim
+    env:
+      DEB_ARCH: ${{ matrix.arch }}
     # The packages are only useful if alpacahurd resolves them, and that is a
     # property of two packages together: the driver binary has to land where the
     # orchestrator looks, and the seeded device file has to name a driver it can
     # launch. Neither build step can tell you that, so the orchestrator is
     # installed from its own latest release and asked.
     steps:
+    - name: Install test tools
+      run: apt-get update && apt-get install -y --no-install-recommends ca-certificates gh
+
     - name: Download the driver packages
       uses: actions/download-artifact@v6
       with:
@@ -94,16 +112,16 @@ jobs:
         GH_TOKEN: ${{ github.token }}
       run: |
         gh release download --repo mikefsq/alpacahurd \
-          --pattern 'alpacahurd_*_amd64.deb' --dir orchestrator \
-          || { echo "::error::mikefsq/alpacahurd has no release carrying an amd64 .deb yet"; exit 1; }
+          --pattern "alpacahurd_*_${DEB_ARCH}.deb" --dir orchestrator \
+          || { echo "::error::mikefsq/alpacahurd has no release carrying a ${DEB_ARCH} .deb yet"; exit 1; }
 
     - name: Install
-      run: sudo apt-get install -y ./orchestrator/alpacahurd_*_amd64.deb ./dist/alpacahurd-*_amd64.deb
+      run: apt-get install -y ./orchestrator/alpacahurd_*_${DEB_ARCH}.deb ./dist/alpacahurd-*_${DEB_ARCH}.deb
 
     - name: Every driver seeded a device file
       run: |
         rc=0
-        for deb in dist/alpacahurd-*_amd64.deb; do
+        for deb in dist/alpacahurd-*_${DEB_ARCH}.deb; do
           driver=$(basename "$deb" | sed 's/^alpacahurd-//; s/_.*//')
           if [ -f "/etc/alpacahurd/devices.d/$driver.json" ]; then
             echo "  ok    $driver"
@@ -120,9 +138,9 @@ jobs:
       run: |
         for f in /etc/alpacahurd/devices.d/*.json; do
           driver=$(basename "$f" .json)
-          printf '{ "driver": "%s", "enable": true }\n' "$driver" | sudo tee "$f" >/dev/null
+          printf '{ "driver": "%s", "enable": true }\n' "$driver" | tee "$f" >/dev/null
         done
-        sudo alpacahurd -check -config /etc/alpacahurd/hurd.json | tee check.out
+        alpacahurd -check -config /etc/alpacahurd/hurd.json | tee check.out
         if grep -q 'no binary was found' check.out; then
           echo "::error::a driver package installed a binary alpacahurd cannot resolve"
           exit 1
@@ -130,9 +148,9 @@ jobs:
 
     - name: Purge
       run: |
-        sudo apt-get purge -y 'alpacahurd-*' alpacahurd
+        apt-get purge -y 'alpacahurd-*' alpacahurd
         test ! -e /etc/alpacahurd
-        test -z "$(ls /usr/bin | grep -E '^(tenmicron|astrocam|rst|onstep)$' || true)"
+        test -z "$(ls /usr/bin | grep -E '^(tenmicron|astrocam|rst|onstep|polemaster)$' || true)"
 
   release:
     name: release
