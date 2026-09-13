@@ -9,7 +9,7 @@ import (
 
 // Config contains device selection and settings.
 type Config struct {
-	Addr string `json:"addr,omitempty" alpaca:"label=Address,when=start,help=host:port"`
+	Addr string `json:"addr,omitempty" alpaca:"label=Address,when=start,help='host:port (3490, 3492)'"`
 }
 
 func init() {
