@@ -39,6 +39,8 @@ jobs:
   build-deb:
     name: build
     runs-on: ubuntu-24.04
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
     container: golang:1.25-trixie
     # Cross-compile the SDK-free drivers for Debian Trixie amd64 and arm64.
     steps:
@@ -51,6 +53,24 @@ jobs:
         # build/build-deb derives the version from `git describe` when none is
         # passed, which needs the tags and the commit's history.
         fetch-depth: 0
+
+    - name: Trust checkout and select release source
+      id: source
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        # Container actions and shell steps can use different HOME directories.
+        # Trust only this checkout in the disposable container's system config.
+        git config --system --add safe.directory "$GITHUB_WORKSPACE"
+        if [[ -n "$VERSION" ]]; then
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([~+.-][0-9A-Za-z.+~-]+)?$ ]] || exit 1
+          dpkg --validate-version "$VERSION"
+          if git show-ref --verify --quiet "refs/tags/v$VERSION"; then
+            git checkout --detach "refs/tags/v$VERSION"
+          fi
+        fi
+        git status --porcelain
+        echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
     - name: Set up Go
       uses: actions/setup-go@v6
@@ -106,7 +126,7 @@ jobs:
       run: apt-get update && apt-get install -y --no-install-recommends ca-certificates gh
 
     - name: Download the driver packages
-      uses: actions/download-artifact@v6
+      uses: actions/download-artifact@v8.0.1
       with:
         name: alpacahurd-drivers-deb
         path: dist
@@ -164,8 +184,13 @@ jobs:
     permissions:
       contents: write
     steps:
+    - uses: actions/checkout@v6
+      with:
+        ref: ${{ needs.build-deb.outputs.source_sha }}
+        fetch-depth: 0
+
     - name: Download packages
-      uses: actions/download-artifact@v6
+      uses: actions/download-artifact@v8.0.1
       with:
         name: alpacahurd-drivers-deb
         path: dist
@@ -177,14 +202,22 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
         TAG: v${{ inputs.version }}
+        SOURCE_SHA: ${{ needs.build-deb.outputs.source_sha }}
       run: |
         if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
           echo "::error::$TAG already exists — release a new version rather than replacing it"
           exit 1
         fi
+        if git show-ref --verify --quiet "refs/tags/$TAG"; then
+          tagged_sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha)
+          if [[ "$tagged_sha" != "$SOURCE_SHA" ]]; then
+            echo "::error::$TAG does not point to tested commit $SOURCE_SHA"
+            exit 1
+          fi
+        fi
         gh release create "$TAG" dist/*.deb \
           --repo "$GITHUB_REPOSITORY" \
-          --target "$GITHUB_SHA" \
+          --target "$SOURCE_SHA" \
           --title "$TAG" \
           --generate-notes \
           ${{ inputs.prerelease && '--prerelease' || '' }}
