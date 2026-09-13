@@ -94,4 +94,5 @@ ASICAM_HARDWARE=1 ASICAM_SERIAL=<hex> go test -run TestAlpacaHardware -v ./...  
 ```
 
 Use `-config` for a JSONC device file; `-schema commented` generates a
-sample with a `cameras` array. `-check` validates it without opening hardware.
+disabled, flat single-camera prototype, matching the other drivers. Existing
+`cameras` arrays remain supported for multi-camera configurations. `-check` validates it without opening hardware.

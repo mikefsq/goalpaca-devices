@@ -10,7 +10,7 @@ PI_PACKAGES := smpro asiair
 
 driverdir = $(if $(filter smpro-switch smpro-focuser,$(1)),smpro,$(1))
 
-CHECK_PACKAGES := $(foreach d,$(DRIVERS) $(PI_PACKAGES),./$(d)/...)
+CHECK_PACKAGES := $(foreach d,$(DRIVERS) $(PI_PACKAGES),./$(d)/...) ./internal/contract/...
 
 BIN := bin
 

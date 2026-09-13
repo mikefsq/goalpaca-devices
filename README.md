@@ -147,3 +147,21 @@ and [SETUP_FORMS.md](SETUP_FORMS.md) for browser settings.
 ## License
 
 [MIT](LICENSE).
+
+### Driver command contract
+
+Every packaged driver exposes the same management commands:
+
+- `-schema json`: machine-readable configuration fields.
+- `-schema commented`: a flat, disabled prototype with optional fields commented out.
+- `-discover`: structured device identities, or `supported: false` when the driver cannot scan.
+- `-config FILE -check`: validate configuration without connecting hardware.
+
+Astrocam uses the shared schema implementation while retaining support for existing
+multi-camera configuration arrays. New prototypes configure one camera, like the
+other standalone drivers. The `sim` development server and `roiprobe` diagnostic
+utility are not packaged device drivers.
+
+`make test` builds each SDK-free driver executable and checks its actual schema
+commands and management flags. Set `ALPACA_TEST_SDK=1` to include the SDK drivers
+when their vendor libraries are installed.

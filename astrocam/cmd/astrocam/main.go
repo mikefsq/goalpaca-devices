@@ -57,7 +57,7 @@ const defaultPort = 11111
 func main() {
 	configPath := flag.String("config", "",
 		`device file (JSON with // comments): "port", "name", and a "cameras" array, one block per `+
-			`Alpaca camera device (0, 1, … in order; two empty blocks when absent). -schema commented prints it.`)
+			`Alpaca camera device (0, 1, … in order). Flat fields configure one camera.`)
 	port := flag.Int("port", 0, fmt.Sprintf("Alpaca HTTP port (default: the file's, else %d)", defaultPort))
 	serial := flag.String("serial", "",
 		"comma-separated factory serials (hex) — one Alpaca camera device per serial, in order; the file-less "+
@@ -69,7 +69,7 @@ func main() {
 		"discovery_proxy address for register mode")
 	ipv6 := flag.Bool("ipv6", false, "also answer IPv6 multicast discovery (direct mode)")
 	check := flag.Bool("check", false, "load the config, construct every camera (no hardware is touched), report, and exit")
-	schema := flag.String("schema", "", "print the config schema and exit: commented (a device file with the default two-camera array)")
+	schema := flag.String("schema", "", "print the config schema and exit: json or commented (a disabled single-camera prototype)")
 	flag.Parse()
 	if *discover {
 		drv, ok := registry.Lookup("astrocam")
@@ -84,11 +84,13 @@ func main() {
 
 	switch *schema {
 	case "":
-	case "commented":
-		fmt.Print(commentedSchema)
+	case "json", "commented":
+		if err := devicemain.RunWith("astrocam", devicemain.Options{Args: []string{"-schema", *schema}, Stdout: os.Stdout, Stderr: os.Stderr, DefaultPort: defaultPort}); err != nil {
+			log.Fatal(err)
+		}
 		return
 	default:
-		log.Fatalf("astrocam: -schema wants commented, got %q", *schema)
+		log.Fatalf("astrocam: -schema wants json or commented, got %q", *schema)
 	}
 	if *configPath != "" && strings.TrimSpace(*serial) != "" {
 		log.Fatal(`asicam: -config and -serial are exclusive: the file's "cameras" array names the serials`)
@@ -101,8 +103,8 @@ func main() {
 		instance = strings.TrimSuffix(filepath.Base(*configPath), filepath.Ext(*configPath))
 	}
 
-	// Build the camera blocks: the file's "cameras" array (two empty blocks when
-	// the file names none), else the -serial list, else auto-enumeration.
+	// Build explicit camera blocks or a single flat configuration. Without a
+	// configuration, retain the command-line serial list and auto-enumeration.
 	portNum := defaultPort
 	displayName := ""
 	var blocks []cameraBlock
@@ -148,10 +150,9 @@ func main() {
 			blocks, blockKeys = append(blocks, b), append(blockKeys, flat)
 		}
 		if len(blocks) == 0 {
-			// The default: two cameras, device 0 and 1, each binding its
-			// enumeration index until a "serial" pins it.
-			blocks = make([]cameraBlock, 2)
-			blockKeys = make([]map[string]json.RawMessage, 2)
+			// An unconfigured flat prototype represents one camera, like other drivers.
+			blocks = make([]cameraBlock, 1)
+			blockKeys = make([]map[string]json.RawMessage, 1)
 		}
 	} else if s := strings.TrimSpace(*serial); s != "" {
 		for _, sn := range strings.Split(s, ",") {
@@ -160,6 +161,10 @@ func main() {
 				blockKeys = append(blockKeys, map[string]json.RawMessage{"serial": nil})
 			}
 		}
+	} else if *check {
+		// Validation must never scan or open hardware.
+		blocks = []cameraBlock{{}}
+		blockKeys = []map[string]json.RawMessage{nil}
 	} else {
 		devs, err := astrocam.Enumerate()
 		if err == nil && len(devs) > 0 {
@@ -340,36 +345,3 @@ func main() {
 	}
 	log.Printf("astrocam: shut down")
 }
-
-// commentedSchema is the -schema commented output: a device file with the
-// default two-camera array. Every commented line carries its own trailing
-// comma and each block ends on a live "name", so uncommenting any one line
-// yields valid JSON with no other edit.
-const commentedSchema = `{
-  // ZWO ASI camera(s) (pure-Go USB driver): one process, one port, one Alpaca
-  // camera device per "cameras" block (device 0, 1, … in order), so every
-  // camera is reachable through this one server.
-  // Uncomment a line to override its default.
-  "driver": "astrocam",
-  // "port": 11111,           // Alpaca HTTP port
-  "cameras": [
-    {
-      // "serial": "",          // factory serial (hex); stable across replug, recommended
-      // "index": 0,            // bind the Nth attached camera when no serial (default: the block's position)
-      // "fixdefects": false,   // disable factory hot-pixel correction (default: true; full-frame RAW16 only)
-      // "fpsPercent": 0,       // 40..100 readout throttle; 0 keeps the link default
-      // "enable": false,       // set false to skip this device number (later blocks keep theirs)
-      "name": ""               // display name for device 0
-    },
-    {
-      // "serial": "",          // factory serial (hex); stable across replug, recommended
-      // "index": 1,            // bind the Nth attached camera when no serial (default: the block's position)
-      // "fixdefects": false,   // disable factory hot-pixel correction (default: true; full-frame RAW16 only)
-      // "fpsPercent": 0,       // 40..100 readout throttle; 0 keeps the link default
-      // "enable": false,       // set false to skip this device number (later blocks keep theirs)
-      "name": ""               // display name for device 1
-    }
-  ],
-  "enable": false            // set true to serve this device
-}
-`
