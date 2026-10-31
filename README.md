@@ -26,88 +26,58 @@ Use [alpacahurd](https://github.com/mikefsq/alpacahurd) to manage several driver
 | Observing conditions | [unihedron](unihedron/README.md) | Unihedron SQM |
 | Switch | [asiair](asiair/README.md) | ZWO ASIAIR power board; runs on its Pi |
 | Switch / Focuser | [smpro](smpro/README.md) | StellarMate SM Pro; runs on its Pi |
+| Switch | [scopehub](scopehub/README.md) | scope_hub power and USB hub |
 | Simulator | [sim](sim/README.md) | Coupled telescope and guide camera |
 
 ## Install and build
 
-Release packages target **Debian Trixie only**, on **amd64 and arm64**.
-PoleMaster is included on both architectures. ASIAIR and SM Pro packages are
-arm64 only because they access Pi hardware. The default build produces 33
-packages; the optional ZWO SDK drivers and standalone simulator are excluded.
-CI builds in Trixie and checks installation on both native architectures.
+Release packages target **Debian Trixie**, on **amd64 and arm64**.
+ASIAIR and SM Pro packages are arm64 only because they access Pi hardware. 
 
 Debian packages and installation instructions are in the
 [APT archive](https://mikefsq.github.io/apt/). See
 [releases](https://github.com/mikefsq/goalpaca-devices/releases) for release assets.
 
-For a source build, install Go 1.25 or later. All drivers are packages in one Go module, `github.com/mikefsq/goalpaca-devices`.
-The root `go.mod` records shared, released library dependencies; one root tag
-versions every driver. Individual executables and Debian packages remain separate.
+For a source build, install Go 1.25 or later. All drivers are packages in one Go 
+module, `github.com/mikefsq/goalpaca-devices`. The root `go.mod` records shared, 
+released library dependencies. Individual executables and Debian packages 
+remain separate.
 
-Third-party code can import a single package, such as
-`github.com/mikefsq/goalpaca-devices/asiam5`; only that package and its
-dependencies are compiled into the application. When migrating from older
-releases, remove the individual `goalpaca-devices/<driver>` module requirements
-and require the new root module release instead.
-
-Run `make deps` to download the recorded versions, `make test vet` to check
-the SDK-free drivers (`make test-sdk` checks the optional ZWO SDK drivers),
-and `make tidy` after deliberate dependency changes.
 From this directory:
 
 ```sh
-make tenmicron      # build bin/tenmicron
+make deps           # download the dependency versions recorded in go.mod
 make                # build drivers that do not need a vendor SDK
+make tenmicron      # build bin/tenmicron
 make pi             # build Raspberry Pi drivers for Linux arm64
+sudo make install   # copy bin/ to /usr/local/bin and register in drivers.conf
+sudo make seed      # write a disabled devices.d template per installed driver
+sudo make uninstall # remove the binaries; device files are kept
 make help
 ```
 
-The SDK drivers require cgo and their ZWO libraries; see their READMEs.
 Some macOS USB transports also require cgo and Apple's command-line tools.
 
-`make install` (or `make install` in a driver directory) records each binary in
-`drivers.conf` and writes no device files: add devices on the alpacahurd setup
-page. `make seed` writes one disabled template per driver into `devices.d/` and
-keeps existing files. Both live in `/etc/alpacahurd` on Linux and in
-`/Library/Application Support/alpacahurd` on macOS. The registry contains one
-absolute executable path per line.
-Updating the registry does not execute the driver or create runtime state. Upgrades preserve existing device configurations.
-Uninstall removes the binary's registry entry and keeps device configurations.
-Debian packages maintain the same registry, using their `/usr/bin` paths.
+`make install` (or `make install` in a driver directory) copies each binary and
+records its absolute path in `drivers.conf`. `make seed` writes one disabled 
+template per driver into `devices.d/`. These are written to `/etc/alpacahurd` 
+on Linux and `/Library/Application Support/alpacahurd` on macOS.
 
-For a binary installed before this registry was introduced, register it without
-rebuilding or starting it:
+## Management commands
 
-```sh
-sudo sh build/register-driver /usr/local/bin/asiam5 /etc/alpacahurd/drivers.conf
-```
+Every packaged driver exposes the same management commands:
 
-The Add device page in alpacahurd reads this catalogue on each visit and can
-create additional disabled instances from a binary's `-schema commented` output.
-Legacy launchers without schema support can be recorded, but cannot generate
-configuration through that page. Per-driver installs place the registry beside the
-configured `devices.d` directory; `REGISTRYFILE` overrides that location.
+- `-schema json`: machine-readable configuration fields.
+- `-schema commented`: a flat, disabled prototype with optional fields commented out.
+- `-discover`: structured device identities, or `supported: false` when the driver cannot scan.
+- `-config FILE -check`: validate configuration without connecting hardware.
 
-## Discover hardware
+### Discover hardware
 
-Run `<driver> -discover` to list detected hardware as JSON and exit without
-loading configuration, constructing a device, starting an Alpaca server, or
-writing state. This is distinct from `-discovery`, which controls Alpaca network
-advertising. Explicit `-discover` scans regardless of any supplied config pin.
-
-The output includes `driver`, `supported`, ordered `identity` configuration keys,
-and `devices`, each with a `label` and `values` containing usable configuration
-selectors. Unknown selectors are omitted. A busy device may be listed without a
-serial; discovery must not interrupt the process using it.
-
-No devices found returns an empty `devices` array. Drivers without a scanner
-return `supported: false` and an empty array. Scan failures include `error` in the
-JSON and exit nonzero; diagnostics go to stderr. Scans receive a ten-second
-context deadline, which each scanner must honor.
-
-All launchers using `goalpaca/devicemain` inherit this flag. The custom Astrocam
-and simulator launchers also support it (the simulator has no hardware to scan).
-Rebuild installed binaries to obtain the new flag.
+Run `<driver> -discover` to list detected hardware as JSON and exit. The output 
+includes `driver`, `supported`, ordered `identity` configuration keys, and `devices`, 
+each with a `label` and `values` containing usable configuration
+selectors. 
 
 ## Run
 
@@ -133,15 +103,6 @@ Most drivers accept a JSONC device file, with `//` comments:
 ./bin/tenmicron -config mount.json
 ```
 
-Edit the generated file before checking it. `-check` validates configuration
-without opening hardware. Flags override file values; `-help` lists the
-available flags. The simulator uses command-line flags only.
-
-The setup page allows changes to live settings that are not fixed by the
-file or flags. Change hardware selectors in the file and reload or restart
-the driver. Use stable serial identifiers where supported; the EAF currently
-selects by enumeration index only.
-
 ## Writing a driver
 
 See [DRIVERS.md](DRIVERS.md) for registration, hardware lifecycle, and testing,
@@ -149,33 +110,4 @@ and [SETUP_FORMS.md](SETUP_FORMS.md) for browser settings.
 
 ## License
 
-[MIT](LICENSE), except the `scopehub` driver, which is
-[AGPL-3.0-only](scopehub/LICENSE).
-
-### Driver command contract
-
-Every packaged driver exposes the same management commands:
-
-- `-schema json`: machine-readable configuration fields.
-- `-schema commented`: a flat, disabled prototype with optional fields commented out.
-- `-discover`: structured device identities, or `supported: false` when the driver cannot scan.
-- `-config FILE -check`: validate configuration without connecting hardware.
-
-Astrocam uses the shared schema implementation while retaining support for existing
-multi-camera configuration arrays. New prototypes configure one camera, like the
-other standalone drivers. The `sim` development server and `roiprobe` diagnostic
-utility are not packaged device drivers.
-
-`make test` builds each SDK-free driver executable and checks its actual schema
-commands and management flags. Set `ALPACA_TEST_SDK=1` to include the SDK drivers
-when their vendor libraries are installed.
-
-Driver registration is unique by executable basename. Installing a Debian
-package after a source install replaces `/usr/local/bin/<driver>` with
-`/usr/bin/<driver>` in `drivers.conf`; installing from source later selects the
-source path instead. Uninstall removes only its exact path. Existing device
-configuration files and their explicit `exec` overrides are preserved.
-
-To repair an older registry after copying the updated source, re-register the
-packaged drivers using `build/register-driver`; this does not start devices or
-remove binaries. New Debian packages include the same repair on installation.
+[AGPL-3.0-only](LICENSE).

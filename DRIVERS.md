@@ -1,41 +1,59 @@
 # Writing a driver
 
-Each directory is a separate Go module with an importable driver package and
-a standalone command under `cmd/<name>`. The package implements the relevant
+Each driver is a package in the `github.com/mikefsq/goalpaca-devices` module,
+with a standalone command in `cmd/<name>` and a `Makefile` for building and
+installing that one driver. The package implements the relevant
 [goalpaca device interface](https://github.com/mikefsq/goalpaca/blob/main/DRIVERS.md)
-and registers a constructor in `hurd.go`.
+and registers itself with the goalpaca registry in `hurd.go`.
 
-Use [asiefw](asiefw) as a small example with live settings, or
-[tenmicron](tenmicron) for a telescope backed by a protocol library.
+[asiefw](asiefw) is a small example with live settings and a hardware scan.
+[tenmicron](tenmicron) is a telescope driver backed by a protocol library.
 
-## Registration and configuration
+## Registration
 
-Register a `registry.Driver` with a unique `Name`, device `Type`, description,
-config example, and `New` function. Provide `Config` when the driver has
-settings. Decode the entry with `spec.Decode` so unknown driver keys are
-rejected. Apply `spec.Name` when supplied.
+`hurd.go` registers a `registry.Driver` from an `init` function. The fields are:
 
-`New` must validate and construct without opening hardware. Both `-check`
-and device reload call it. Keep device identity stable across reconnects;
-prefer a hardware serial to an enumeration index when available.
+| Field | Purpose |
+|---|---|
+| `Name` | unique driver name, also the binary name and the `driver` key in a device file |
+| `Type` | Alpaca device type |
+| `Description` | one line shown in alpacahurd's driver list |
+| `ConfigExample` | a minimal device file entry |
+| `Config` | returns a pointer to the zero-valued config struct. Its `json` and `alpaca` tags define the setup form and `-schema` output. |
+| `New` | builds the device from a `registry.Spec` |
+| `Identity` | config keys that address one device uniquely, most stable first, such as `{"serial", "index"}` or `{"addr"}` |
+| `Scan` | lists attached devices for `-discover` and alpacahurd's Add device page. Nil for a device reached by address. |
+| `MultiKey` | optional name of an array of devices in one entry |
+| `FrontEnd` | optional protocol front-end started beside the Alpaca device, such as an LX200 server |
 
-See [SETUP_FORMS.md](SETUP_FORMS.md) for config tags and live settings.
+`New` decodes the entry with `spec.Decode`, which rejects unknown keys, and
+applies `spec.Name` when one is set. `New` validates and constructs the device
+without opening hardware, because `-check` and a device reload both call it.
+
+`Scan` touches the bus, so it opens only what reading the identity requires
+and releases it before returning. A device that another process holds is still
+listed, with the values readable without taking it. `registry.CheckIdentity`
+in a test confirms that every `Identity` key is a field of `Config`.
+
+A device keeps its identity across reconnects. A hardware serial identifies a
+device better than an enumeration index, where the hardware has one.
+[SETUP_FORMS.md](SETUP_FORMS.md) describes the config tags and live settings.
 
 ## Hardware lifecycle
 
-Implement `server.Hardware`: start acquisition in `Open`, and stop background
-work and release handles in `Close`. A reload closes the old instance before
-opening its replacement. Wait for the old acquisition loop to stop so it
-cannot reclaim the hardware.
+The device implements `server.Hardware`. `Open` starts acquisition, and `Close`
+stops background work and releases handles. A reload closes the old instance
+before opening its replacement. The old acquisition loop must stop before the
+new instance opens, so it cannot reclaim the hardware.
 
-Keep hardware ownership separate from Alpaca connection state. A client
-disconnect must not release a power board or reset camera cooling. Guard
-shared handles and cached state against concurrent requests. Document lock
-requirements and protocol quirks where they affect the implementation.
+Hardware ownership is separate from the Alpaca connection state. A client
+disconnect does not release a power board or reset camera cooling. Shared
+handles and cached state need guarding against concurrent requests. Comments
+record lock requirements and protocol quirks where they affect the code.
 
-Report invalid values, unavailable hardware, and unsupported operations using
-goalpaca's Alpaca errors. Long operations should return promptly and expose
-completion through the appropriate device property.
+Invalid values, unavailable hardware and unsupported operations return
+goalpaca's Alpaca errors. A long operation returns promptly and reports
+completion through the matching device property.
 
 ## Standalone command
 
@@ -45,36 +63,47 @@ The usual entry point imports the driver and calls `devicemain.Run`:
 package main
 
 import (
-    _ "example.com/mydriver"
+    _ "github.com/mikefsq/goalpaca-devices/mydriver"
     "github.com/mikefsq/goalpaca/devicemain"
 )
 
 func main() { devicemain.Run("mydriver") }
 ```
 
-This supplies config loading, flags, setup forms, persistence, discovery, and
-reload. Use `RunWith` for additional utility flags; see
-[ptpcam/cmd/ptpcam](ptpcam/cmd/ptpcam).
+`devicemain` supplies config loading, the management flags (`-schema`,
+`-discover`, `-check`), setup forms, persisted settings, Alpaca discovery and
+reload. `RunWith` adds utility flags, as in [ptpcam/cmd/ptpcam](ptpcam/cmd/ptpcam).
 
-Use platform file suffixes or build tags for platform-specific registration.
-SDK drivers must document their build and runtime libraries.
+Platform file suffixes or build tags select platform-specific registration.
+An SDK driver's README names its build and runtime libraries.
 
 ## Build and test
 
-Add the module to the appropriate root Makefile list. Modules producing more
-than one binary also need a `moduledir` mapping. Packageable drivers are
-listed separately in [build/build-deb](build/build-deb).
+A new driver needs four entries:
 
-Run checks from the module directory:
+| File | Entry |
+|---|---|
+| `<name>/Makefile` | a copy of an existing driver's Makefile with `NAME` set |
+| root `Makefile` | the name in `DRIVERS`, or in `PI_DRIVERS` for Raspberry Pi hardware |
+| root `Makefile`, `driverdir` | only for a package that builds more than one binary, as smpro does |
+| [build/build-deb](build/build-deb) | the name in `DRIVERS` for a Debian package. `MODULE_DIRS`, `ALIASES` and `ARM64_ONLY` cover multi-binary packages, extra driver names and Pi-only drivers. |
+
+The checks run from the repository root:
 
 ```sh
-GOWORK=off go test ./...
-GOWORK=off go vet ./...
-go run ./cmd/mydriver -schema commented
-go run ./cmd/mydriver -config device.json -check
+go test ./mydriver/...
+go vet ./mydriver/...
+go run ./mydriver/cmd/mydriver -schema commented
+go run ./mydriver/cmd/mydriver -discover
+go run ./mydriver/cmd/mydriver -config device.json -check
+make test vet
 ```
 
-Use fake transports to test acquisition, reconnects, shutdown, validation,
-and hardware-specific behavior through Alpaca HTTP. Keep hardware tests
-opt-in and document their environment variables and physical effects.
-Do not assume the shared simulator's conformance tests suit every device.
+`make test` includes `internal/contract`, which finds every `cmd/*/main.go`,
+builds it, and checks its `-schema` and management flags. A new driver is
+covered there without further changes.
+
+Driver tests use fake transports to cover acquisition, reconnects, shutdown,
+validation and hardware-specific behavior through Alpaca HTTP. Hardware tests
+are opt-in, and each one documents its environment variables and physical
+effects. The simulator's conformance tests in `sim` do not suit every device.

@@ -47,4 +47,4 @@ go build -o scopehub ./cmd/scopehub
 
 ## License
 
-[AGPL-3.0-only](LICENSE).
+[AGPL-3.0-only](../LICENSE).
