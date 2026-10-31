@@ -14,6 +14,7 @@ require (
 	github.com/mikefsq/pegasus-astro v0.1.0
 	github.com/mikefsq/polemaster v0.1.0
 	github.com/mikefsq/ptp v0.1.0
+	github.com/mikefsq/scope_hub/driver v0.0.0
 	github.com/mikefsq/stellarmate v0.1.0
 	github.com/mikefsq/unihedron v0.1.1
 )
@@ -25,3 +26,6 @@ require (
 	golang.org/x/sys v0.43.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// scope_hub is not published yet; build against the local checkout.
+replace github.com/mikefsq/scope_hub/driver => ../scope_hub/driver

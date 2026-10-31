@@ -9,18 +9,29 @@ else
 CONFDIR ?= /etc/alpacahurd/devices.d
 endif
 
+ifeq ($(shell uname -s),Darwin)
+RESTART_HURD := sudo launchctl kickstart -k system/com.mikefsq.alpacahurd
+else
+RESTART_HURD := sudo systemctl restart alpacahurd
+endif
+
 REGISTRYFILE ?= $(CONFDIR)/../drivers.conf
 
-.PHONY: build install uninstall tidy test vet clean
+.PHONY: build install seed uninstall tidy test vet clean
 
 build:
 	go build -o $(NAME) ./cmd/$(NAME)
 
-install: build
+install:
+	@sh ../build/check-fresh $(NAME) ..
 	install -d "$(PREFIX)/bin"
 	install -m 0755 $(NAME) "$(PREFIX)/bin/$(NAME)"
 	@sh ../build/register-driver "$(PREFIX)/bin/$(NAME)" "$(REGISTRYFILE)"
 	@for a in $(ALIASES); do ln -sf $(NAME) "$(PREFIX)/bin/$$a"; echo "link   $(PREFIX)/bin/$$a -> $(NAME)"; done
+	@echo "start or restart alpacahurd to use it: $(RESTART_HURD)"
+
+seed: ## write a disabled devices.d template; keeps an existing file
+	@sh ../build/check-fresh $(NAME) ..
 	@install -d "$(CONFDIR)"
 	@if [ -f "$(CONFDIR)/$(NAME).json" ]; then \
 		echo "keep   $(CONFDIR)/$(NAME).json"; \

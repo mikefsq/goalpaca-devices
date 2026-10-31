@@ -1,3 +1,7 @@
+//go:build linux
+
+// The driver drives Raspberry Pi hardware, so the command builds only for Linux.
+
 // Command smpro-switch serves the smpro-switch driver.
 package main
 

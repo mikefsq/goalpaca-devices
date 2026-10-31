@@ -1,3 +1,7 @@
+//go:build linux
+
+// The driver drives Raspberry Pi hardware, so the command builds only for Linux.
+
 // Command asiair serves the asiair driver.
 package main
 

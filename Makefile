@@ -1,7 +1,7 @@
 # Build standalone drivers into bin/.
 DRIVERS := tenmicron asiam5 rst onstep astrocam asieaf asiefw \
            focuscube focuslynx oasisfoc oasisfw mgpbox unihedron ptpcam \
-           polemaster sim
+           polemaster scopehub sim
 
 SDK_DRIVERS := asiccd asicaa
 
@@ -10,17 +10,28 @@ PI_PACKAGES := smpro asiair
 
 driverdir = $(if $(filter smpro-switch smpro-focuser,$(1)),smpro,$(1))
 
-CHECK_PACKAGES := $(foreach d,$(DRIVERS) $(PI_PACKAGES),./$(d)/...) ./internal/contract/...
+CHECK_PACKAGES := $(sort $(foreach d,$(DRIVERS) $(PI_PACKAGES),./$(call driverdir,$(d))/...)) ./internal/contract/...
 
 BIN := bin
 
-.PHONY: build help all sdk pi deb deps alpacasim test test-sdk vet tidy clean install uninstall $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS)
+.PHONY: build help all sdk pi deb deps alpacasim test test-sdk vet tidy clean install seed uninstall $(DRIVERS) $(SDK_DRIVERS) $(PI_DRIVERS)
 
 PREFIX ?= /usr/local
 DESTDIR ?=
 BINDIR := $(DESTDIR)$(PREFIX)/bin
-DEVICESDIR := $(DESTDIR)/etc/alpacahurd/devices.d
-REGISTRYFILE := $(DESTDIR)/etc/alpacahurd/drivers.conf
+# alpacahurd reads drivers.conf and devices.d from its own configuration directory.
+ifeq ($(shell uname -s),Darwin)
+CONFROOT := /Library/Application Support/alpacahurd
+else
+CONFROOT := /etc/alpacahurd
+endif
+ifeq ($(shell uname -s),Darwin)
+RESTART_HURD := sudo launchctl kickstart -k system/com.mikefsq.alpacahurd
+else
+RESTART_HURD := sudo systemctl restart alpacahurd
+endif
+DEVICESDIR := $(DESTDIR)$(CONFROOT)/devices.d
+REGISTRYFILE := $(DESTDIR)$(CONFROOT)/drivers.conf
 
 ALIAS_asiair := asiair-switch
 
@@ -40,13 +51,13 @@ all: build sdk pi ## build + the cgo ZWO-SDK drivers + the Pi drivers
 
 $(DRIVERS): | $(BIN)
 	@echo "building $@"
-	@CGO_ENABLED=1 go build -o $(BIN)/$@ ./$@/cmd/$@
+	@CGO_ENABLED=1 go build -o $(BIN)/$@ ./$(call driverdir,$@)/cmd/$@
 
 sdk: $(SDK_DRIVERS) ## build the cgo ZWO-SDK drivers (needs libASICamera2 and libCAA)
 
 $(SDK_DRIVERS): | $(BIN)
 	@echo "building $@ (cgo + ZWO SDK)"
-	@CGO_ENABLED=1 go build -o $(BIN)/$@ ./$@/cmd/$@
+	@CGO_ENABLED=1 go build -o $(BIN)/$@ ./$(call driverdir,$@)/cmd/$@
 
 pi: $(PI_DRIVERS) ## cross-compile the Raspberry Pi drivers (linux/arm64) into ./bin/linux_arm64
 
@@ -64,12 +75,13 @@ $(BIN):
 deb: ## build one .deb per driver into ./dist (amd64 + arm64)
 	@build/build-deb
 
-install: ## install drivers from ./bin into $(PREFIX)/bin and seed disabled entries
+install: ## install drivers from ./bin into $(PREFIX)/bin and register them
 	@test -d $(BIN) || { echo "nothing built: run make first" >&2; exit 1; }
-	@install -d $(BINDIR) $(DEVICESDIR)
+	@install -d "$(BINDIR)"
 	@for f in $(BIN)/*; do \
 		[ -f "$$f" ] || continue; \
 		n=$$(basename $$f); \
+		sh build/check-fresh "$$f" . || exit 1; \
 		install -m 0755 "$$f" "$(BINDIR)/$$n"; \
 		echo "installed $(BINDIR)/$$n"; \
 		sh build/register-driver "$(BINDIR)/$$n" "$(REGISTRYFILE)" "$(PREFIX)/bin/$$n" || exit 1; \
@@ -78,14 +90,24 @@ install: ## install drivers from ./bin into $(PREFIX)/bin and seed disabled entr
 			ln -sf "$$n" "$(BINDIR)/$$a"; \
 			echo "  alias $(BINDIR)/$$a -> $$n"; \
 		done; \
+	done
+	@echo "add devices on the alpacahurd setup page, or run make seed for disabled templates"
+	@echo "start or restart alpacahurd to use them: $(RESTART_HURD)"
+
+seed: ## write a disabled devices.d template per installed driver; keeps existing files
+	@install -d "$(DEVICESDIR)"
+	@for f in $(BIN)/*; do \
+		[ -f "$$f" ] || continue; \
+		n=$$(basename $$f); \
 		e="$(DEVICESDIR)/$$n.json"; \
-		if [ "$$n" != sim ] && [ ! -f "$$e" ]; then \
-			if "$(BINDIR)/$$n" -schema commented > "$$e" 2>/dev/null; then \
-				chmod 0644 "$$e"; \
-				echo "  seeded $$e -- edit it and set \"enable\": true"; \
-			else \
-				rm -f "$$e"; \
-			fi; \
+		[ "$$n" != sim ] || continue; \
+		test -x "$(BINDIR)/$$n" || { echo "skip   $$n: not installed; run make install first"; continue; }; \
+		if [ -f "$$e" ]; then echo "keep   $$e"; continue; fi; \
+		if "$(BINDIR)/$$n" -schema commented > "$$e" 2>/dev/null; then \
+			chmod 0644 "$$e"; \
+			echo "seeded $$e -- edit it and set \"enable\": true"; \
+		else \
+			rm -f "$$e"; \
 		fi; \
 	done
 

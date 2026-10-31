@@ -45,6 +45,7 @@ type PureASICamera struct {
 
 	index      int
 	wantSerial string // if set, bind only the camera with this serial (hex)
+	named      bool   // the host configured a display name; the model name must not replace it
 
 	// Injection seams (default to the real USB paths; stub-transport e2e tests override them):
 	// openDev opens — but does not Init — the target camera; aliveFn reports whether it is
@@ -180,6 +181,14 @@ func NewPureASICamera(index int, serial string) *PureASICamera {
 		c.DevName = fmt.Sprintf("astrocam camera %d", index)
 	}
 	return c
+}
+
+// SetName sets the display name from the host's configuration. It then survives acquisition,
+// which otherwise renames the camera to its model name.
+func (c *PureASICamera) SetName(name string) {
+	c.mu.Lock()
+	c.DevName, c.named = name, true
+	c.mu.Unlock()
 }
 
 // Serial returns the factory serial this camera was told to bind, or "" when it
@@ -480,7 +489,9 @@ func (c *PureASICamera) configureOpened(cam *astrocam.Camera, d astrocam.DeviceI
 	c.gainMin, c.gainMax = gmin, gmax
 	c.offsetMin, c.offsetMax, c.offsetOK = omin, omax, ook
 	c.expMinSec, c.expMaxSec = emin.Seconds(), emax.Seconds()
-	c.DevName = cam.Name()
+	if !c.named {
+		c.DevName = cam.Name()
+	}
 	c.Desc = fmt.Sprintf("%s %s (%dx%d, %.2fµm) [Go astrocam]", vendorName(d.VID), cam.Name(), info.MaxWidth, info.MaxHeight, info.PixelUm)
 	if c.wantSerial == "" && strings.Trim(serialHex, "0") != "" {
 		// Same form as the configured path above, or a camera bound by index

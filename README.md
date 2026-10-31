@@ -66,8 +66,11 @@ The SDK drivers require cgo and their ZWO libraries; see their READMEs.
 Some macOS USB transports also require cgo and Apple's command-line tools.
 
 `make install` (or `make install` in a driver directory) records each binary in
-`/etc/alpacahurd/drivers.conf`, alongside the existing disabled seed
-in `devices.d/`. The registry contains one absolute executable path per line.
+`drivers.conf` and writes no device files: add devices on the alpacahurd setup
+page. `make seed` writes one disabled template per driver into `devices.d/` and
+keeps existing files. Both live in `/etc/alpacahurd` on Linux and in
+`/Library/Application Support/alpacahurd` on macOS. The registry contains one
+absolute executable path per line.
 Updating the registry does not execute the driver or create runtime state. Upgrades preserve existing device configurations.
 Uninstall removes the binary's registry entry and keeps device configurations.
 Debian packages maintain the same registry, using their `/usr/bin` paths.
@@ -82,8 +85,8 @@ sudo sh build/register-driver /usr/local/bin/asiam5 /etc/alpacahurd/drivers.conf
 The Add device page in alpacahurd reads this catalogue on each visit and can
 create additional disabled instances from a binary's `-schema commented` output.
 Legacy launchers without schema support can be recorded, but cannot generate
-configuration through that page. On macOS, per-driver installs place the registry
-beside the configured `devices.d` directory; `REGISTRYFILE` overrides that location.
+configuration through that page. Per-driver installs place the registry beside the
+configured `devices.d` directory; `REGISTRYFILE` overrides that location.
 
 ## Discover hardware
 
@@ -146,7 +149,8 @@ and [SETUP_FORMS.md](SETUP_FORMS.md) for browser settings.
 
 ## License
 
-[MIT](LICENSE).
+[MIT](LICENSE), except the `scopehub` driver, which is
+[AGPL-3.0-only](scopehub/LICENSE).
 
 ### Driver command contract
 
@@ -165,3 +169,13 @@ utility are not packaged device drivers.
 `make test` builds each SDK-free driver executable and checks its actual schema
 commands and management flags. Set `ALPACA_TEST_SDK=1` to include the SDK drivers
 when their vendor libraries are installed.
+
+Driver registration is unique by executable basename. Installing a Debian
+package after a source install replaces `/usr/local/bin/<driver>` with
+`/usr/bin/<driver>` in `drivers.conf`; installing from source later selects the
+source path instead. Uninstall removes only its exact path. Existing device
+configuration files and their explicit `exec` overrides are preserved.
+
+To repair an older registry after copying the updated source, re-register the
+packaged drivers using `build/register-driver`; this does not start devices or
+remove binaries. New Debian packages include the same repair on installation.

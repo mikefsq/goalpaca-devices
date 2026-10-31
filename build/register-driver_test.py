@@ -39,6 +39,19 @@ class RegistrationTests(unittest.TestCase):
         self.run_cmd(['sh', str(ROOT/'build/register-driver'), str(binary), str(records), '/usr/local/bin/alias', 'remove'])
         self.assertEqual(records.read_text(), '/another/driver\n')
 
+    def test_registration_moves_between_source_and_debian_paths(self):
+        record = self.root / 'drivers.conf'
+        record.write_text('# installed drivers\n/usr/local/bin/astrocam\n/usr/bin/astrocam\n/usr/bin/mgpbox\n')
+        helper = ['sh', str(ROOT/'build/register-driver')]
+        for selected, previous in [('/usr/bin/astrocam', '/usr/local/bin/astrocam'),
+                                   ('/usr/local/bin/astrocam', '/usr/bin/astrocam')]:
+            self.run_cmd(helper + [selected, str(record)])
+            self.assertEqual(record.read_text(), '# installed drivers\n/usr/bin/mgpbox\n' + selected + '\n')
+            self.run_cmd(helper + [previous, str(record), previous, 'remove'])
+            self.assertIn(selected, record.read_text().splitlines())
+        self.run_cmd(helper + [selected, str(record), selected, 'remove'])
+        self.assertEqual(record.read_text(), '# installed drivers\n/usr/bin/mgpbox\n')
+
     def source_tree(self):
         tree = self.root/'source'
         (tree/'build').mkdir(parents=True)
@@ -109,8 +122,11 @@ class RegistrationTests(unittest.TestCase):
             p.write_text(p.read_text().replace('/usr/bin/asiam5',str(binary))
                          .replace('/etc/alpacahurd',str(config))
                          .replace('/run/systemd/system',str(self.root/'no-systemd')))
-        self.run_cmd(['sh',str(control/'postinst'),'configure'])
+        config.mkdir(parents=True)
         record = config/'drivers.conf'
+        record.write_text('/usr/local/bin/asiam5\n')
+        self.run_cmd(['sh',str(control/'postinst'),'configure'])
+        self.run_cmd(['sh',str(control/'postinst'),'configure'])
         self.assertEqual(record.read_text().strip(),str(binary))
         self.run_cmd(['sh',str(control/'postrm'),'remove'])
         self.assertEqual(record.read_text(), '')

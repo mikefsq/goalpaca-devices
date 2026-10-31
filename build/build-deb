@@ -304,7 +304,17 @@ trap 'exit 1' HUP INT TERM
 tmp=$(mktemp "$registry_file.XXXXXX")
 if [ -f "$registry_file" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
-        [ "$line" = "$runtime_path" ] || printf '%s\n' "$line"
+        # Adding selects one installation per driver name, including moves
+        # between /usr/local/bin (source) and /usr/bin (Debian packages).
+        # Removal must match the exact path so uninstalling an older copy
+        # cannot unregister the newly selected installation.
+        [ "$line" != "$runtime_path" ] || continue
+        if [ "$action" != remove ]; then
+            case "$line" in
+                /*) [ "${line##*/}" != "${runtime_path##*/}" ] || continue ;;
+            esac
+        fi
+        printf '%s\n' "$line"
     done < "$registry_file" > "$tmp"
 fi
 if [ "$action" != remove ]; then
@@ -368,7 +378,17 @@ trap 'exit 1' HUP INT TERM
 tmp=$(mktemp "$registry_file.XXXXXX")
 if [ -f "$registry_file" ]; then
     while IFS= read -r line || [ -n "$line" ]; do
-        [ "$line" = "$runtime_path" ] || printf '%s\n' "$line"
+        # Adding selects one installation per driver name, including moves
+        # between /usr/local/bin (source) and /usr/bin (Debian packages).
+        # Removal must match the exact path so uninstalling an older copy
+        # cannot unregister the newly selected installation.
+        [ "$line" != "$runtime_path" ] || continue
+        if [ "$action" != remove ]; then
+            case "$line" in
+                /*) [ "${line##*/}" != "${runtime_path##*/}" ] || continue ;;
+            esac
+        fi
+        printf '%s\n' "$line"
     done < "$registry_file" > "$tmp"
 fi
 if [ "$action" != remove ]; then

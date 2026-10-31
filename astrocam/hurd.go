@@ -70,7 +70,7 @@ func init() {
 				d.SetFPSPercent(cfg.FpsPercent) // stored; applied on acquire
 			}
 			if spec.Name != "" {
-				d.DevName = spec.Name
+				d.SetName(spec.Name)
 			}
 			// Wrap so the camera can also serve the INDI CCD front-end (guide camera)
 			// when the host enables it ("indi": true).
