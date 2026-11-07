@@ -1,0 +1,41 @@
+NAME := pi_mount_gps
+ALIASES :=
+
+PREFIX ?= /usr/local
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Darwin)
+CONFDIR ?= /Library/Application Support/alpacahurd/devices.d
+else
+CONFDIR ?= /etc/alpacahurd/devices.d
+endif
+
+REGISTRYFILE ?= $(CONFDIR)/../drivers.conf
+
+.PHONY: build install uninstall tidy test vet clean
+
+build:
+	go build -o $(NAME) ./cmd/$(NAME)
+
+install: build
+	install -d "$(PREFIX)/bin"
+	install -m 0755 $(NAME) "$(PREFIX)/bin/$(NAME)"
+	@sh ../build/register-driver "$(PREFIX)/bin/$(NAME)" "$(REGISTRYFILE)"
+	@for a in $(ALIASES); do ln -sf $(NAME) "$(PREFIX)/bin/$$a"; echo "link   $(PREFIX)/bin/$$a -> $(NAME)"; done
+
+
+uninstall:
+	@sh ../build/register-driver "$(PREFIX)/bin/$(NAME)" "$(REGISTRYFILE)" "$(PREFIX)/bin/$(NAME)" remove
+	@for a in $(ALIASES); do rm -f "$(PREFIX)/bin/$$a"; done
+	rm -f "$(PREFIX)/bin/$(NAME)"
+
+tidy:
+	GOWORK=off go mod tidy
+
+test:
+	go test ./...
+
+vet:
+	go vet ./...
+
+clean:
+	rm -f $(NAME)
