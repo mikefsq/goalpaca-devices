@@ -27,6 +27,7 @@ Use [alpacahurd](https://github.com/mikefsq/alpacahurd) to manage several driver
 | Switch | [asiair](asiair/README.md) | ZWO ASIAIR power board; runs on its Pi |
 | Switch / Focuser | [smpro](smpro/README.md) | StellarMate SM Pro; runs on its Pi |
 | Switch | [scopehub](scopehub/README.md) | scope_hub power and USB hub |
+| Observing conditions | [pi_mount_gps](pi_mount_gps/README.md) | Pi GPS/weather board (SHT45, BMP580, u-blox); gpsd with I²C fallback |
 | Simulator | [sim](sim/README.md) | Coupled telescope and guide camera |
 
 ## Install and build

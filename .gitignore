@@ -31,3 +31,6 @@ sim/cmd/sim/main
 
 # Packages built by build/build-deb.
 /dist
+
+# Standalone Pi GPS/weather driver build.
+/pi_mount_gps/pi_mount_gps

@@ -47,7 +47,16 @@ type snapshot struct {
 // process lifetime; Connected ≡ mount reachable; Busy() gates writes while slewing.
 type Telescope struct {
 	// stopLoop cancels acquisition and waits before releasing the handle.
-	stopLoop func(time.Duration)
+	stopLoop       func(time.Duration)
+	stopSources    func(time.Duration)
+	sources        Config
+	sourceMu       sync.Mutex
+	sourceStatus   map[string]sourceStatus
+	initMu         sync.Mutex
+	initialization sourceInitialization
+	weatherApplyMu sync.Mutex
+	weatherMount   *tenmicron.Mount
+	weatherApplied envApplied
 	alpacadev.BaseTelescope
 
 	addr string
@@ -57,7 +66,7 @@ type Telescope struct {
 	snap snapshot
 
 	siteLat, siteLon, siteEl float64
-	raRate, decRate          float64 // custom tracking-rate offsets (no mount read-back)
+	raRate, decRate          float64 // custom tracking-rate offsets; raRate follows :GT#, decRate has no read-back
 	trackingRate             alpacadev.DriveRate
 	slewSettleSec            int
 	pulseUntil               time.Time // PulseGuide completion deadline (IsPulseGuiding)
@@ -70,6 +79,7 @@ type Telescope struct {
 	// envMu guards lastEnv: the environment values last applied to the mount, so
 	// setenvironment can diff a repeated feed (e.g. from an MGPBox) and only write
 	// changed fields — sparing the mount, and its surveyed site, needless churn.
+	clockMu sync.Mutex // serializes fine synchronization with absolute clock writes
 	envMu   sync.Mutex
 	lastEnv envApplied
 }
@@ -94,10 +104,16 @@ func NewTelescope(addr string) *Telescope {
 
 func (t *Telescope) Open(ctx context.Context) error {
 	t.stopLoop = alpacadev.RunLoop(ctx, t.ID, t.manage)
+	if t.sources.ObservingConditions != nil || t.sources.Gpsd != "" || t.sources.HostClockSync {
+		t.stopSources = alpacadev.RunLoop(ctx, t.ID+"-sources", t.sourceLoop)
+	}
 	return nil
 }
 
 func (t *Telescope) Close(ctx context.Context) error {
+	if t.stopSources != nil {
+		t.stopSources(30 * time.Second)
+	}
 	if t.stopLoop != nil {
 		t.stopLoop(10 * time.Second) // end the loop Open started before the handle goes
 	}
@@ -114,12 +130,18 @@ func (t *Telescope) Connect(ctx context.Context) error {
 	if !t.Connected() {
 		return alpacadev.ErrNotConnected
 	}
+	t.initializeSources(ctx, true)
 	return nil
 }
 
-func (t *Telescope) Connected() bool                      { t.mu.Lock(); defer t.mu.Unlock(); return t.m != nil }
-func (t *Telescope) Disconnect(ctx context.Context) error { return nil }
-func (t *Telescope) Busy() bool                           { return t.Slewing() }
+func (t *Telescope) Connected() bool { t.mu.Lock(); defer t.mu.Unlock(); return t.m != nil }
+func (t *Telescope) Disconnect(ctx context.Context) error {
+	t.initMu.Lock()
+	t.initialization = sourceInitialization{}
+	t.initMu.Unlock()
+	return nil
+}
+func (t *Telescope) Busy() bool { return t.Slewing() }
 
 // manage acquires, monitors and re-acquires the mount for the process lifetime. Each
 // tick refreshes the snapshot (pollOnce), which doubles as the liveness check; the
@@ -187,6 +209,8 @@ func (t *Telescope) manage(ctx context.Context) {
 // slow-changing set (home/guide-rate/refraction) via separate round-trips; transient
 // errors there keep the last good value.
 func (t *Telescope) pollOnce(m *tenmicron.Mount, full bool) error {
+	t.clockMu.Lock()
+	defer t.clockMu.Unlock()
 	st, err := m.Refresh() // forced :Ginfo#; re-arms the shared cache
 	if err != nil {
 		return err
@@ -209,12 +233,17 @@ func (t *Telescope) pollOnce(m *tenmicron.Mount, full bool) error {
 	if !full {
 		return nil
 	}
-	guide, gErr := m.GuideRate() // arcsec/s
+	guide, gErr := m.GuideRate()    // arcsec/s
+	hz, hzErr := m.TrackingRateHz() // :GT#, 4x the live tracking rate in arcsec/s
 	refr, rErr := m.RefractionCorrection()
-	mUTC, tErr := m.UTCDateTime() // mount clock; UTCDate is served as host-now + this skew
+	mUTC, tErr := m.UTCDateTime()      // mount clock; UTCDate is served as host-now + this skew
+	settle, sErr := m.SlewSettleTime() // :GDW…, so SlewSettleTime shows a value set elsewhere
 	t.mu.Lock()
 	if gErr == nil {
 		t.snap.guideRate = guide / arcsecPerDeg
+	}
+	if hzErr == nil {
+		t.applyTrackingHzLocked(hz)
 	}
 	if rErr == nil {
 		t.snap.doesRefraction = refr
@@ -222,8 +251,63 @@ func (t *Telescope) pollOnce(m *tenmicron.Mount, full bool) error {
 	if tErr == nil {
 		t.snap.utcSkew = time.Until(mUTC)
 	}
+	if sErr == nil {
+		t.slewSettleSec = int(settle.Round(time.Second) / time.Second)
+	}
 	t.mu.Unlock()
 	return nil
+}
+
+// Tracking rates in arcsec/s for classifying the :GT# reading. Both are what a GM1000HPS replies
+// after :RT1# and :RT0#: 60.3 for solar and 62.4 for lunar, held steady over repeated reads. The spec
+// says :GT#/4 is the rate, which would give 60.0 for solar and about 58 for lunar. For these two
+// presets the mount instead replies 60.164 × 15.041 / rate, so the constants record the replies
+// rather than physical rates. A mount replying otherwise reads as sidereal plus a RightAscensionRate
+// offset.
+const (
+	solarArcsecPerSec = 60.3 / 4
+	lunarArcsecPerSec = 62.4 / 4
+)
+
+// trackHzTol is one step of the :GT# reply: one decimal of 4x the rate, so 0.1 Hz is 0.025"/s.
+// It also absorbs whether the mount rounds or truncates sidereal's 60.164 to one decimal.
+const trackHzTol = 0.1
+
+// applyTrackingHzLocked folds the mount's live tracking rate into TrackingRate and
+// RightAscensionRate, so a rate selected on the keypad or by another client reaches Alpaca
+// clients. Without it both report only what this driver last set.
+//
+// A reading that agrees with the current state to within one :GT# step leaves the state alone, so
+// a small RightAscensionRate a client wrote reads back exactly instead of rounded to 0.025"/s. A
+// reading that disagrees is classified afresh: solar, sidereal or lunar when it is within a step of
+// one, otherwise sidereal plus the offset, which is how ASCOM expresses a custom rate.
+//
+// A zero reading means tracking is off and says nothing about which rate is selected. DeclinationRate
+// is not read back: 10Micron has no read for the :RD offset. Requires mu.
+func (t *Telescope) applyTrackingHzLocked(hz float64) {
+	if hz <= 0 {
+		return
+	}
+	expect, tol := 4*siderealArcsecPerSec*(1+t.raRate), trackHzTol
+	switch t.trackingRate {
+	case alpacadev.DriveSolar:
+		expect, tol = 4*solarArcsecPerSec, trackHzTol/2 // solar 60.3 is one step from sidereal 60.2
+	case alpacadev.DriveLunar:
+		expect = 4 * lunarArcsecPerSec
+	}
+	if math.Abs(hz-expect) < tol {
+		return
+	}
+	switch {
+	case math.Abs(hz-4*solarArcsecPerSec) < trackHzTol/2:
+		t.trackingRate, t.raRate = alpacadev.DriveSolar, 0
+	case math.Abs(hz-4*siderealArcsecPerSec) < trackHzTol:
+		t.trackingRate, t.raRate = alpacadev.DriveSidereal, 0
+	case math.Abs(hz-4*lunarArcsecPerSec) < trackHzTol:
+		t.trackingRate, t.raRate = alpacadev.DriveLunar, 0
+	default:
+		t.trackingRate, t.raRate = alpacadev.DriveSidereal, hz/4/siderealArcsecPerSec-1
+	}
 }
 
 // primeStatics reads fixed/slow mount facts once on connect: the stored site
@@ -250,7 +334,18 @@ func (t *Telescope) primeStatics(m *tenmicron.Mount) {
 		t.maxSlewRate = r
 		t.mu.Unlock()
 	}
+	// :Ggui# reports only the last :Rg value; a guide speed chosen on the keypad changes the
+	// pulse rate without changing it (keypad 1.00× pulsed at 15.2"/s while :Ggui# read 7.5).
+	// Setting the rate here makes the reported rate the active one.
+	if err := m.SetGuideRateMultiplier(connectGuideMultiplier); err != nil {
+		log.Printf("tenmicron: mount %s set guide rate %.2fx on connect: %v", t.ID, connectGuideMultiplier, err)
+	} else {
+		t.setF(&t.snap.guideRate, connectGuideMultiplier*tenmicron.GuideRateUnitArcsec/arcsecPerDeg)
+	}
 }
+
+// connectGuideMultiplier is the guide rate set on connect, as the keypad's multiplier of 15.0"/s.
+const connectGuideMultiplier = 0.5
 
 // atHomePosition reports whether the mount sits at the RA-axis home position that FindHome
 // targets: primary (RA/az) axis at 90°, secondary (Dec/alt) axis at 0°. 10Micron has no
@@ -420,6 +515,8 @@ func (t *Telescope) UTCDate() string {
 }
 
 func (t *Telescope) SetTracking(on bool) error {
+	t.clockMu.Lock()
+	defer t.clockMu.Unlock()
 	m := t.mount()
 	if m == nil {
 		return alpacadev.ErrNotConnected
@@ -559,6 +656,8 @@ func (t *Telescope) SetSlewSettleTime(seconds int) error {
 }
 
 func (t *Telescope) SetUTCDate(s string) error {
+	t.clockMu.Lock()
+	defer t.clockMu.Unlock()
 	tm, err := time.Parse(time.RFC3339, s)
 	if err != nil {
 		return alpacadev.ErrInvalidValue
@@ -686,9 +785,12 @@ func (t *Telescope) PulseGuide(dir alpacadev.GuideDirection, ms int) error {
 		return err
 	}
 	// :Mg…# returns immediately; the mount guides autonomously for ms. Record the
-	// window for IsPulseGuiding.
+	// window for IsPulseGuiding, keeping the later end so a short pulse on one axis does
+	// not hide a longer one still running on the other.
 	t.mu.Lock()
-	t.pulseUntil = time.Now().Add(time.Duration(ms) * time.Millisecond)
+	if end := time.Now().Add(time.Duration(ms) * time.Millisecond); end.After(t.pulseUntil) {
+		t.pulseUntil = end
+	}
 	t.mu.Unlock()
 	return nil
 }

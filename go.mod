@@ -12,6 +12,7 @@ require (
 	github.com/mikefsq/oasis-astro v0.1.0
 	github.com/mikefsq/optec v0.1.1
 	github.com/mikefsq/pegasus-astro v0.1.0
+	github.com/mikefsq/pi_mount_gps v0.0.0
 	github.com/mikefsq/polemaster v0.1.0
 	github.com/mikefsq/ptp v0.1.0
 	github.com/mikefsq/scope_hub/driver v0.0.0
@@ -29,3 +30,9 @@ require (
 
 // scope_hub is not published yet; build against the local checkout.
 replace github.com/mikefsq/scope_hub/driver => ../scope_hub/driver
+
+// Pi GPS/weather hardware support is built against the local checkout.
+replace github.com/mikefsq/pi_mount_gps => ../pi_mount_gps
+
+// Timed wire exchanges for TenMicron clock synchronization.
+replace github.com/mikefsq/lx200 => ../lx200

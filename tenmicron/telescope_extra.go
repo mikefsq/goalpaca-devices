@@ -76,6 +76,17 @@ func (t *Telescope) SetRightAscensionRate(secPerSiderealSec float64) error {
 	if m == nil {
 		return alpacadev.ErrNotConnected
 	}
+	// ASCOM rate 0 means "no offset", i.e. ordinary sidereal tracking. Sending :RR+000.0000#
+	// instead installs a custom rate OF ZERO, which selects custom tracking and stops the RA
+	// axis — the mount's keypad shows "custom" and the field drifts. Only restore sidereal when
+	// the other axis is also clear, so zeroing one axis cannot silently discard the other's offset.
+	if secPerSiderealSec == 0 && t.getF(&t.decRate) == 0 {
+		if err := m.TrackSidereal(); err != nil {
+			return err
+		}
+		t.setF(&t.raRate, 0)
+		return nil
+	}
 	if err := m.SetCustomRARate(secPerSiderealSec); err != nil { // 1:1
 		return err
 	}
@@ -91,6 +102,14 @@ func (t *Telescope) SetDeclinationRate(arcsecPerSec float64) error {
 	// The mount's :RD declination offset only drives the axis while dual-axis tracking
 	// is on, so a non-zero Dec rate enables it first. Not auto-disabled on zero (dual-axis
 	// tracking is also used for refraction following); toggle via the dualaxistracking Action.
+	// As in SetRightAscensionRate: zero on both axes means sidereal, not a zero custom rate.
+	if arcsecPerSec == 0 && t.getF(&t.raRate) == 0 {
+		if err := m.TrackSidereal(); err != nil {
+			return err
+		}
+		t.setF(&t.decRate, 0)
+		return nil
+	}
 	if arcsecPerSec != 0 {
 		if err := m.SetDualAxisTracking(true); err != nil {
 			return err
@@ -179,7 +198,7 @@ func (t *Telescope) setGuideRate(degPerSec float64) error {
 		return alpacadev.ErrNotConnected
 	}
 	// One physical guide rate; setting either axis sets both. Clamp to the mount's
-	// supported band [0.1×, 1.0×] sidereal so the stored/reported value matches the wire.
+	// keypad preset band [0.10×, 1.00×] of 15.0"/s so the stored value matches the wire.
 	arcsec := degPerSec * arcsecPerDeg
 	if arcsec > tenmicron.GuideRateMaxArcsec {
 		arcsec = tenmicron.GuideRateMaxArcsec
@@ -187,6 +206,7 @@ func (t *Telescope) setGuideRate(degPerSec float64) error {
 	if arcsec < tenmicron.GuideRateMinArcsec {
 		arcsec = tenmicron.GuideRateMinArcsec
 	}
+	arcsec = snapToKeypadPreset(arcsec)
 	if err := m.SetGuideRate(arcsec); err != nil {
 		return err
 	}
@@ -249,4 +269,16 @@ func (t *Telescope) IsPulseGuiding() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return time.Now().Before(t.pulseUntil)
+}
+
+// snapToKeypadPreset maps a rate within 0.5% of a keypad preset × sidereal (15.041"/s) to the
+// preset × 15.0"/s the keypad counts in. A client asking for 0.5× sidereal sends 7.52"/s; the
+// keypad marks 0.50× only for 7.5.
+func snapToKeypadPreset(arcsec float64) float64 {
+	for _, x := range tenmicron.GuideRatePresets {
+		if math.Abs(arcsec-x*siderealArcsecPerSec) <= 0.005*x*siderealArcsecPerSec {
+			return x * tenmicron.GuideRateUnitArcsec
+		}
+	}
+	return arcsec
 }

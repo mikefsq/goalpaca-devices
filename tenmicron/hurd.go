@@ -9,6 +9,15 @@ import (
 
 // Config contains device selection and settings.
 type Config struct {
+	ObservingConditions              *WeatherSource `json:"observingConditions,omitempty" alpaca:"hidden"`
+	ObservingConditionsAddr          string         `json:"observingConditionsAddr,omitempty" alpaca:"label=ObservingConditions address,when=start,help=Optional host:port; blank disables weather pull unless observingConditions is configured"`
+	ObservingConditionsDevice        int            `json:"observingConditionsDevice,omitempty" alpaca:"label=ObservingConditions device,when=start,min=0,help=Alpaca device number on the weather server"`
+	ObservingConditionsMaxAgeSeconds float64        `json:"observingConditionsMaxAgeSeconds,omitempty" alpaca:"label=Weather maximum age (seconds),when=start,min=0,help=Maximum sample age; zero uses 30 seconds"`
+
+	Gpsd          string `json:"gpsd,omitempty" alpaca:"label=Location gpsd address,when=start,help=Optional host:port for Resync or gpsdSync position updates; blank disables"`
+	GpsdSync      bool   `json:"gpsdSync,omitempty" alpaca:"label=Sync gpsd position on connect,when=start,help=Apply GPS position once on connect; default false"`
+	HostClockSync bool   `json:"hostClockSync,omitempty" alpaca:"label=Sync host clock,when=start,help=Set and nudge clock once on connect and during Resync; false disables automatic clock sync"`
+
 	Addr string `json:"addr,omitempty" alpaca:"label=Address,when=start,help='host:port (3490, 3492)'"`
 }
 
@@ -34,7 +43,12 @@ func init() {
 			if cfg.Addr == "" {
 				return nil, fmt.Errorf("tenmicron requires \"addr\" (mount host:port)")
 			}
+			cfg.ObservingConditions = cfg.weatherSource()
+			if err := cfg.validateSources(); err != nil {
+				return nil, err
+			}
 			d := NewTelescope(cfg.Addr)
+			d.sources = cfg
 			// Optics are seeded (unit-converted from config mm) by the shared holder the
 			// host injects via UseOptics.
 			d.ID = "10micron-" + cfg.Addr

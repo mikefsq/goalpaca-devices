@@ -5,12 +5,12 @@ DRIVERS := tenmicron asiam5 rst onstep astrocam asieaf asiefw \
 
 SDK_DRIVERS := asiccd asicaa
 
-PI_DRIVERS := smpro-switch smpro-focuser asiair
-PI_PACKAGES := smpro asiair
+PI_DRIVERS := smpro-switch smpro-focuser asiair pi_mount_gps
+PI_PACKAGES := smpro asiair pi_mount_gps
 
 driverdir = $(if $(filter smpro-switch smpro-focuser,$(1)),smpro,$(1))
 
-CHECK_PACKAGES := $(sort $(foreach d,$(DRIVERS) $(PI_PACKAGES),./$(call driverdir,$(d))/...)) ./internal/contract/...
+CHECK_PACKAGES := $(sort $(foreach d,$(DRIVERS) $(PI_PACKAGES),./$(call driverdir,$(d))/...)) ./internal/contract/... ./internal/hostclock/...
 
 BIN := bin
 

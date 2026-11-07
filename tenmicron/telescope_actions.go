@@ -146,6 +146,19 @@ func parseFloatArg(p string) (float64, error) {
 	return v, nil
 }
 
+// parseFloatList parses a comma-separated list of numbers.
+func parseFloatList(p string) ([]float64, error) {
+	var out []float64
+	for _, f := range strings.Split(p, ",") {
+		v, err := parseFloatArg(f)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
 func parseIntArg(p string) (int, error) {
 	v, err := strconv.Atoi(strings.TrimSpace(p))
 	if err != nil {
@@ -252,6 +265,11 @@ func (t *Telescope) actions() map[string]actionFn {
 	reg := map[string]actionFn{
 		// environment / optics / refraction datums
 		"setenvironment":   t.actionSetEnvironment,
+		"syncclock":        t.actionSyncClock,
+		"setclock":         t.actionSetClock,
+		"clockoffset":      t.actionClockOffset,
+		"sourcestatus":     t.actionSourceStatus,
+		"resync":           t.actionResync,
 		"setoptics":        t.actionSetOptics,
 		"optics":           t.actionOptics, // dual-mode (read/write) optics action
 		"dualaxistracking": t.actionDualAxisTracking,
@@ -347,7 +365,8 @@ func (t *Telescope) actions() map[string]actionFn {
 
 		// slew rates & backlash
 		"maxslewrate": t.readWrite(
-			func(m *tenmicron.Mount) (string, error) { v, err := m.MaxSlewRate(); return ftoa(v, 1), err },
+			// :GMs# is the rate :Sw sets; MaxSlewRate (:GMsb#) is the highest it may be set to.
+			func(m *tenmicron.Mount) (string, error) { v, err := m.SlewRate(); return ftoa(v, 1), err },
 			func(m *tenmicron.Mount, p string) error {
 				v, err := parseIntArg(p)
 				if err != nil {
@@ -409,6 +428,8 @@ func (t *Telescope) actions() map[string]actionFn {
 				return m.SetUTCOffset(time.Duration(v * float64(time.Hour)))
 			}),
 		"syncgps": t.op(func(m *tenmicron.Mount) (string, error) {
+			t.clockMu.Lock()
+			defer t.clockMu.Unlock()
 			ok, err := m.UpdateFromGPS()
 			return strconv.FormatBool(ok), err
 		}),
@@ -621,8 +642,18 @@ func (t *Telescope) actionDither(params string) (string, error) {
 	case "now":
 		ok, err := m.DitherNow()
 		return strconv.FormatBool(ok), err
+	}
+	key, val, _ := strings.Cut(strings.ToLower(strings.TrimSpace(params)), "=")
+	nums, err := parseFloatList(val)
+	switch {
+	case key == "amount" && err == nil && len(nums) == 2: // amount=ra,dec arcsec (0..30)
+		ok, err := m.SetDitherAmount(nums[0], nums[1])
+		return params, okErr(ok, err, "dither amount rejected")
+	case key == "timer" && err == nil && len(nums) == 3: // timer=delay,exposure,interval seconds
+		ok, err := m.SetDitherTimer(int(nums[0]), int(nums[1]), int(nums[2]))
+		return params, okErr(ok, err, "dither timer rejected")
 	default:
-		return "", badValue("dither: want empty (status), start, stop, or now")
+		return "", badValue("dither: want empty (status), start, stop, now, amount=ra,dec or timer=delay,exposure,interval")
 	}
 }
 
@@ -678,6 +709,7 @@ func (t *Telescope) actionDualAxisTracking(params string) (string, error) {
 // environment is the setenvironment payload. Every field is optional (a pointer); only
 // present fields are pushed to the mount, so a feeder sends just what changed.
 type environment struct {
+	SyncClock    bool     `json:"sync_clock,omitempty"` // use precise host-clock synchronization; mutually exclusive with time
 	PressureHPa  *float64 `json:"pressure_hpa,omitempty"`
 	TemperatureC *float64 `json:"temperature_c,omitempty"`
 	Latitude     *float64 `json:"latitude,omitempty"`  // degrees, East-positive (ASCOM)
@@ -698,6 +730,11 @@ func (t *Telescope) actionSetEnvironment(params string) (string, error) {
 	if err := json.Unmarshal([]byte(params), &env); err != nil {
 		return "", alpacadev.NewError(alpacadev.ErrNumInvalidValue, "setenvironment: invalid JSON: "+err.Error())
 	}
+
+	if env.SyncClock && env.Time != nil {
+		return "", badValue("choose sync_clock or time, not both")
+	}
+	var clockResult *clockSyncResult
 
 	var applied []string
 	if env.PressureHPa != nil || env.TemperatureC != nil {
@@ -743,9 +780,19 @@ func (t *Telescope) actionSetEnvironment(params string) (string, error) {
 		applied = append(applied, "time")
 	}
 
+	if env.SyncClock {
+		result, err := t.syncHostClock()
+		if err != nil {
+			return "", err
+		}
+		clockResult = &result
+		applied = append(applied, "sync_clock")
+	}
+
 	out, _ := json.Marshal(struct {
-		Applied []string `json:"applied"`
-	}{Applied: applied})
+		Applied []string         `json:"applied"`
+		Clock   *clockSyncResult `json:"clock_sync,omitempty"`
+	}{Applied: applied, Clock: clockResult})
 	return string(out), nil
 }
 

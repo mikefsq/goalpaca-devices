@@ -88,6 +88,7 @@ func newStack(t *testing.T, replies map[string]string) (string, *fakeTransport) 
 		":Ggui#":  "15.0#",                                              // guide rate (arcsec/s)
 		":GREF#":  "0",                                                  // refraction off — single status byte, no '#'
 		":GUDT#":  "2026-07-07,12:00:00#",                               // mount UTC clock (ISO, ultra precision)
+		":Gstm#":  "00000.000#",                                         // slew settle time (s)
 	}
 	for k, v := range replies {
 		merged[k] = v
@@ -195,23 +196,23 @@ func TestGuideRate(t *testing.T) {
 	if r := put(t, base2, "guideraterightascension", "GuideRateRightAscension=0.006"); r.ErrorNumber != 0 { // 21.6"/s
 		t.Errorf("set high guiderate: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
 	}
-	if !f2.wrote(":Rg15.041#") {
-		t.Errorf("above-band guide rate did not clamp to :Rg15.041#; writes=%v", f2.writes)
+	if !f2.wrote(":Rg15.000#") {
+		t.Errorf("above-band guide rate did not clamp to :Rg15.000#; writes=%v", f2.writes)
 	}
-	if v, _ := get(t, base2, "guideraterightascension").Value.(float64); math.Abs(v-15.041/3600) > 1e-9 {
-		t.Errorf("clamped-high readback = %v deg/s, want %v", v, 15.041/3600)
+	if v, _ := get(t, base2, "guideraterightascension").Value.(float64); math.Abs(v-15.0/3600) > 1e-9 {
+		t.Errorf("clamped-high readback = %v deg/s, want %v", v, 15.0/3600)
 	}
 
-	// Below 0.1× sidereal clamps up to 1.504"/s (:Rg01.504#).
+	// Below the 0.10× keypad preset clamps up to 1.5"/s (:Rg01.500#).
 	base3, f3 := newStack(t, map[string]string{":Ggui#": "7.50#"})
 	if r := put(t, base3, "guideraterightascension", "GuideRateRightAscension=0.0001"); r.ErrorNumber != 0 { // 0.36"/s
 		t.Errorf("set low guiderate: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
 	}
-	if !f3.wrote(":Rg01.504#") {
-		t.Errorf("below-band guide rate did not clamp to :Rg01.504#; writes=%v", f3.writes)
+	if !f3.wrote(":Rg01.500#") {
+		t.Errorf("below-band guide rate did not clamp to :Rg01.500#; writes=%v", f3.writes)
 	}
-	if v, _ := get(t, base3, "guideraterightascension").Value.(float64); math.Abs(v-1.5041/3600) > 1e-9 {
-		t.Errorf("clamped-low readback = %v deg/s, want %v", v, 1.5041/3600)
+	if v, _ := get(t, base3, "guideraterightascension").Value.(float64); math.Abs(v-1.5/3600) > 1e-9 {
+		t.Errorf("clamped-low readback = %v deg/s, want %v", v, 1.5/3600)
 	}
 }
 
@@ -472,8 +473,9 @@ func TestCoreReadsThroughHTTP(t *testing.T) {
 }
 
 func TestActionReadWrite(t *testing.T) {
-	// maxslewrate: empty params reads (:GMsb#), a value writes (:Sw8#) and echoes.
-	base, f := newStack(t, map[string]string{":GMsb#": "8.0#", ":Sw8#": "1"})
+	// maxslewrate: empty params reads the rate :Sw sets (:GMs#), not the ceiling (:GMsb#);
+	// a value writes (:Sw8#) and echoes.
+	base, f := newStack(t, map[string]string{":GMs#": "8.0#", ":GMsb#": "15.0#", ":Sw8#": "1"})
 	if r := put(t, base, "action", "Action=maxslewrate&Parameters="); r.ErrorNumber != 0 || r.Value != "8.0" {
 		t.Errorf("read maxslewrate = %v (err %d), want \"8.0\"", r.Value, r.ErrorNumber)
 	}
@@ -684,6 +686,50 @@ func TestSlewSettleTime(t *testing.T) {
 	}
 }
 
+// TestSlewSettleTimeReadsMount: a settle time set on the keypad or by another client
+// reaches SlewSettleTime through the poll.
+func TestSlewSettleTimeReadsMount(t *testing.T) {
+	base, _ := newStack(t, map[string]string{":Gstm#": "00003.000#"})
+	if v, _ := get(t, base, "slewsettletime").Value.(float64); int(v) != 3 {
+		t.Errorf("slewsettletime = %v, want 3 from :Gstm#", v)
+	}
+}
+
+// TestIsPulseGuidingKeepsLongerPulse: a short pulse on one axis must not end the
+// IsPulseGuiding window of a longer pulse still running on the other.
+func TestIsPulseGuidingKeepsLongerPulse(t *testing.T) {
+	base, _ := newStack(t, nil)
+	if r := put(t, base, "pulseguide", "Direction=2&Duration=400"); r.ErrorNumber != 0 { // east
+		t.Fatalf("pulse east: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if r := put(t, base, "pulseguide", "Direction=0&Duration=20"); r.ErrorNumber != 0 { // north
+		t.Fatalf("pulse north: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if v, _ := get(t, base, "ispulseguiding").Value.(bool); !v {
+		t.Error("ispulseguiding = false 100 ms into a 400 ms pulse")
+	}
+}
+
+// TestDitherSetters: the dither action sets the amount and the timer.
+func TestDitherSetters(t *testing.T) {
+	base, f := newStack(t, map[string]string{":SditM5,3#": "1#", ":SditT15,30,10#": "1#"})
+	for _, c := range []struct{ params, wire string }{
+		{"amount=5,3", ":SditM5,3#"},
+		{"timer=15,30,10", ":SditT15,30,10#"},
+	} {
+		if r := put(t, base, "action", "Action=dither&Parameters="+c.params); r.ErrorNumber != 0 {
+			t.Errorf("dither %s: err %d (%s)", c.params, r.ErrorNumber, r.ErrorMessage)
+		}
+		if !f.wrote(c.wire) {
+			t.Errorf("dither %s did not send %s; writes=%v", c.params, c.wire, f.writes)
+		}
+	}
+	if r := put(t, base, "action", "Action=dither&Parameters=amount=5"); r.ErrorNumber == 0 {
+		t.Error("dither amount=5 accepted with one value")
+	}
+}
+
 func TestMoveAxisExactRate(t *testing.T) {
 	// MoveAxis must command the exact rate AxisRates advertises, not a snapped preset.
 	// Uses the secondary (Dec/Alt) axis, whose move skips the primary's speed-correction
@@ -720,5 +766,20 @@ func TestDriverInfoAndVersionAreSet(t *testing.T) {
 	}
 	if tel.DriverInfo() == "" {
 		t.Error("DriverInfo is empty")
+	}
+}
+
+// TestConnectSetsGuideRate: connect sends :Rg07.500# so the reported guide rate is the active
+// one, whatever was last chosen on the keypad.
+func TestConnectSetsGuideRate(t *testing.T) {
+	f := &fakeTransport{replies: map[string]string{":GMsb#": "15.0#"}}
+	tel := NewTelescope("test")
+	m := &tenmicron.Mount{Conn: lx200.New(f, 50*time.Millisecond)}
+	tel.primeStatics(m)
+	if !f.wrote(":Rg07.500#") {
+		t.Errorf("connect did not send :Rg07.500#; writes=%v", f.writes)
+	}
+	if got := tel.guideRate() * arcsecPerDeg; math.Abs(got-7.5) > 1e-9 {
+		t.Errorf("guide rate after connect = %v\"/s, want 7.5", got)
 	}
 }
