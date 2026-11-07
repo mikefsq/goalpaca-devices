@@ -112,3 +112,6 @@ and [SETUP_FORMS.md](SETUP_FORMS.md) for browser settings.
 ## License
 
 [AGPL-3.0-only](LICENSE).
+
+Source installs rebuild first: `sudo make install` builds the standard driver set;
+`sudo make -C <driver> install` builds and installs that driver.

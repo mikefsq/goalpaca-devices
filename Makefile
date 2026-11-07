@@ -75,13 +75,12 @@ $(BIN):
 deb: ## build one .deb per driver into ./dist (amd64 + arm64)
 	@build/build-deb
 
-install: ## install drivers from ./bin into $(PREFIX)/bin and register them
+install: build ## install drivers from ./bin into $(PREFIX)/bin and register them
 	@test -d $(BIN) || { echo "nothing built: run make first" >&2; exit 1; }
 	@install -d "$(BINDIR)"
 	@for f in $(BIN)/*; do \
 		[ -f "$$f" ] || continue; \
 		n=$$(basename $$f); \
-		sh build/check-fresh "$$f" . || exit 1; \
 		install -m 0755 "$$f" "$(BINDIR)/$$n"; \
 		echo "installed $(BINDIR)/$$n"; \
 		sh build/register-driver "$(BINDIR)/$$n" "$(REGISTRYFILE)" "$(PREFIX)/bin/$$n" || exit 1; \

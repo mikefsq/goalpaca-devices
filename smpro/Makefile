@@ -31,8 +31,7 @@ build: $(BINS)
 $(BINS): pi-only
 	go build -o $@ ./cmd/$@
 
-install: pi-only
-	@for b in $(BINS); do sh ../build/check-fresh "$$b" .. || exit 1; done
+install: build
 	install -d "$(PREFIX)/bin"
 	@for b in $(BINS); do \
 		install -m 0755 "$$b" "$(PREFIX)/bin/$$b"; \
@@ -41,8 +40,7 @@ install: pi-only
 	done
 	@echo "start or restart alpacahurd to use it: $(RESTART_HURD)"
 
-seed: pi-only ## write disabled devices.d templates; keeps existing files
-	@for b in $(BINS); do sh ../build/check-fresh "$$b" .. || exit 1; done
+seed: build ## write disabled devices.d templates; keeps existing files
 	@install -d "$(CONFDIR)"
 	@for b in $(BINS); do \
 		if [ -f "$(CONFDIR)/$$b.json" ]; then \

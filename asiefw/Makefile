@@ -22,16 +22,14 @@ REGISTRYFILE ?= $(CONFDIR)/../drivers.conf
 build:
 	go build -o $(NAME) ./cmd/$(NAME)
 
-install:
-	@sh ../build/check-fresh $(NAME) ..
+install: build
 	install -d "$(PREFIX)/bin"
 	install -m 0755 $(NAME) "$(PREFIX)/bin/$(NAME)"
 	@sh ../build/register-driver "$(PREFIX)/bin/$(NAME)" "$(REGISTRYFILE)"
 	@for a in $(ALIASES); do ln -sf $(NAME) "$(PREFIX)/bin/$$a"; echo "link   $(PREFIX)/bin/$$a -> $(NAME)"; done
 	@echo "start or restart alpacahurd to use it: $(RESTART_HURD)"
 
-seed: ## write a disabled devices.d template; keeps an existing file
-	@sh ../build/check-fresh $(NAME) ..
+seed: build ## write a disabled devices.d template; keeps an existing file
 	@install -d "$(CONFDIR)"
 	@if [ -f "$(CONFDIR)/$(NAME).json" ]; then \
 		echo "keep   $(CONFDIR)/$(NAME).json"; \
