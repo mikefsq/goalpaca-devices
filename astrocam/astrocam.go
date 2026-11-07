@@ -74,10 +74,14 @@ type PureASICamera struct {
 	// (exposeWG.Wait) can never race a concurrent StartExposure's exposeWG.Add. Held only across
 	// those short sequences, never across a readout (which takes c.mu, not this).
 	exposeMu sync.Mutex
-	frame    []byte // last readout, raw little-endian
-	frameW   int
-	frameH   int
-	frameBpp int // bytes/pixel of the last readout (2 = RAW16, 1 = RAW8)
+	// lastFail and failRepeats collapse a run of identical exposure failures into one log line
+	// and a count. Guarded by mu.
+	lastFail    string
+	failRepeats int
+	frame       []byte // last readout, raw little-endian
+	frameW      int
+	frameH      int
+	frameBpp    int // bytes/pixel of the last readout (2 = RAW16, 1 = RAW8)
 
 	lastDuration float64
 	lastStart    time.Time
@@ -135,8 +139,16 @@ type PureASICamera struct {
 	vidWG              sync.WaitGroup
 	vidFrame           []byte // latest free-run frame (raw little-endian)
 	vidW, vidH, vidBpp int
-	vidSeq             uint64  // bumped each drained frame; StartExposure waits for seq > its snapshot
-	vidExp             float64 // exposure (s) the stream runs at; a change restarts it
+	vidSeq             uint64 // bumped each drained frame; StartExposure waits for seq > its snapshot
+	// Drain health, so a stalled stream can say what it is doing: reads failed since the last good
+	// frame, the last failure, when the last good frame and the stream start were, and when the
+	// read now in progress began (zero when none is).
+	vidBad       int
+	vidLastErr   string
+	vidLastGood  time.Time
+	vidStarted   time.Time
+	vidReadStart time.Time
+	vidExp       float64 // exposure (s) the stream runs at; a change restarts it
 	// The client REQUEST the running stream was armed from — a change in exposure, ROI, or binning
 	// restarts it so the free-run stream always reflects the client's current settings (gain is
 	// live, no restart). Held as requested rather than as programmed, so a camera that aligns the
@@ -831,6 +843,8 @@ func (c *PureASICamera) startVideoLocked(dur float64) error {
 	c.videoOn = true
 	c.vidExp = dur
 	c.vidSeq = 0
+	c.vidBad, c.vidLastErr, c.vidLastGood, c.vidReadStart = 0, "", time.Time{}, time.Time{}
+	c.vidStarted = time.Now()
 	c.vidStartX, c.vidStartY, c.vidNumX, c.vidNumY = reqX, reqY, reqW, reqH
 	c.vidBin = c.cam.Binning()      // snapshot the armed geometry for change detection
 	c.vidWake = make(chan struct{}) // waiters block on this until the drain publishes
@@ -885,18 +899,35 @@ func (c *PureASICamera) drainVideo(ctx context.Context, dur float64) {
 	buf := make([]byte, c.cam.FrameBytes())
 	// A run of reads that all fail is indistinguishable from a stalled camera to the client: the
 	// sequence never advances and StartExposure waits out its whole timeout with nothing logged.
-	// Report the first failure and then every hundredth, so a genuine transient stays quiet but a
-	// persistent one names itself.
+	// Report the first failure, then every hundredth or every 5 s of failing, whichever is first,
+	// so a genuine transient stays quiet but a persistent one names itself. The run's end is
+	// logged too, with how long it lasted.
 	bad := 0
+	var lastNote, runStart time.Time
 	note := func(what string, err error) {
 		bad++
-		if bad == 1 || bad%100 == 0 {
-			log.Printf("astrocam: %s video drain: %s (%d consecutive)", c.Label(), what, bad)
+		now := time.Now()
+		if bad == 1 {
+			runStart = now
+		}
+		c.mu.Lock()
+		c.vidBad, c.vidLastErr = bad, what
+		c.mu.Unlock()
+		if bad == 1 || bad%100 == 0 || now.Sub(lastNote) >= 5*time.Second {
+			lastNote = now
+			log.Printf("astrocam: %s video drain: %s (%d consecutive, failing for %s)",
+				c.Label(), what, bad, now.Sub(runStart).Round(time.Millisecond))
 			_ = err
 		}
 	}
 	for ctx.Err() == nil {
+		c.mu.Lock()
+		c.vidReadStart = time.Now()
+		c.mu.Unlock()
 		n, err := c.cam.ReadFrame(buf, false)
+		c.mu.Lock()
+		c.vidReadStart = time.Time{}
+		c.mu.Unlock()
 		if err != nil {
 			if errors.Is(err, astrocam.ErrDeviceWedged) {
 				c.needsReconnect.Store(true) // manageHardware re-acquires
@@ -909,8 +940,13 @@ func (c *PureASICamera) drainVideo(ctx context.Context, dur float64) {
 			note(fmt.Sprintf("short frame %d/%d bytes", n, len(buf)), nil)
 			continue
 		}
+		if bad > 0 {
+			log.Printf("astrocam: %s video drain: recovered after %d failed reads over %s",
+				c.Label(), bad, time.Since(runStart).Round(time.Millisecond))
+		}
 		bad = 0
 		c.mu.Lock()
+		c.vidBad, c.vidLastGood = 0, time.Now()
 		if cap(c.vidFrame) < n {
 			c.vidFrame = make([]byte, n)
 		}
@@ -921,6 +957,28 @@ func (c *PureASICamera) drainVideo(ctx context.Context, dur float64) {
 		c.wakeVideoWaitersLocked()
 		c.mu.Unlock()
 	}
+}
+
+// videoDrainState describes the drain for a stall report: failed reads since the last good frame and
+// the last failure, when the last good frame came (or that none has since the stream started),
+// and how long the read in progress has been blocked.
+func (c *PureASICamera) videoDrainState() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	s := fmt.Sprintf("drain: %d failed reads", c.vidBad)
+	if c.vidLastErr != "" {
+		s += ", last: " + c.vidLastErr
+	}
+	if c.vidLastGood.IsZero() {
+		s += fmt.Sprintf(", no good frame since the stream started %s ago", now.Sub(c.vidStarted).Round(time.Millisecond))
+	} else {
+		s += fmt.Sprintf(", last good frame %s ago", now.Sub(c.vidLastGood).Round(time.Millisecond))
+	}
+	if !c.vidReadStart.IsZero() {
+		s += fmt.Sprintf(", current read blocked for %s", now.Sub(c.vidReadStart).Round(time.Millisecond))
+	}
+	return s
 }
 
 // videoWaitRecheck is how often a blocked waiter comes back to test its deadline and whether the
@@ -942,7 +1000,8 @@ func (c *PureASICamera) wakeVideoWaitersLocked() {
 // the op. Bounded so a stalled stream fails the op instead of hanging forever.
 func (c *PureASICamera) waitVideoFrame(want uint64, dur float64) {
 	defer c.exposeWG.Done()
-	deadline := time.Now().Add(2*time.Duration(dur*float64(time.Second)) + readoutGrace)
+	waitFor := 2*time.Duration(dur*float64(time.Second)) + readoutGrace
+	deadline := time.Now().Add(waitFor)
 	for {
 		c.mu.Lock()
 		seq, on, wake := c.vidSeq, c.videoOn, c.vidWake
@@ -958,16 +1017,16 @@ func (c *PureASICamera) waitVideoFrame(want uint64, dur float64) {
 			c.frame = frame
 			c.frameW, c.frameH, c.frameBpp = c.vidW, c.vidH, c.vidBpp
 			c.mu.Unlock()
-			c.exposeOp.Complete()
+			c.completeExposure()
 			return
 		}
 		c.mu.Unlock()
 		if !on {
-			c.exposeOp.Fail(fmt.Errorf("video mode stopped before a frame arrived"))
+			c.failExposure(fmt.Errorf("video mode stopped before a frame arrived"))
 			return
 		}
 		if time.Now().After(deadline) {
-			c.exposeOp.Fail(fmt.Errorf("video stream delivered no frame within %s", time.Since(deadline)))
+			c.failExposure(fmt.Errorf("video stream delivered no frame within %s (%s)", waitFor, c.videoDrainState()))
 			return
 		}
 		if wake == nil { // no stream to wake us: poll, as before
@@ -1069,6 +1128,38 @@ func (c *PureASICamera) StartExposure(duration float64, light bool) error {
 	return nil
 }
 
+// failExposure records err as the exposure's outcome and logs it once per distinct error. The op
+// hands its error only to a client that asks for it, so an unlogged failure leaves the journal empty
+// while the camera fails every frame. Identical repeats are counted instead of printed, because a
+// guide loop retries every few seconds and would otherwise write a line per frame all night.
+func (c *PureASICamera) failExposure(err error) {
+	msg := err.Error()
+	c.mu.Lock()
+	first := msg != c.lastFail
+	if first {
+		c.lastFail, c.failRepeats = msg, 0
+	} else {
+		c.failRepeats++
+	}
+	c.mu.Unlock()
+	if first {
+		log.Printf("astrocam: %s exposure failed: %v", c.Label(), err)
+	}
+	c.exposeOp.Fail(err)
+}
+
+// completeExposure marks the exposure done and, when it ends a failure streak, logs the streak.
+func (c *PureASICamera) completeExposure() {
+	c.mu.Lock()
+	last, repeats := c.lastFail, c.failRepeats
+	c.lastFail, c.failRepeats = "", 0
+	c.mu.Unlock()
+	if last != "" {
+		log.Printf("astrocam: %s exposure succeeded after %d repeat(s) of: %s", c.Label(), repeats, last)
+	}
+	c.exposeOp.Complete()
+}
+
 // readoutGrace bounds how long past the (host-timed) integration the frame readout may run before
 // the watchdog treats it as hung. A real USB readout of a full frame is sub-second, so this only
 // trips on a genuine stall (notably the USB2 174's worker, which can block forever on a stalled
@@ -1089,7 +1180,7 @@ func (c *PureASICamera) runExposure(light bool) {
 	buf := make([]byte, c.cam.FrameBytes())
 	t0 := time.Now()
 	if err := c.cam.StartExposure(light); err != nil {
-		c.exposeOp.Fail(fmt.Errorf("arm: %w", err))
+		c.failExposure(fmt.Errorf("arm: %w", err))
 		return
 	}
 	tArm := time.Now()
@@ -1115,14 +1206,14 @@ func (c *PureASICamera) runExposure(light bool) {
 	}
 
 	if timedOut.Load() {
-		c.exposeOp.Fail(fmt.Errorf("readout timed out after %s — camera not delivering frame", deadline))
+		c.failExposure(fmt.Errorf("readout timed out after %s — camera not delivering frame", deadline))
 		return
 	}
 	if err != nil {
 		if errors.Is(err, astrocam.ErrDeviceWedged) {
 			c.needsReconnect.Store(true) // driver-confirmed dead — manageHardware re-acquires
 		}
-		c.exposeOp.Fail(fmt.Errorf("readout: %w", err))
+		c.failExposure(fmt.Errorf("readout: %w", err))
 		return
 	}
 	c.mu.Lock()
@@ -1136,7 +1227,7 @@ func (c *PureASICamera) runExposure(light bool) {
 	c.frameW, c.frameH = w, h
 	c.frameBpp = bpp
 	c.mu.Unlock()
-	c.exposeOp.Complete()
+	c.completeExposure()
 }
 
 // applyDefects applies the factory hot-pixel map to a full-frame RAW16 frame in place,
