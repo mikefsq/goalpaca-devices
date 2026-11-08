@@ -1,7 +1,7 @@
 # Build standalone drivers into bin/.
 DRIVERS := tenmicron asiam5 rst onstep astrocam asieaf asiefw \
            focuscube focuslynx oasisfoc oasisfw mgpbox unihedron ptpcam \
-           polemaster scopehub sim
+           polemaster scopehub deepskydadfp sim
 
 SDK_DRIVERS := asiccd asicaa
 
@@ -121,8 +121,8 @@ uninstall: ## remove installed drivers (device entries are kept)
 	done
 	@echo "removed drivers from $(BINDIR); $(DEVICESDIR) left intact"
 
-# Resolve only the committed module graph, independent of developer workspaces.
-export GOWORK := off
+# Use a local workspace when present; GOWORK=off selects the recorded module versions.
+export GOWORK ?= auto
 
 test: ## run tests for drivers that do not require vendor SDKs
 	go test $(CHECK_PACKAGES)

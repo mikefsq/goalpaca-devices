@@ -6,7 +6,7 @@ import (
 
 	"github.com/mikefsq/goalpaca/registry"
 	alpacadev "github.com/mikefsq/goalpaca/server"
-	pimountgps "github.com/mikefsq/pi_mount_gps"
+	pimountgps "github.com/mikefsq/x1500_gps_12v/driver"
 )
 
 // Config overrides the board's default wiring. Unset fields keep the defaults.

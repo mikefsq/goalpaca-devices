@@ -1,12 +1,16 @@
 # pi_mount_gps
 
 ASCOM Alpaca ObservingConditions driver and environment feed for the
-pi_mount_gps CM5 board, using [pi_mount_gps](https://github.com/mikefsq/pi_mount_gps) over I2C.
+pi_mount_gps CM5 board, using [pi_mount_gps](https://github.com/mikefsq/x1500_gps_12v/tree/main/driver) over I2C.
 
 ## Build and run
 
-This driver currently requires the hardware-library checkout at
-`../pi_mount_gps` relative to the repository root, as recorded in `go.mod`.
+The hardware library uses the upstream `main` HEAD recorded in `go.mod`.
+Update it to the newest HEAD with:
+
+```sh
+GOWORK=off go get github.com/mikefsq/x1500_gps_12v/driver@main
+```
 From this driver directory:
 
 ```sh

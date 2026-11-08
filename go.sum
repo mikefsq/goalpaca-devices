@@ -34,6 +34,8 @@ github.com/mikefsq/stellarmate v0.1.0 h1:EzYFrIbkEJBxvBEk650XWWE6hbdg1rfhz5Q4+zt
 github.com/mikefsq/stellarmate v0.1.0/go.mod h1:poMiJ3c6UXsJmHVn3AiFJ3kpMBnldEsNoVROUWH1jCs=
 github.com/mikefsq/unihedron v0.1.1 h1:q2U6H38mjvv3N7lQO++b2GRkSfeHP4vBW/njLcXj94Q=
 github.com/mikefsq/unihedron v0.1.1/go.mod h1:6UUn+xcszDq4xPTRVJKpE9NGBNev6f27hJjFuWqaUvY=
+github.com/mikefsq/x1500_gps_12v/driver v0.0.0-20261107023551-b6873eeffd0d h1:t1r/r8YG8DqqKrXEY6Wkd/Afq/+5nEq+5rXrEO50czA=
+github.com/mikefsq/x1500_gps_12v/driver v0.0.0-20261107023551-b6873eeffd0d/go.mod h1:mNZt0GUghES6dy0+LAOp7nmDPapLEJHDmvkccyp/K1A=
 github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646/go.mod h1:jpp1/29i3P1S/RLdc7JQKbRpFeM1dOBd8T9ki5s+AY8=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=

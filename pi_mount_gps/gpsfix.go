@@ -3,7 +3,7 @@ package driver
 import (
 	"time"
 
-	pimountgps "github.com/mikefsq/pi_mount_gps"
+	pimountgps "github.com/mikefsq/x1500_gps_12v/driver"
 )
 
 // GPS sources, as reported by the GpsSource action.

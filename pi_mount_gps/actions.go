@@ -9,7 +9,7 @@ import (
 	"time"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
-	pimountgps "github.com/mikefsq/pi_mount_gps"
+	pimountgps "github.com/mikefsq/x1500_gps_12v/driver"
 )
 
 // Actions expose the weather, the GPS and the environment feed. Names, formats

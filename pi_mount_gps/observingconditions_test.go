@@ -8,7 +8,7 @@ import (
 	"time"
 
 	alpacadev "github.com/mikefsq/goalpaca/server"
-	pimountgps "github.com/mikefsq/pi_mount_gps"
+	pimountgps "github.com/mikefsq/x1500_gps_12v/driver"
 )
 
 type fakeBoard struct {

@@ -129,8 +129,8 @@ const (
 )
 
 func TestSlotCount(t *testing.T) {
-	if n := newTestSwitch(t, newFake()).MaxSwitch(); n != 62 {
-		t.Errorf("MaxSwitch %d, want 62", n)
+	if n := newTestSwitch(t, newFake()).MaxSwitch(); n != 64 {
+		t.Errorf("MaxSwitch %d, want 64", n)
 	}
 }
 
@@ -259,5 +259,41 @@ func TestDisconnectKeepsOutputs(t *testing.T) {
 	}
 	if _, err := s.GetSwitchValue(idDCPower); !errors.Is(err, alpacadev.ErrNotConnected) {
 		t.Errorf("read after disconnect: %v", err)
+	}
+}
+
+func TestBarometerReadings(t *testing.T) {
+	f := newFake()
+	// Barometer readings do not depend on the SHT45/dew controller.
+	f.dew.Valid = false
+	f.st.Env = scopehub.Env{BaroValid: true, PressureHPa: 1013.25, BaroTempC: 23.75}
+	s := newTestSwitch(t, f)
+	for _, reading := range []struct {
+		id    int
+		name  string
+		value float64
+	}{
+		{62, "Pressure", 1013.25}, {63, "Barometer Temperature", 23.75},
+	} {
+		if name, err := s.GetSwitchName(reading.id); err != nil || name != reading.name {
+			t.Fatal(reading.id, name, err)
+		}
+		if value, err := s.GetSwitchValue(reading.id); err != nil || value != reading.value {
+			t.Fatal(reading.name, value, err)
+		}
+		if canWrite, err := s.CanWrite(reading.id); err != nil || canWrite {
+			t.Fatal("sensor writable", reading.name, err)
+		}
+		if err := s.SetSwitchValue(reading.id, reading.value); !errors.Is(err, alpacadev.ErrNotImplemented) {
+			t.Fatal("sensor accepted write", err)
+		}
+	}
+	f.st.Env.BaroValid = false
+	s.b.snap = nil
+	for _, id := range []int{62, 63} {
+		var ae *alpacadev.AlpacaError
+		if _, err := s.GetSwitchValue(id); !errors.As(err, &ae) || ae.Number != alpacadev.ErrNumValueNotSet {
+			t.Fatal("invalid barometer returned a reading", id, err)
+		}
 	}
 }

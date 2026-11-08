@@ -84,7 +84,7 @@ func labelFrom(fixedName, name string) string {
 func fixed(s string) func(*scopehub.Labels) string { return func(*scopehub.Labels) string { return s } }
 
 // buildSlots returns the switch array: the input supply first, then the port
-// controls, then per-port readings, controller settings and dew and light
+// controls, then per-port readings, controller settings and environmental
 // readings. The order is public once clients save profiles against it.
 func buildSlots() []slot {
 	var out []slot
@@ -303,6 +303,26 @@ func buildSlots() []slot {
 			min:  0, max: 1, step: 1,
 			get: func(n *snapshot) (float64, error) { return b2f(n.st.DC[i].PWM), nil },
 			set: func(d device, v float64) error { return d.SetDCPWM(i+1, v >= 0.5) },
+		})
+	}
+	// 62..63: barometer readings. Append to preserve every existing switch ID.
+	for _, reading := range []struct {
+		name, description string
+		min, max          float64
+		value             func(scopehub.Env) float64
+	}{
+		{"Pressure", "Station pressure at the board (hPa)", 0, 2000, func(e scopehub.Env) float64 { return e.PressureHPa }},
+		{"Barometer Temperature", "Raw barometer sensor temperature (C)", -60, 125, func(e scopehub.Env) float64 { return e.BaroTempC }},
+	} {
+		out = append(out, slot{
+			name: fixed(reading.name), desc: reading.description,
+			min: reading.min, max: reading.max, step: 0.01,
+			get: func(n *snapshot) (float64, error) {
+				if !n.st.Env.BaroValid {
+					return 0, notValid(reading.name)
+				}
+				return reading.value(n.st.Env), nil
+			},
 		})
 	}
 	return out

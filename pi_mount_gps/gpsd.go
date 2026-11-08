@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	pimountgps "github.com/mikefsq/pi_mount_gps"
+	pimountgps "github.com/mikefsq/x1500_gps_12v/driver"
 )
 
 // defaultGpsdAddr is where gpsd listens on a standard install.

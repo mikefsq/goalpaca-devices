@@ -34,3 +34,5 @@ sim/cmd/sim/main
 
 # Standalone Pi GPS/weather driver build.
 /pi_mount_gps/pi_mount_gps
+
+/deepskydadfp/deepskydadfp

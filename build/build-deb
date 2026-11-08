@@ -21,6 +21,7 @@ DRIVERS="
     asieaf
     asiefw
     astrocam
+    deepskydadfp
     focuscube
     focuslynx
     mgpbox

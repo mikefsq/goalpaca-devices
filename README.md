@@ -28,6 +28,7 @@ Use [alpacahurd](https://github.com/mikefsq/alpacahurd) to manage several driver
 | Switch / Focuser | [smpro](smpro/README.md) | StellarMate SM Pro; runs on its Pi |
 | Switch | [scopehub](scopehub/README.md) | scope_hub power and USB hub |
 | Observing conditions | [pi_mount_gps](pi_mount_gps/README.md) | Pi GPS/weather board (SHT45, BMP580, u-blox); gpsd with I²C fallback |
+| Cover calibrator | [deepskydadfp](deepskydadfp/README.md) | Deep Sky Dad FP2-family flat panels and covers, USB-serial |
 | Simulator | [sim](sim/README.md) | Coupled telescope and guide camera |
 
 ## Install and build
@@ -58,6 +59,13 @@ make help
 ```
 
 Some macOS USB transports also require cgo and Apple's command-line tools.
+
+Source installs rebuild first: `sudo make install` builds the standard driver set;
+`sudo make -C <driver> install` builds and installs that driver.
+
+For local development, use a `go.work` file to select sibling module checkouts.
+Builds honor it by default. `GOWORK=off make build` selects the module versions
+recorded in `go.mod`. Workspace files are ignored by Git.
 
 `make install` (or `make install` in a driver directory) copies each binary and
 records its absolute path in `drivers.conf`. `make seed` writes one disabled 
@@ -112,6 +120,3 @@ and [SETUP_FORMS.md](SETUP_FORMS.md) for browser settings.
 ## License
 
 [AGPL-3.0-only](LICENSE).
-
-Source installs rebuild first: `sudo make install` builds the standard driver set;
-`sudo make -C <driver> install` builds and installs that driver.

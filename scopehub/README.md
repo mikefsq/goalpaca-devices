@@ -35,6 +35,13 @@ go build -o scopehub ./cmd/scopehub
 | 54 | Dew Margin | °C | no |
 | 55 | Light Level | lux | no |
 | 56 to 61 | DC n PWM | 0 steady 100%, 1 run at the duty cycle | yes |
+| 62 | Pressure | hPa (station pressure) | no |
+| 63 | Barometer Temperature | °C (raw chip temperature) | no |
+
+Barometer readings use the firmware's `baro_valid` flag. Missing or invalid
+readings return ValueNotSet rather than a zero. Existing channel IDs are
+unchanged. After installing the updated driver and restarting its instance,
+use Rescan on goastro's Switches page to discover the two additional channels.
 
 ## Actions
 
