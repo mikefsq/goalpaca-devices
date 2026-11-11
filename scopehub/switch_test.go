@@ -107,13 +107,15 @@ func newTestSwitch(t *testing.T, f *fakeDev) *Switch {
 	if err := s.Open(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	// Board is shared per serial process-wide. Release it so next test opens own fake.
+	t.Cleanup(func() { s.Close(context.Background()) })
 	if err := s.Connect(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	return s
 }
 
-// Slot ids, matching the README table.
+// Slot ids, matching README channel list.
 const (
 	idInputVolts = 0
 	idDCPower    = 2
@@ -143,7 +145,7 @@ func TestNames(t *testing.T) {
 	if err := s.SetSwitchName(idDCPower, "Camera"); err != nil || f.labels.DC[0] != "Camera" {
 		t.Fatalf("rename: %v %q", err, f.labels.DC[0])
 	}
-	s.b.snap = nil // the next read fetches the new labels
+	s.b.snap = nil // next read fetches new labels
 	for id, want := range map[int]string{idDCPower: "DC 1 (Camera)", idDCDuty: "DC 1 Duty (Camera)",
 		idDCCurrent: "DC 1 Current (Camera)", idDCDewAuto: "DC 1 Dew Auto (Camera)"} {
 		if name, _ := s.GetSwitchName(id); name != want {
@@ -153,7 +155,7 @@ func TestNames(t *testing.T) {
 	if d, _ := s.GetSwitchDescription(idDCPower); !strings.HasPrefix(d, "DC 1:") {
 		t.Errorf("description %q lost the port", d)
 	}
-	// A client writing back the full name it read keeps the label.
+	// Client writing back full name it read keeps label.
 	if err := s.SetSwitchName(idDCPower, "DC 1 (Camera)"); err != nil || f.labels.DC[0] != "Camera" {
 		t.Errorf("round trip: %v %q", err, f.labels.DC[0])
 	}
@@ -264,7 +266,7 @@ func TestDisconnectKeepsOutputs(t *testing.T) {
 
 func TestBarometerReadings(t *testing.T) {
 	f := newFake()
-	// Barometer readings do not depend on the SHT45/dew controller.
+	// Barometer readings do not depend on SHT45 or dew controller.
 	f.dew.Valid = false
 	f.st.Env = scopehub.Env{BaroValid: true, PressureHPa: 1013.25, BaroTempC: 23.75}
 	s := newTestSwitch(t, f)

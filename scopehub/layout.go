@@ -2,18 +2,18 @@ package driver
 
 import "encoding/json"
 
-// Switch layout for clients that draw a board page, returned by the
-// SwitchLayout action. Clients without layout support use the flat list.
+// Switch layout for clients that draw a board page. SwitchLayout action returns
+// it. Clients without layout support use flat list.
 //
-// strip lists switches shown in one line at the top. Each table has one row
-// per port; a column gives the id of its switch in the first row, and row r
-// uses that id plus r. The row's channel is rowNames[r]; the user's label is
-// the text in parentheses in the first column's switch name, as in
-// "DC 1 (Camera)". Switches in no strip or table go below, in id order.
+// strip lists switches shown in one line at top. Each table has one row per
+// port. A column gives its switch id in row 0; row r uses that id plus r. Row
+// channel is rowNames[r]. User label is text in parentheses in first column's
+// switch name, as in "DC 1 (Camera)". Switches in no strip or table go below,
+// in id order.
 //
-// A column may list lockedWhen conditions. When a row's switch in the named
-// column reads the given state, the cell is greyed out and shows show when set,
-// or its own value otherwise. The first condition that matches applies.
+// A column may list lockedWhen conditions. When the row's switch in the named
+// column reads the given state, the cell greys out. It shows show when set,
+// else its own value. First matching condition applies.
 type switchLayout struct {
 	Kind    string        `json:"kind"`
 	Version int           `json:"version"`
@@ -34,8 +34,8 @@ type layoutColumn struct {
 }
 
 type layoutLock struct {
-	Column string   `json:"column"` // title of another column in the same table
-	Is     bool     `json:"is"`     // that row's switch state that locks this cell
+	Column string   `json:"column"` // title of another column in same table
+	Is     bool     `json:"is"`     // row switch state that locks this cell
 	Show   *float64 `json:"show,omitempty"`
 }
 
@@ -54,8 +54,8 @@ var switchLayoutJSON = func() string {
 					{Title: "Power", First: 2},
 					{Title: "PWM", First: 56},
 					{Title: "Dew Auto", First: 20},
-					// PWM off runs the output steady at 100%; dew auto sets the duty itself,
-					// and the cell shows the duty it chose.
+					// PWM off runs output steady at 100%. Dew auto sets duty itself;
+					// cell shows chosen duty.
 					{Title: "Duty Cycle", First: 14, LockedWhen: []layoutLock{
 						{Column: "PWM", Is: false, Show: &full},
 						{Column: "Dew Auto", Is: true},

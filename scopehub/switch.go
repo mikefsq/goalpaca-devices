@@ -15,7 +15,7 @@ var _ alpacadev.Switch = (*Switch)(nil)
 
 const ports = 6
 
-// slot is one entry in the switch array.
+// slot is one switch array entry.
 type slot struct {
 	name           func(l *scopehub.Labels) string
 	desc           string
@@ -32,14 +32,14 @@ func b2f(v bool) float64 {
 	return 0
 }
 
-// notValid reports a reading the firmware marks invalid, for example a current
-// monitor between short PWM pulses.
+// notValid reports reading firmware marks invalid, e.g. current monitor between
+// short PWM pulses.
 func notValid(what string) error {
 	return alpacadev.NewError(alpacadev.ErrNumValueNotSet, what+" has no valid reading")
 }
 
-// portName gives the fixed port, a suffix such as "Duty", and the user's label
-// in parentheses when the port has one: "DC 1 Duty (Camera)".
+// portName gives fixed port, suffix such as "Duty", and user label in
+// parentheses when port has one, e.g. "DC 1 Duty (Camera)".
 func portName(port, suffix, label string) string {
 	n := port
 	if suffix != "" {
@@ -67,9 +67,9 @@ func usbName(l *scopehub.Labels, i int, suffix string) string {
 	return portName(fmt.Sprintf("USB %d", i+1), suffix, label)
 }
 
-// labelFrom takes the label out of a name a client sets. A client may send
-// the bare label or the full name it read back, "DC 1 (Camera)"; the fixed
-// port alone, "DC 1", clears the label.
+// labelFrom takes label out of client-set name. Client may send bare label or
+// full name it read back, "DC 1 (Camera)". Fixed port alone, "DC 1", clears
+// label.
 func labelFrom(fixedName, name string) string {
 	name = strings.TrimSpace(name)
 	if name == fixedName {
@@ -83,13 +83,13 @@ func labelFrom(fixedName, name string) string {
 
 func fixed(s string) func(*scopehub.Labels) string { return func(*scopehub.Labels) string { return s } }
 
-// buildSlots returns the switch array: the input supply first, then the port
-// controls, then per-port readings, controller settings and environmental
-// readings. The order is public once clients save profiles against it.
+// buildSlots returns switch array. Order is input supply, port controls,
+// per-port readings, controller settings, environment readings. Order is public
+// once clients save profiles against it.
 func buildSlots() []slot {
 	var out []slot
 
-	// 0..1: input supply, first so clients show it at the top.
+	// 0..1 input supply, first so clients show it on top.
 	out = append(out,
 		slot{
 			name: fixed("Input Voltage"), desc: "12 V input (V)",
@@ -113,7 +113,7 @@ func buildSlots() []slot {
 		},
 	)
 
-	// 2..7: DC power. On runs the output at its duty setpoint.
+	// 2..7 DC power. On runs output at duty setpoint.
 	for i := 0; i < ports; i++ {
 		i := i
 		out = append(out, slot{
@@ -126,7 +126,7 @@ func buildSlots() []slot {
 		})
 	}
 
-	// 8..13: USB power. Off forces VBUS off.
+	// 8..13 USB power. Off forces VBUS off.
 	for i := 0; i < ports; i++ {
 		i := i
 		desc := fmt.Sprintf("USB %d: USB-C port power", i+1)
@@ -143,7 +143,7 @@ func buildSlots() []slot {
 		})
 	}
 
-	// 14..19: DC duty setpoints, kept while the output is off.
+	// 14..19 DC duty setpoints, kept while output off.
 	for i := 0; i < ports; i++ {
 		i := i
 		out = append(out, slot{
@@ -155,7 +155,7 @@ func buildSlots() []slot {
 		})
 	}
 
-	// 20..25: dew auto control. On, the board sets the duty from the dew margin.
+	// 20..25 dew auto control. On, board sets duty from dew margin.
 	for i := 0; i < ports; i++ {
 		i := i
 		out = append(out, slot{
@@ -167,7 +167,7 @@ func buildSlots() []slot {
 		})
 	}
 
-	// 26: LED brightness.
+	// 26 LED brightness.
 	out = append(out, slot{
 		name: fixed("LED Brightness"), desc: "Brightness of all indicator LEDs (%)",
 		min: 0, max: 100, step: 1,
@@ -175,7 +175,7 @@ func buildSlots() []slot {
 		set: func(d device, v float64) error { return d.SetLEDBrightness(int(v)) },
 	})
 
-	// 27..32: DC current, averaged over a PWM period.
+	// 27..32 DC current, averaged over one PWM period.
 	for i := 0; i < ports; i++ {
 		i := i
 		out = append(out, slot{
@@ -191,7 +191,7 @@ func buildSlots() []slot {
 		})
 	}
 
-	// 33..38: USB current.
+	// 33..38 USB current.
 	for i := 0; i < ports; i++ {
 		i := i
 		out = append(out, slot{
@@ -207,7 +207,7 @@ func buildSlots() []slot {
 		})
 	}
 
-	// 39..44: USB attach state.
+	// 39..44 USB attach state.
 	for i := 0; i < ports; i++ {
 		i := i
 		out = append(out, slot{
@@ -218,7 +218,7 @@ func buildSlots() []slot {
 		})
 	}
 
-	// 45..49: controller settings, written as a whole after changing one field.
+	// 45..49 controller settings. Whole set written after one field changes.
 	setting := func(name, desc string, min, max, step float64, field func(*scopehub.DewSettings) *float64) slot {
 		return slot{
 			name: fixed(name), desc: desc, min: min, max: max, step: step,
@@ -247,7 +247,7 @@ func buildSlots() []slot {
 			func(s *scopehub.DewSettings) *float64 { return &s.MaxPct }),
 	)
 
-	// 50..51: PWM frequency and LED auto.
+	// 50..51 PWM frequency and LED auto.
 	out = append(out,
 		slot{
 			name: fixed("DC PWM Frequency"), desc: "PWM frequency shared by the DC outputs (Hz)",
@@ -263,7 +263,7 @@ func buildSlots() []slot {
 		},
 	)
 
-	// 52..55: dew and light readings.
+	// 52..55 dew and light readings.
 	dewReading := func(name, desc string, min, max float64, v func(*scopehub.Dew) float64) slot {
 		return slot{
 			name: fixed(name), desc: desc, min: min, max: max, step: 0.01,
@@ -293,8 +293,8 @@ func buildSlots() []slot {
 			},
 		},
 	)
-	// 56..61: PWM per DC output. Off holds a switched-on output steady at
-	// 100%; on runs it at its duty setpoint. Off also ends dew auto.
+	// 56..61 PWM per DC output. Off holds switched-on output steady at 100%.
+	// On runs it at duty setpoint. Off also ends dew auto.
 	for i := 0; i < ports; i++ {
 		i := i
 		out = append(out, slot{
@@ -305,7 +305,7 @@ func buildSlots() []slot {
 			set: func(d device, v float64) error { return d.SetDCPWM(i+1, v >= 0.5) },
 		})
 	}
-	// 62..63: barometer readings. Append to preserve every existing switch ID.
+	// 62..63 barometer readings. Appended so every old switch ID stays.
 	for _, reading := range []struct {
 		name, description string
 		min, max          float64
@@ -328,14 +328,15 @@ func buildSlots() []slot {
 	return out
 }
 
-// Switch is the ASCOM Switch device for one scope_hub board.
+// Switch is ASCOM Switch device for one scope_hub board.
 type Switch struct {
 	alpacadev.BaseSwitch
 	b     *board
+	held  bool // b is shared board; Open sets, Close clears
 	slots []slot
 }
 
-// NewSwitch creates the device. It does not touch the hardware.
+// NewSwitch creates device. Touches no hardware.
 func NewSwitch(cfg Config) *Switch {
 	s := &Switch{b: newBoard(cfg.Serial), slots: buildSlots()}
 	s.Version = "0.2.0"
@@ -350,10 +351,26 @@ func NewSwitch(cfg Config) *Switch {
 	return s
 }
 
-func (s *Switch) Open(ctx context.Context) error  { return s.b.Open(ctx) }
-func (s *Switch) Close(ctx context.Context) error { s.MarkDisconnected(); return s.b.Close(ctx) }
+// Open takes reference on shared board. Failed Open keeps it, so requests retry
+// on shared board, as before sharing.
+func (s *Switch) Open(ctx context.Context) error {
+	if !s.held {
+		s.b, s.held = s.b.share(), true
+	}
+	return s.b.Open(ctx)
+}
 
-// Connect requires a reachable board.
+// Close drops reference. Board closes when no device holds it.
+func (s *Switch) Close(ctx context.Context) error {
+	s.MarkDisconnected()
+	if s.held {
+		s.held = false
+		s.b.release()
+	}
+	return nil
+}
+
+// Connect needs reachable board.
 func (s *Switch) Connect(ctx context.Context) error {
 	if _, err := s.b.Info(); err != nil {
 		return err
@@ -362,8 +379,8 @@ func (s *Switch) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Disconnect ends the client session and leaves every output as it is. Power
-// to cameras, mounts and heaters must not depend on a client staying connected.
+// Disconnect ends client session, leaves every output as is. Power to cameras,
+// mounts and heaters must not depend on client staying connected.
 func (s *Switch) Disconnect(ctx context.Context) error {
 	s.MarkDisconnected()
 	return nil
@@ -378,7 +395,7 @@ func (s *Switch) snapshot() (*snapshot, error) {
 
 func (s *Switch) MaxSwitch() int { return len(s.slots) }
 
-// at is unchecked: the server range-checks the ID against MaxSwitch first.
+// at skips range check; server checks ID against MaxSwitch first.
 func (s *Switch) at(id int) *slot { return &s.slots[id] }
 
 func (s *Switch) CanWrite(id int) (bool, error)               { return s.at(id).set != nil, nil }
@@ -387,8 +404,8 @@ func (s *Switch) MinSwitchValue(id int) (float64, error)      { return s.at(id).
 func (s *Switch) MaxSwitchValue(id int) (float64, error)      { return s.at(id).max, nil }
 func (s *Switch) SwitchStep(id int) (float64, error)          { return s.at(id).step, nil }
 
-// GetSwitchName returns the port's label from the board, or its fixed name.
-// Without a connection, fixed names stand in for labels.
+// GetSwitchName returns port label from board, else fixed name. Without
+// connection, fixed names stand in for labels.
 func (s *Switch) GetSwitchName(id int) (string, error) {
 	var l *scopehub.Labels
 	if s.Connected() {
@@ -407,7 +424,7 @@ func (s *Switch) GetSwitchValue(id int) (float64, error) {
 	return s.at(id).get(n)
 }
 
-// GetSwitch is the boolean view: false only at MinSwitchValue.
+// GetSwitch is boolean view. False only at MinSwitchValue.
 func (s *Switch) GetSwitch(id int) (bool, error) {
 	v, err := s.GetSwitchValue(id)
 	if err != nil {
@@ -427,13 +444,13 @@ func (s *Switch) SetSwitchValue(id int, value float64) error {
 	if !s.Connected() {
 		return alpacadev.ErrNotConnected
 	}
-	// ISwitchV3 rounds an off-step value to the nearest step.
+	// ISwitchV3 rounds off-step value to nearest step.
 	value = sl.min + math.Round((value-sl.min)/sl.step)*sl.step
-	value = math.Round(value*1e6) / 1e6 // drop float drift from fractional steps
+	value = math.Round(value*1e6) / 1e6 // drop float drift of fractional steps
 	return valueErr(s.b.Do(func(d device) error { return sl.set(d, value) }))
 }
 
-// SetSwitch drives MaxSwitchValue for true and MinSwitchValue for false.
+// SetSwitch drives MaxSwitchValue for true, MinSwitchValue for false.
 func (s *Switch) SetSwitch(id int, state bool) error {
 	sl := s.at(id)
 	if state {
@@ -442,10 +459,10 @@ func (s *Switch) SetSwitch(id int, state bool) error {
 	return s.SetSwitchValue(id, sl.min)
 }
 
-// SetSwitchName sets a port power switch's label, stored on the board in
-// flash. Names always lead with the fixed port, "DC 1 (Camera)", and the
-// port's duty, current and dew switches carry the same label. An empty name or
-// the fixed port alone clears it. Other switches keep fixed names.
+// SetSwitchName sets port power switch label, stored in board flash. Names
+// always lead with fixed port, "DC 1 (Camera)". Port's duty, current and dew
+// switches carry same label. Empty name or fixed port alone clears it. Other
+// switches keep fixed names.
 func (s *Switch) SetSwitchName(id int, name string) error {
 	sl := s.at(id)
 	if sl.rename == nil {
@@ -458,7 +475,7 @@ func (s *Switch) SetSwitchName(id int, name string) error {
 	return valueErr(s.b.Do(func(d device) error { return sl.rename(d, name) }))
 }
 
-// valueErr turns a range rejection into an InvalidValue error.
+// valueErr turns range rejection into InvalidValue error.
 func valueErr(err error) error {
 	if errors.Is(err, scopehub.ErrOutOfRange) {
 		return alpacadev.NewError(alpacadev.ErrNumInvalidValue, err.Error())
@@ -466,5 +483,5 @@ func valueErr(err error) error {
 	return err
 }
 
-// Every command completes within one USB control transfer, so CanAsync stays
-// false and the server rejects the async members.
+// Every command completes in one USB control transfer, so CanAsync stays false
+// and server rejects async members.

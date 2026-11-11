@@ -9,8 +9,8 @@ import (
 	scopehub "github.com/mikefsq/scope_hub/driver"
 )
 
-// Config selects the board. Port names live on the board; clients set them
-// with SetSwitchName.
+// Config selects the board. Port names live on board; clients set them with
+// SetSwitchName.
 type Config struct {
 	Serial string `json:"serial,omitempty"   alpaca:"label=Serial,when=start,help=RP2350 unique ID of the board; empty selects the first board"`
 }
@@ -36,11 +36,30 @@ func init() {
 			}
 			return d, nil
 		},
+		// Board sensors and GPS, from same entry and same open board.
+		// "observingconditions": [{"enable": false}] turns it off.
+		Extra: []registry.Kind{{
+			Type:     alpacadev.ObservingConditionsType,
+			MultiKey: "observingconditions",
+			Default:  true,
+			Config:   func() any { return &Config{} },
+			New: func(spec registry.Spec) (alpacadev.Device, error) {
+				var cfg Config
+				if err := spec.Decode(&cfg); err != nil {
+					return nil, err
+				}
+				o := NewObservingConditions(cfg)
+				o.Instance = spec.Instance
+				if spec.Name != "" {
+					o.DevName = spec.Name
+				}
+				return o, nil
+			},
+		}},
 	})
 }
 
-// scanBoards lists the attached boards. Listing reads the USB descriptors only
-// and opens nothing.
+// scanBoards lists attached boards. Reads USB descriptors only; opens nothing.
 func scanBoards(ctx context.Context) ([]registry.Found, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

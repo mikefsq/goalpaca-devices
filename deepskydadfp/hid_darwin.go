@@ -139,7 +139,7 @@ func openHID(path string) (transport, error) {
 		return nil, fmt.Errorf("bad device path %q", path)
 	}
 	var rc C.int
-	dev := C.sh_open(C.int(VID), C.int(PID), C.uint32_t(loc), &rc)
+	dev := C.sh_open(C.int(hidVID), C.int(hidPID), C.uint32_t(loc), &rc)
 	if dev == nil {
 		if rc != 0 {
 			return nil, fmt.Errorf("IOHIDDeviceOpen %s: 0x%08x", path, uint32(rc))

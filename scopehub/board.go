@@ -1,4 +1,4 @@
-// The ASCOM Alpaca Switch driver for the scope_hub USB hub controller.
+// ASCOM Alpaca Switch and ObservingConditions driver for scope_hub USB hub controller.
 package driver
 
 import (
@@ -11,34 +11,35 @@ import (
 	scopehub "github.com/mikefsq/scope_hub/driver"
 )
 
-// statusMaxAge bounds how stale a cached status may be. A client polling every
-// slot reads one HID status report per interval instead of one per slot.
+// statusMaxAge bounds cached status age. Client polling every slot costs one HID
+// status report per interval, not one per slot.
 const statusMaxAge = 200 * time.Millisecond
 
-// board owns the HID handle and a short-lived status cache. It reopens the
-// device after a failure, so a replugged or rebooted board recovers on the next
-// request.
+// board owns HID handle and short-lived status cache. Reopens device after
+// failure, so replugged or rebooted board recovers on next request. Switch and
+// ObservingConditions of one serial share one board per process (see share).
 type board struct {
 	serial string // empty selects the first board
+	refs   int    // devices holding shared board; boardsMu guards
 
-	mu       sync.Mutex
-	dev      device
-	snap     *snapshot
-	statusAt time.Time
+	mu   sync.Mutex
+	dev  device
+	snap *snapshot
 
 	// open is scopehub.Open; tests replace it.
 	open func(serial string) (device, error)
 }
 
-// snapshot is one read of the board: its status and dew controller state.
+// snapshot is one board read: status and dew controller state.
 type snapshot struct {
 	st     *scopehub.Status
 	dew    *scopehub.Dew
 	aux    *scopehub.Aux
 	labels *scopehub.Labels
+	at     time.Time // when read
 }
 
-// device is the part of *scopehub.Device the driver uses.
+// device is the part of *scopehub.Device driver uses.
 type device interface {
 	Info() scopehub.Info
 	Status() (*scopehub.Status, error)
@@ -67,6 +68,39 @@ func newBoard(serial string) *board {
 
 var _ device = (*scopehub.Device)(nil)
 
+// boards maps serial to shared board while any device holds it.
+var (
+	boardsMu sync.Mutex
+	boards   = map[string]*board{}
+)
+
+// share returns process board for b's serial and takes one reference.
+// None held: b itself becomes shared board, open hook included.
+func (b *board) share() *board {
+	boardsMu.Lock()
+	defer boardsMu.Unlock()
+	if s := boards[b.serial]; s != nil {
+		s.refs++
+		return s
+	}
+	b.refs = 1
+	boards[b.serial] = b
+	return b
+}
+
+// release drops one reference. Last one closes HID device.
+func (b *board) release() {
+	boardsMu.Lock()
+	defer boardsMu.Unlock()
+	if b.refs--; b.refs > 0 {
+		return
+	}
+	if boards[b.serial] == b {
+		delete(boards, b.serial)
+	}
+	b.Close(context.Background())
+}
+
 func (b *board) ensure() (device, error) {
 	if b.dev != nil {
 		return b.dev, nil
@@ -79,7 +113,7 @@ func (b *board) ensure() (device, error) {
 	return d, nil
 }
 
-// drop forgets a failed handle so the next request reopens the board.
+// drop forgets failed handle so next request reopens board.
 func (b *board) drop() {
 	if b.dev != nil {
 		b.dev.Close()
@@ -88,7 +122,7 @@ func (b *board) drop() {
 	b.snap = nil
 }
 
-// Open acquires the board. A missing board is not fatal: requests retry.
+// Open acquires board. Missing board not fatal; requests retry.
 func (b *board) Open(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -96,7 +130,7 @@ func (b *board) Open(ctx context.Context) error {
 	return err
 }
 
-// Close releases the board.
+// Close releases board.
 func (b *board) Close(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -108,7 +142,7 @@ func (b *board) Close(ctx context.Context) error {
 func (b *board) Snapshot() (*snapshot, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.snap != nil && time.Since(b.statusAt) < statusMaxAge {
+	if b.snap != nil && time.Since(b.snap.at) < statusMaxAge {
 		return b.snap, nil
 	}
 	d, err := b.ensure()
@@ -123,7 +157,7 @@ func (b *board) Snapshot() (*snapshot, error) {
 			if a, err = d.Aux(); err == nil {
 				var l scopehub.Labels
 				if l, err = d.Labels(); err == nil {
-					b.snap, b.statusAt = &snapshot{st: s, dew: w, aux: a, labels: &l}, time.Now()
+					b.snap = &snapshot{st: s, dew: w, aux: a, labels: &l, at: time.Now()}
 					return b.snap, nil
 				}
 			}
@@ -133,7 +167,7 @@ func (b *board) Snapshot() (*snapshot, error) {
 	return nil, err
 }
 
-// Do runs one command and invalidates the cache so the next read shows its effect.
+// Do runs one command and drops cache so next read shows effect.
 func (b *board) Do(fn func(d device) error) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -143,7 +177,7 @@ func (b *board) Do(fn func(d device) error) error {
 	}
 	b.snap = nil
 	if err := fn(d); err != nil {
-		// A rejected value or a failed I2C write leaves the HID link healthy.
+		// Rejected value or failed I2C write leaves HID link healthy.
 		if !errors.Is(err, scopehub.ErrOutOfRange) && !errors.Is(err, scopehub.ErrCommandFailed) {
 			b.drop()
 		}
@@ -152,7 +186,7 @@ func (b *board) Do(fn func(d device) error) error {
 	return nil
 }
 
-// Info returns the board identity, opening it if needed.
+// Info returns board identity, opening board if needed.
 func (b *board) Info() (scopehub.Info, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
