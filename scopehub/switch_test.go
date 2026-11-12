@@ -259,8 +259,9 @@ func TestDisconnectKeepsOutputs(t *testing.T) {
 	if !f.st.DC[0].Enabled {
 		t.Error("disconnect switched DC 1 off")
 	}
-	if _, err := s.GetSwitchValue(idDCPower); !errors.Is(err, alpacadev.ErrNotConnected) {
-		t.Errorf("read after disconnect: %v", err)
+	// Connected follows the held board, so reads still work.
+	if v, err := s.GetSwitchValue(idDCPower); err != nil || v != 1 {
+		t.Errorf("read after disconnect: %v, %v; want 1", v, err)
 	}
 }
 

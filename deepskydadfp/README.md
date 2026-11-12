@@ -131,8 +131,10 @@ and `MaxBrightness` return `NotImplemented`, and `DeviceState` leaves out `Brigh
 Connecting only reads the panel's identity and status. It doesn't change calibration, heater
 settings, the light or the cover.
 
-If the USB connection is lost, the driver reconnects to the panel by itself, but the client must
-connect again.
+`Connected` means driver holds the panel with fresh readings. USB loss reports not connected.
+Driver reacquires the panel by itself, and `Connected` turns true again without a client Connect.
+Connect without panel fails with NotConnected (0x407).
+Disconnect leaves panel held and connected; it only cancels a pending light-on.
 
 The driver never resends a command when it can't tell whether the panel received it, so a command
 can't run twice.

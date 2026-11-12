@@ -376,22 +376,14 @@ func TestDirectStatusAndClose(t *testing.T) {
 	}
 }
 
-func TestLogicalConnection(t *testing.T) {
-	p, f := setup(t, 1)
-	before := len(f.commands)
+// Connected follows held hardware. Disconnect leaves panel held and connected; only losing the
+// hardware disconnects it.
+func TestConnectedFollowsHardware(t *testing.T) {
+	p, _ := setup(t, 1)
 	for range 2 {
-		if err := p.Disconnect(context.Background()); err != nil || p.Connected() || p.Connecting() {
+		if err := p.Disconnect(context.Background()); err != nil || !p.Connected() || p.Connecting() {
 			t.Fatal("disconnect", err)
 		}
-	}
-	if err := p.CalibratorOn(1); err != alpacadev.ErrNotConnected {
-		t.Fatal(err)
-	}
-	if err := p.OpenCover(); err != alpacadev.ErrNotConnected {
-		t.Fatal(err)
-	}
-	if len(f.commands) != before {
-		t.Fatal("disconnected control touched hardware")
 	}
 	for range 2 {
 		if err := p.Connect(context.Background()); err != nil || !p.Connected() || p.Connecting() {
@@ -399,8 +391,11 @@ func TestLogicalConnection(t *testing.T) {
 		}
 	}
 	p.dropLocked()
-	if err := p.Connect(context.Background()); err == nil || err == alpacadev.ErrNotConnected {
-		t.Fatal("connection failure must be a DriverException", err)
+	if p.Connected() {
+		t.Fatal("connected without hardware")
+	}
+	if err := p.Connect(context.Background()); err != alpacadev.ErrNotConnected {
+		t.Fatal("connect without hardware must be NotConnected", err)
 	}
 }
 func TestLightReadbackAndTimeout(t *testing.T) {

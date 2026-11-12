@@ -167,6 +167,13 @@ func (b *board) Snapshot() (*snapshot, error) {
 	return nil, err
 }
 
+// present reports hardware answering: a status read no older than statusMaxAge. A cached
+// handle alone is not enough; an unplugged board fails the read and drops the handle.
+func (b *board) present() error {
+	_, err := b.Snapshot()
+	return err
+}
+
 // Do runs one command and drops cache so next read shows effect.
 func (b *board) Do(fn func(d device) error) error {
 	b.mu.Lock()

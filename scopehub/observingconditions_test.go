@@ -134,3 +134,26 @@ func TestObservingConditionsGpsAction(t *testing.T) {
 		t.Errorf("Gps without a fix = %s, want valid:false", raw)
 	}
 }
+
+// Connected means hardware present: an unplugged board (status read fails) reads not connected
+// on both devices, even with the handle still cached, and Connect fails.
+func TestConnectedNeedsLiveHardware(t *testing.T) {
+	f := newFake()
+	s := newTestSwitch(t, f)
+	o := newTestOC(t)
+	if !s.Connected() || !o.Connected() {
+		t.Fatal("not connected with board present")
+	}
+	f.broken = true
+	s.b.snap = nil
+	s.b.open = func(string) (device, error) { return nil, errors.New("no board") }
+	if s.Connected() || o.Connected() {
+		t.Fatal("connected with board gone")
+	}
+	if err := s.Connect(context.Background()); err != alpacadev.ErrNotConnected {
+		t.Fatal("switch Connect succeeded with board gone")
+	}
+	if err := o.Connect(context.Background()); err != alpacadev.ErrNotConnected {
+		t.Fatal("observingconditions Connect succeeded with board gone")
+	}
+}

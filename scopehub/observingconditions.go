@@ -51,22 +51,16 @@ func (o *ObservingConditions) Close(ctx context.Context) error {
 	return nil
 }
 
-// Connected means board held and reachable. Dropped handle reopens here.
-func (o *ObservingConditions) Connected() bool {
-	if !o.held.Load() {
-		return false
-	}
-	_, err := o.b.Info()
-	return err == nil
-}
+// Connected means hardware present: board held and answering a status read. Dropped handle
+// reopens here.
+func (o *ObservingConditions) Connected() bool { return o.held.Load() && o.b.present() == nil }
 
-// Connect needs reachable board.
+// Connect succeeds only with hardware present. Else NotConnected, same as Switch.
 func (o *ObservingConditions) Connect(ctx context.Context) error {
-	if !o.held.Load() {
+	if !o.Connected() {
 		return alpacadev.ErrNotConnected
 	}
-	_, err := o.b.Info()
-	return err
+	return nil
 }
 
 // Disconnect leaves board to Switch and later requests.

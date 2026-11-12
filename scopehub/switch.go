@@ -362,7 +362,6 @@ func (s *Switch) Open(ctx context.Context) error {
 
 // Close drops reference. Board closes when no device holds it.
 func (s *Switch) Close(ctx context.Context) error {
-	s.MarkDisconnected()
 	if s.held {
 		s.held = false
 		s.b.release()
@@ -370,21 +369,21 @@ func (s *Switch) Close(ctx context.Context) error {
 	return nil
 }
 
-// Connect needs reachable board.
+// Connected means hardware present: board held and answering a status read. A driver restart
+// then reports connected without a client Connect. Dropped handle reopens here.
+func (s *Switch) Connected() bool { return s.held && s.b.present() == nil }
+
+// Connect succeeds only with hardware present. Else NotConnected, same as oasis and fp2.
 func (s *Switch) Connect(ctx context.Context) error {
-	if _, err := s.b.Info(); err != nil {
-		return err
+	if !s.Connected() {
+		return alpacadev.ErrNotConnected
 	}
-	s.MarkConnected()
 	return nil
 }
 
-// Disconnect ends client session, leaves every output as is. Power to cameras,
-// mounts and heaters must not depend on client staying connected.
-func (s *Switch) Disconnect(ctx context.Context) error {
-	s.MarkDisconnected()
-	return nil
-}
+// Disconnect is a no-op. Every output stays as is: power to cameras, mounts and
+// heaters must not depend on client staying connected.
+func (s *Switch) Disconnect(ctx context.Context) error { return nil }
 
 func (s *Switch) snapshot() (*snapshot, error) {
 	if !s.Connected() {

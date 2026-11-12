@@ -95,24 +95,25 @@ func (p *Panel) dropLocked() {
 func (p *Panel) freshLocked() bool {
 	return p.port != nil && !p.state.at.IsZero() && p.now().Sub(p.state.at) < staleAfter
 }
-func (p *Panel) connectedLocked() bool { return p.BaseDevice.Connected() && p.freshLocked() }
+
+// connectedLocked means hardware held with fresh readings, not a client flag: a replug or driver
+// restart reports connected once the manager reacquires the panel, without a client Connect.
+func (p *Panel) connectedLocked() bool { return p.freshLocked() }
 func (p *Panel) Connected() bool       { p.mu.Lock(); defer p.mu.Unlock(); return p.connectedLocked() }
 
-// Hardware is acquired by the manager. These logical transitions complete
-// immediately; Connecting therefore remains false on successful return.
+// Hardware is acquired by the manager. Connect only checks it is held; Disconnect
+// leaves it held. Both complete immediately, so Connecting stays false.
 func (p *Panel) Connect(context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if !p.freshLocked() {
-		return alpacadev.NewError(alpacadev.ErrNumDriverBase, "panel hardware is unavailable")
+		return alpacadev.ErrNotConnected
 	}
-	p.MarkConnected()
 	return nil
 }
 func (p *Panel) Disconnect(context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.MarkDisconnected()
 	// Cancel deferred work; never turn the light on after a client disconnects.
 	if p.light != nil && p.light.waitingForCover {
 		p.light = nil
