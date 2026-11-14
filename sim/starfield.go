@@ -59,7 +59,9 @@ func wrapDelta(v, period float64) float64 {
 // fullW×fullH sensor): background plus the tile's stars, windowed by the pointing
 // offset (winX,winY px, toroidally wrapped) and displaced by the common-mode seeing
 // offset (cmX,cmY px) and each star's per-star differential offset + intensity gain.
-func renderTile(fullW, fullH, startX, startY, w, h int, winX, winY, cmX, cmY float64, pert []perturb) []byte {
+// sigma is star Gaussian sigma (px); flux is conserved, so peak falls as (starSigma/sigma)².
+func renderTile(fullW, fullH, startX, startY, w, h int, winX, winY, cmX, cmY, sigma float64, pert []perturb) []byte {
+	dim := starSigma * starSigma / (sigma * sigma)
 	buf := make([]byte, w*h*2)
 	for i := 0; i < w*h; i++ {
 		binary.LittleEndian.PutUint16(buf[i*2:], starBG)
@@ -71,28 +73,22 @@ func renderTile(fullW, fullH, startX, startY, w, h int, winX, winY, cmX, cmY flo
 		}
 		fx := float64(fullW)/2 + wrapDelta(st.x+winX, tileW) + cmX + dx
 		fy := float64(fullH)/2 + wrapDelta(st.y+winY, tileH) + cmY + dy
-		addStar(buf, w, h, fx-float64(startX), fy-float64(startY), st.peak*gain)
+		addStar(buf, w, h, fx-float64(startX), fy-float64(startY), st.peak*gain*dim, sigma)
 	}
 	return buf
 }
 
-// addStar accumulates one Gaussian star of the given peak at (sx, sy) into a frame
-// previously filled with starBG, clamping at 16-bit saturation.
-func addStar(buf []byte, w, h int, sx, sy, peak float64) {
+// addStar accumulates one Gaussian star of the given peak and sigma at (sx, sy) into a
+// frame previously filled with starBG, clamping at 16-bit saturation.
+func addStar(buf []byte, w, h int, sx, sy, peak, sigma float64) {
 	cx, cy := int(sx+0.5), int(sy+0.5)
-	r := int(math.Ceil(4*starSigma)) + 1
-	for yy := cy - r; yy <= cy+r; yy++ {
-		if yy < 0 || yy >= h {
-			continue
-		}
-		for xx := cx - r; xx <= cx+r; xx++ {
-			if xx < 0 || xx >= w {
-				continue
-			}
+	r := int(math.Ceil(4*sigma)) + 1
+	for yy := max(cy-r, 0); yy <= min(cy+r, h-1); yy++ {
+		for xx := max(cx-r, 0); xx <= min(cx+r, w-1); xx++ {
 			dx, dy := float64(xx)-sx, float64(yy)-sy
 			i := (yy*w + xx) * 2
 			val := min(int(binary.LittleEndian.Uint16(buf[i:]))+
-				int(peak*math.Exp(-(dx*dx+dy*dy)/(2*starSigma*starSigma))), 65535)
+				int(peak*math.Exp(-(dx*dx+dy*dy)/(2*sigma*sigma))), 65535)
 			binary.LittleEndian.PutUint16(buf[i:], uint16(val))
 		}
 	}

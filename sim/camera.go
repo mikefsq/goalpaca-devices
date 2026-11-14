@@ -24,7 +24,7 @@ type simCamera struct {
 }
 
 func newSimCamera(name string, focalLenMM, pixelSizeX, pixelSizeY float64, sizeX, sizeY int) *simCamera {
-	c := sim.NewCamera()
+	c := sim.NewCamera(sim.WithCameraLight(light))
 	if name != "" {
 		c.DevName = name
 	}
@@ -84,7 +84,7 @@ func (s *simCamera) renderFrame(startX, startY, w, h int) []byte {
 		pert[i].dy *= ppsY
 	}
 	return renderTile(s.CameraXSize(), s.CameraYSize(), startX, startY, w, h,
-		errRA*ppsX, errDec*ppsY, cmX*ppsX, cmY*ppsY, pert)
+		errRA*ppsX, errDec*ppsY, cmX*ppsX, cmY*ppsY, focus.sigma(), pert)
 }
 
 // ImageFrame overrides the embedded sim camera's gradient on the Alpaca path with
@@ -93,6 +93,10 @@ func (s *simCamera) ImageFrame() (alpacadev.ImageFrame, error) {
 	f, err := s.Camera.ImageFrame() // ROI geometry, element types, readiness
 	if err != nil {
 		return f, err
+	}
+	// shortcut: panel frame vignettes about the 1936×1096 sim sensor centre, not a configured size; fix if a flat test needs it.
+	if s.Camera.SeesPanel() {
+		return f, nil // closed panel: the sim camera already rendered panel light
 	}
 	f.Pixels = s.renderFrame(s.Camera.StartX(), s.Camera.StartY(), f.Width, f.Height)
 	return f, nil
@@ -121,6 +125,10 @@ func (s *starCamSource) ImageReady() bool     { return s.cam.Camera.ImageReady()
 func (s *starCamSource) AbortExposure() error { return s.cam.Camera.AbortExposure() }
 
 func (s *starCamSource) Frame() (int, int, []byte, error) {
+	if s.cam.Camera.SeesPanel() {
+		f, err := s.cam.Camera.ImageFrame()
+		return f.Width, f.Height, f.Pixels, err
+	}
 	w, h := s.cam.CameraXSize(), s.cam.CameraYSize()
 	return w, h, s.cam.renderFrame(0, 0, w, h), nil
 }

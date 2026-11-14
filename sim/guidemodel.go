@@ -8,11 +8,17 @@ import (
 	"math"
 	"sync"
 	"time"
+
+	"github.com/mikefsq/goalpaca/sim"
 )
 
 // sky holds pointing error shared by the mount and camera, in arcseconds.
 // Tracking, drift, periodic error, and guide pulses update the same model.
 var sky = newGuideModel()
+
+// light couples every sim-covercalibrator to every sim-camera in the process: closed cover puts
+// panel light on all cameras, guide camera included.
+var light = sim.NewLight()
 
 // siderealArcsecPerSec is the sky's apparent rotation rate on the RA axis. With
 // tracking off the mount holds a fixed hour angle while the sky turns, so the star

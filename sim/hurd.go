@@ -62,11 +62,12 @@ func init() {
 	})
 	registry.Register(registry.Driver{
 		Name: "sim-focuser", Type: alpacadev.FocuserType,
-		Description:   "simulated focuser",
+		Description:   "simulated focuser; best focus at 10000, stars on every sim-camera blur either side",
 		ConfigExample: `{ "driver": "sim-focuser", "name": "Sim Focuser" }`,
 		New: simNew(func(spec registry.Spec) alpacadev.Device {
-			d := sim.NewFocuser()
+			d := sim.NewFocuser(sim.WithFocuserPosition(focusBest)) // start in focus: guiding works before any AF
 			setName(spec, &d.DevName)
+			focus.bind(d.Position)
 			return d
 		}),
 	})
@@ -112,10 +113,11 @@ func init() {
 	})
 	registry.Register(registry.Driver{
 		Name: "sim-covercalibrator", Type: alpacadev.CoverCalibratorType,
-		Description:   "simulated cover / flat panel",
+		Description:   "simulated cover / flat panel; closed cover lights every sim-camera at its brightness",
 		ConfigExample: `{ "driver": "sim-covercalibrator", "name": "Sim Flat Panel" }`,
 		New: simNew(func(spec registry.Spec) alpacadev.Device {
-			d := sim.NewCoverCalibrator()
+			d := sim.NewCoverCalibrator(sim.WithCalibratorLight(light))
+			_ = d.OpenCover() // start open: cameras show the sky until a flat run closes the panel
 			setName(spec, &d.DevName)
 			return d
 		}),

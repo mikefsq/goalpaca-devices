@@ -20,7 +20,7 @@ func brightestPixel(buf []byte) uint16 {
 // at centre plus background elsewhere.
 func TestRenderTileHasStars(t *testing.T) {
 	w, h := baseW, baseH
-	buf := renderTile(w, h, 0, 0, w, h, 0, 0, 0, 0, nil)
+	buf := renderTile(w, h, 0, 0, w, h, 0, 0, 0, 0, starSigma, nil)
 	center := binary.LittleEndian.Uint16(buf[((h/2)*w+w/2)*2:])
 	if center < 30000 {
 		t.Errorf("anchor star missing at centre: %d ADU", center)
@@ -35,7 +35,7 @@ func TestRenderTileHasStars(t *testing.T) {
 func TestToroidalWrapKeepsStars(t *testing.T) {
 	w, h := baseW, baseH
 	for _, win := range []float64{0, 2000, tileW - 10, tileW + 500, 5 * tileW} {
-		buf := renderTile(w, h, 0, 0, w, h, win, 0, 0, 0, nil)
+		buf := renderTile(w, h, 0, 0, w, h, win, 0, 0, 0, starSigma, nil)
 		if peak := brightestPixel(buf); peak < 5000 {
 			t.Errorf("window at winX=%.0f is nearly empty (peak %d); wrap failed", win, peak)
 		}
