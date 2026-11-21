@@ -7,8 +7,9 @@ import (
 
 // Config contains device selection and settings.
 type Config struct {
-	Index  int    `json:"index,omitempty" alpaca:"label=Enumeration index,min=0,when=start,help=Bind the Nth attached unit; prefer Serial where the device has one"`
-	Serial string `json:"serial,omitempty" alpaca:"label=Serial,when=start,help=Bind by serial (stable across replug and start-before-plug)"`
+	Index       int    `json:"index,omitempty"       alpaca:"label=Enumeration index,min=0,when=start,help=Bind the Nth attached unit; prefer Serial where the device has one"`
+	Serial      string `json:"serial,omitempty"      alpaca:"label=Serial,when=start,help=Bind by serial (stable across replug and start-before-plug)"`
+	FastReadout bool   `json:"fastReadout,omitempty" alpaca:"label=Fast readout,help=Use high-speed reduced-bit ADC mode instead of full native bit depth"`
 }
 
 func init() {
@@ -26,6 +27,7 @@ func init() {
 			// Serial binding gives the device a stable identity before the
 			// camera is attached; index selects by enumeration order instead.
 			d := NewASICamera(cfg.Index, cfg.Serial)
+			d.SetFastReadoutDefault(cfg.FastReadout)
 			if spec.Name != "" {
 				d.DevName = spec.Name
 			}
