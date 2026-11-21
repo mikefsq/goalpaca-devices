@@ -882,3 +882,38 @@ func TestVideoFramesDoNotShareABuffer(t *testing.T) {
 			"caller of the first is still reading")
 	}
 }
+
+// TestVideoModeSoftwareBinning verifies that free-run video mode runs host software binning
+// (c.cam.BinFrame) when SoftBin > 1, so the stored frame and ImageBytes payload match the binned
+// output dimensions (w*h*2) rather than the unbinned wire transfer size (w*bin * h*bin * 2).
+func TestVideoModeSoftwareBinning(t *testing.T) {
+	sd := &stubDev{pid: pid290, present: true, serial: astrocam.Serial(string([]byte{0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59}))}
+	base, _, dev := newStubStackDev(t, sd)
+	waitConnected(t, base, true)
+
+	const imageBytesHeader = 44
+	if r := put(t, base, "binx", "BinX=2"); r.ErrorNumber != 0 {
+		t.Fatalf("binx=2: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	w := int(value(t, base, "numx").(float64))
+	h := int(value(t, base, "numy").(float64))
+	if w != 968 || h != 548 {
+		t.Fatalf("binned geometry = %dx%d, want 968x548", w, h)
+	}
+	if r := put(t, base, "action", "Action=videomode&Parameters=on"); r.ErrorNumber != 0 {
+		t.Fatalf("videomode on: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if r := put(t, base, "startexposure", "Duration=0.05&Light=true"); r.ErrorNumber != 0 {
+		t.Fatalf("startexposure: err %d (%s)", r.ErrorNumber, r.ErrorMessage)
+	}
+	if got, want := imageBytesLen(t, base), w*h*2+imageBytesHeader; got != want {
+		t.Errorf("binned video ImageBytes = %d bytes, want %d (%dx%d RAW16 + %d header)", got, want, w, h, imageBytesHeader)
+	}
+	fr, err := dev.ImageFrame()
+	if err != nil {
+		t.Fatalf("ImageFrame: %v", err)
+	}
+	if got, want := len(fr.Pixels), w*h*2; got != want {
+		t.Errorf("ImageFrame.Pixels = %d bytes, want %d (%dx%d RAW16)", got, want, w, h)
+	}
+}

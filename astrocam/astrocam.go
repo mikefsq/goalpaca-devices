@@ -945,6 +945,7 @@ func (c *PureASICamera) drainVideo(ctx context.Context, dur float64) {
 				c.Label(), bad, time.Since(runStart).Round(time.Millisecond))
 		}
 		bad = 0
+		n = c.cam.BinFrame(buf, n)
 		c.mu.Lock()
 		c.vidBad, c.vidLastGood = 0, time.Now()
 		if cap(c.vidFrame) < n {
