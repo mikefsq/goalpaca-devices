@@ -28,6 +28,7 @@ the binary with `install_name_tool`). See the
 | `-port` | `11111` | Alpaca HTTP port |
 | `-serial` | "" | bind the camera with this serial (hex); recommended |
 | `-index` | `0` | enumeration index (used only when `-serial` is empty) |
+| `-fastReadout` | `false` | enable high-speed reduced-bit ADC mode (`false` uses full native bit depth) |
 | `-discovery` | `direct` | `direct` (self-answer) \| `register` \| `off` |
 | `-discovery-server` | `localhost:32227` | proxy address for `register` mode |
 | `-ipv6` | false | also answer IPv6 multicast discovery (direct mode) |

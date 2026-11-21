@@ -52,8 +52,43 @@ type ASICamera struct {
 	gainMin, gainMax     int
 	offsetMin, offsetMax int
 	expMinSec, expMaxSec float64
+	hasFastReadout       bool
+	fastReadout          bool
+	wantFastReadout      bool
 
 	coolerOn bool
+}
+
+// SetFastReadoutDefault configures the initial ASI_HIGH_SPEED_MODE (default false = full native ADC).
+func (c *ASICamera) SetFastReadoutDefault(fastReadout bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.wantFastReadout = fastReadout
+}
+
+// Reconfigure applies live configuration changes from the setup form.
+func (c *ASICamera) Reconfigure(v any) error {
+	cfg, ok := v.(*Config)
+	if !ok {
+		return fmt.Errorf("asiccd: Reconfigure wants *Config, got %T", v)
+	}
+	if c.Busy() {
+		return alpacadev.ErrInvalidOperation
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.hwPresent.Load() || c.cam == nil {
+		c.wantFastReadout = cfg.FastReadout
+		return nil
+	}
+	if !c.hasFastReadout {
+		if cfg.FastReadout {
+			return alpacadev.ErrNotImplemented
+		}
+		c.wantFastReadout = false
+		return nil
+	}
+	return c.applyFastReadoutLocked(cfg.FastReadout)
 }
 
 // NewASICamera creates the driver for a camera selected by serial (preferred, stable) or, if
@@ -205,6 +240,11 @@ func (c *ASICamera) configureOpened(cam *goasi.GoAsiCamera, serialHex string) {
 	c.startX, c.startY = 0, 0
 	c.numX, c.numY = info.MaxWidth, info.MaxHeight
 	c.loadControlCaps()
+	if c.hasFastReadout {
+		if err := c.applyFastReadoutLocked(c.wantFastReadout); err != nil {
+			log.Printf("asialpaca: camera %s %v", c.ID, err)
+		}
+	}
 	c.DevName = info.Name
 	c.Desc = fmt.Sprintf("ZWO %s (%dx%d, %.2fum)", info.Name, info.MaxWidth, info.MaxHeight, info.PixelSize)
 	if c.wantSerial == "" && strings.Trim(serialHex, "0") != "" {
@@ -232,6 +272,8 @@ func sleepCtx(ctx context.Context, d time.Duration) {
 
 // loadControlCaps caches gain/offset/exposure ranges from the SDK control caps.
 func (c *ASICamera) loadControlCaps() {
+	c.hasFastReadout = false
+	c.fastReadout = false
 	c.cam.ASIGetNumOfControls()
 	for i := 0; i < c.cam.NControls; i++ {
 		rc, caps := c.cam.ASIGetControlCaps(i)
@@ -246,6 +288,12 @@ func (c *ASICamera) loadControlCaps() {
 		case goasi.ASI_EXPOSURE:
 			c.expMinSec = float64(caps.MinValue) / 1e6 // SDK exposure is microseconds
 			c.expMaxSec = float64(caps.MaxValue) / 1e6
+		case goasi.ASI_HIGH_SPEED_MODE:
+			c.hasFastReadout = caps.IsWritable
+			if _, got, rc := c.cam.ASIGetControlValue(goasi.ASI_HIGH_SPEED_MODE); rc == 0 {
+				c.cam.HighSpeedMode = got
+				c.fastReadout = got == 1
+			}
 		}
 	}
 }
@@ -340,6 +388,63 @@ func (c *ASICamera) SetOffset(n int) error {
 	c.mu.Lock()
 	c.cam.SetOffset(n)
 	c.mu.Unlock()
+	return nil
+}
+
+func (c *ASICamera) CanFastReadout() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.hwPresent.Load() || c.cam == nil {
+		return false
+	}
+	return c.hasFastReadout
+}
+
+func (c *ASICamera) FastReadout() (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.hwPresent.Load() || c.cam == nil {
+		return false, alpacadev.ErrNotConnected
+	}
+	if !c.hasFastReadout {
+		return false, alpacadev.ErrNotImplemented
+	}
+	return c.fastReadout, nil
+}
+
+func (c *ASICamera) SetFastReadout(on bool) error {
+	if c.Busy() {
+		return alpacadev.ErrInvalidOperation
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.hwPresent.Load() || c.cam == nil {
+		return alpacadev.ErrNotConnected
+	}
+	if !c.hasFastReadout {
+		return alpacadev.ErrNotImplemented
+	}
+	return c.applyFastReadoutLocked(on)
+}
+
+func (c *ASICamera) applyFastReadoutLocked(on bool) error {
+	mode := 0
+	if on {
+		mode = 1
+	}
+	if rc := c.cam.ASISetControlValue(goasi.ASI_HIGH_SPEED_MODE, mode, 0); rc != 0 {
+		return fmt.Errorf("ASI_HIGH_SPEED_MODE=%d failed: rc=%d", mode, rc)
+	}
+	_, got, rc := c.cam.ASIGetControlValue(goasi.ASI_HIGH_SPEED_MODE)
+	if rc != 0 {
+		return fmt.Errorf("ASI_HIGH_SPEED_MODE readback failed: rc=%d", rc)
+	}
+	c.cam.HighSpeedMode = got
+	c.fastReadout = got == 1
+	if got != mode {
+		return fmt.Errorf("ASI_HIGH_SPEED_MODE verify: want %d got %d", mode, got)
+	}
+	c.wantFastReadout = c.fastReadout
 	return nil
 }
 
